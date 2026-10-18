@@ -27,6 +27,7 @@ import { isDrag, pressAction, releaseDeletes, ROLL_GROUP_PX } from './gridEdit';
 import { batchPanel } from './batchWindow';
 import { mixerPanel } from './mixerPanel';
 import { outputPanel } from './outputPanel';
+import { GemSelect, type GemOption } from './gemSelect';
 import { Button, MWindow, NumBox } from './widgets';
 import type { UiContext } from './context';
 
@@ -124,11 +125,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   });
   el('div', 'label small', ctl, [111, 4], 'MS');
   el('div', 'label small', ctl, [128, 4], 'SAMPLE');
-  const sample = el('select', 'mselect', ctl);
-  Object.assign(sample.style, { position: 'absolute', left: '160px', top: '1px', width: '126px', height: '13px', fontSize: '8px' });
-  sample.setAttribute('aria-label', 'Sample of the selected hit');
-  sample.addEventListener('pointerdown', (e) => e.stopPropagation());
-  sample.addEventListener('change', () => app.setHitSample(sample.value || null));
+  const sample = new GemSelect(ctl, [160, 1, 126, 13], { label: 'Sample of the selected hit', fontSize: 8, onChange: (v) => app.setHitSample(v || null) });
   const bx = 292;
   const left = new Button(ctl, [bx, 0, 13, 14], '◀', { cls: 'small', tip: 'Move the selected hit one SNAP step earlier (←; Shift: a beat)', onPress: (ev) => app.nudge(-(ev.shiftKey ? 4 * TPS : app.snap)) });
   const right = new Button(ctl, [bx + 14, 0, 13, 14], '▶', { cls: 'small', tip: 'Move the selected hit one SNAP step later (→; Shift: a beat)', onPress: (ev) => app.nudge(ev.shiftKey ? 4 * TPS : app.snap) });
@@ -255,25 +252,10 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
 
   function sampleOptions(e: BreakEvent): void {
     const kit = app.ingredients.kit();
-    const sig = JSON.stringify([e.ref, e.pinned ?? '', CATEGORIES.map((c) => kit[c])]);
-    if (sample.dataset.sig === sig) {
-      sample.value = e.pinned ?? '';
-      return;
-    }
-    sample.dataset.sig = sig;
-    sample.replaceChildren();
-    const auto = el('option', '', sample, undefined, e.sample && !e.pinned ? `PICK: ${app.ingredients.name(e.sample)}` : 'PICK MODE');
-    auto.value = '';
     const order = [e.cat, ...CATEGORIES.filter((c) => c !== e.cat)];
-    for (const c of order) {
-      if (!kit[c].length) continue;
-      const g = el('optgroup', '', sample);
-      g.label = CATEGORY_LABEL[c];
-      for (const id of kit[c]) {
-        const o = el('option', '', g, undefined, app.ingredients.name(id));
-        o.value = id;
-      }
-    }
+    const opts: GemOption[] = [{ value: '', label: e.sample && !e.pinned ? `PICK: ${app.ingredients.name(e.sample)}` : 'PICK MODE' }];
+    for (const c of order) for (const id of kit[c]) opts.push({ value: id, label: app.ingredients.name(id), group: CATEGORY_LABEL[c] });
+    sample.setOptions(opts);
     sample.value = e.pinned ?? '';
     sample.disabled = !order.some((c) => kit[c].length);
   }

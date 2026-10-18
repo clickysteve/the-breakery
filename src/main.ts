@@ -18,6 +18,7 @@ import { Player } from './audio/player';
 import { loadNaming, saveNaming, buildFileName, type NamingPrefs } from './audio/exportName';
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
+import { GemSelect } from './ui/gemSelect';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { isTransportKey } from './ui/transportKey';
 import { bakeWindow } from './ui/bakeWindow';
@@ -121,14 +122,14 @@ async function importEntries(entries: ImportEntry[]): Promise<void> {
         const row = el('div', 'srow', list);
         const nm = el('span', 'sname', row, undefined, a.path || a.name);
         setTip(nm, `${a.path || a.name}: ${a.reason}`);
-        const sel = el('select', 'mselect', row);
-        for (const c of SLOTS) {
-          const o = el('option', '', sel, undefined, slotLabel(c));
-          o.value = c;
-          o.selected = c === a.cat;
-        }
-        setTip(sel, a.reason);
-        sel.addEventListener('change', () => ingredients.setCategory(a.id, sel.value as Slot));
+        const sel = new GemSelect(row, null, {
+          label: `Category of ${a.name}`,
+          options: SLOTS.map((c) => ({ value: c, label: slotLabel(c) })),
+          value: a.cat,
+          cls: 'srowsel',
+          onChange: (v) => ingredients.setCategory(a.id, v as Slot),
+        });
+        setTip(sel.el, a.reason);
       }
       if (r.errors.length) {
         const er = el('div', '', box);
@@ -236,13 +237,13 @@ async function doTakeaway(): Promise<void> {
       el('div', 'row', box, undefined, 'Mix and stems follow channel level, pan, MUTE and SOLO.');
       const row2 = el('div', 'row', box);
       el('span', '', row2, undefined, 'Tail');
-      const sel = el('select', 'mselect', row2);
-      for (const t of [0.5, 1, 2, 4, 8]) {
-        const op = el('option', '', sel, undefined, `${t} s`);
-        op.value = String(t);
-        op.selected = t === o.tailSeconds;
-      }
-      sel.addEventListener('change', () => (o.tailSeconds = Number(sel.value)));
+      new GemSelect(row2, null, {
+        label: 'Tail length in seconds',
+        options: [0.5, 1, 2, 4, 8].map((t) => ({ value: String(t), label: `${t} s` })),
+        value: String(o.tailSeconds),
+        cls: 'tailsel',
+        onChange: (v) => (o.tailSeconds = Number(v)),
+      });
       const l = el('label', '', row2);
       const cb = el('input', '', l);
       cb.type = 'checkbox';

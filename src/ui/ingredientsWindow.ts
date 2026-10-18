@@ -10,6 +10,7 @@ import { sourceOf } from '../engine/kit';
 import { modeOf, SAMPLE_MODE_LABEL, SAMPLE_MODE_TIP, SAMPLE_MODES, sampleUsage, type SampleMode } from '../engine/samples';
 import { CATEGORY_LABEL, type Category } from '../engine/types';
 import { el, setTip } from './dom';
+import { GemSelect } from './gemSelect';
 import { Button, MWindow, NumBox, typing } from './widgets';
 import type { UiContext } from './context';
 
@@ -56,16 +57,13 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
   const listTop = 2 + SLOTS.length * 15 + 6;
   const head = el('div', 'label', b, [4, listTop + 2]);
   const pickLabel = el('div', 'label small', b, [W - 92, listTop + 2], 'PICK');
-  const pick = el('select', 'mselect', b);
-  Object.assign(pick.style, { position: 'absolute', left: `${W - 72}px`, top: `${listTop - 1}px`, width: '68px', height: '13px', fontSize: '8px' });
-  pick.setAttribute('aria-label', 'How this category picks among its samples');
-  for (const m of SAMPLE_MODES) {
-    const o = el('option', '', pick, undefined, SAMPLE_MODE_LABEL[m]);
-    o.value = m;
-  }
-  pick.addEventListener('pointerdown', (e) => e.stopPropagation());
-  pick.addEventListener('change', () => {
-    if (selected !== 'unsorted') app.setSampleSettings(selected, { mode: pick.value as SampleMode });
+  const pick = new GemSelect(b, [W - 72, listTop - 1, 68, 13], {
+    label: 'How this category picks among its samples',
+    fontSize: 8,
+    options: SAMPLE_MODES.map((m) => ({ value: m, label: SAMPLE_MODE_LABEL[m] })),
+    onChange: (v) => {
+      if (selected !== 'unsorted') app.setSampleSettings(selected, { mode: v as SampleMode });
+    },
   });
   const list = el('div', 'samplelist', b, [3, listTop + 14, W - 8, rect.h - 18 - listTop - 14 - 56]);
   const note = el('div', 'empty-note', b, [8, listTop + 22, W - 20]);
@@ -137,9 +135,9 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
     head.textContent = `${slotLabel(selected)} SAMPLES`;
     const cat = selected === 'unsorted' ? null : selected;
     const mode = cat ? modeOf(app.samples, cat) : 'auto';
-    pick.style.display = pickLabel.style.display = cat ? '' : 'none';
+    pick.el.style.display = pickLabel.style.display = cat ? '' : 'none';
     pick.value = mode;
-    setTip(pick, cat ? `${SAMPLE_MODE_TIP[mode]} Applies to ${CATEGORY_LABEL[cat]} hits, also when they borrow another category's samples. The same seed always picks the same samples; playback and TAKEAWAY match.` : '');
+    setTip(pick.el, cat ? `${SAMPLE_MODE_TIP[mode]} Applies to ${CATEGORY_LABEL[cat]} hits, also when they borrow another category's samples. The same seed always picks the same samples; playback and TAKEAWAY match.` : '');
 
     const items = ing.inSlot(selected);
     const usage = sampleUsage(app.current.events.filter((e) => !cat || e.cat === cat));
@@ -189,15 +187,13 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
         slotEl.textContent = used ? `×${used}` : '';
         setTip(slotEl, used ? `Plays ${used} hit${used === 1 ? '' : 's'} in this break` : 'Not used by this break');
       }
-      const sel = el('select', 'mselect', row);
-      sel.setAttribute('aria-label', `Category of ${it.name}`);
-      for (const s of SLOTS) {
-        const o = el('option', '', sel, undefined, slotLabel(s));
-        o.value = s;
-        o.selected = s === it.cat;
-      }
-      sel.addEventListener('pointerdown', (e) => e.stopPropagation());
-      sel.addEventListener('change', () => ing.setCategory(it.id, sel.value as Slot));
+      new GemSelect(row, null, {
+        label: `Category of ${it.name}`,
+        options: SLOTS.map((s) => ({ value: s, label: slotLabel(s) })),
+        value: it.cat,
+        cls: 'srowsel',
+        onChange: (v) => ing.setCategory(it.id, v as Slot),
+      });
       const x = el('span', 'ibtn', row, undefined, '×');
       setTip(x, 'Remove this sample');
       x.addEventListener('pointerdown', () => void ui.confirm('Remove this sample from the current kit?', 'Remove').then(ok => ok && ing.remove(it.id)));

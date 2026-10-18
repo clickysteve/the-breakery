@@ -1,9 +1,9 @@
 /** Rules for the global Space-to-toggle-playback shortcut, kept apart from the DOM wiring so they can be tested. */
 
 const NON_TEXT_INPUTS = new Set(['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'image', 'file', 'color']);
-const TEXT_ROLES = '[role="textbox"], [role="spinbutton"], [role="searchbox"], [role="combobox"]';
+const TEXT_ROLES = '[role="textbox"], [role="spinbutton"], [role="searchbox"], [role="combobox"], [role="listbox"]';
 
-/** True when Space belongs to the element (typing a space), including through its ancestors. */
+/** True when Space belongs to the element (typing a space, or opening a GEM select), including through its ancestors. */
 export function isTextEntry(t: unknown): boolean {
   const e = t as Partial<HTMLElement> | null;
   if (!e || typeof e !== 'object') return false;
