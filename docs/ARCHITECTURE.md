@@ -154,6 +154,13 @@ MIX filters the timeline and MIDI by the same rule. Previews use a second, ungat
   a Worker timer (25 ms) so background tabs keep time. Core's `Mixer` (one voice per category) and
   `NotePlayer` (polyphony, hat choke group) play Core `SampleInstrument`s. A new break waits for
   the loop point.
+* **OUTPUT.** `audio/output.ts` gives the app's engine registry (every Core built-in audio
+  engine), the chain worklet URL and the seed. `App.output` is Core's headless `OutputChain`,
+  restored from and saved with the app settings (not undo); each change goes to
+  `Player.setOutput`, which hands it to the live Core `Mixer`'s master chain (after the channel
+  strips, before master gain, crossfaded), and TAKEAWAY passes the same configuration to
+  `renderTimeline` (master output only). `ui/outputPanel.ts` builds every control from the
+  engines' parameter descriptions; nothing in The Breakery names an engine.
 * **Export.** Core's `renderTimeline` (OfflineAudioContext, same graph) renders the mix and
   optional per-category stems; `takeaway.ts` folds the tail for seamless loops, turns everything
   down by one shared gain only if the mix would clip, and encodes 16-bit WAV with Core.

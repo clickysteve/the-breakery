@@ -10,6 +10,9 @@
  * MIDI file of the break (midi/breakMidi.ts; inside the ZIP when there are stems).
  *
  * Audio exports always respect mixer mute/solo, channel gain/pan and master gain.
+ * OUTPUT (the master output chain) is rendered into the master file exactly where it plays live,
+ * after the mixer and before master gain, by the same code; it never reaches the stems (dry or
+ * not: stems are the tracks, the master is the processed mix).
  * Stems include every category (silent where muted), retaining all events for choking.
  * Dry stems bypass master gain and safety attenuation; excessive dry levels are rejected.
  *
@@ -21,6 +24,7 @@ import { EXPORT_SAMPLE_RATE, renderTimeline } from '@slopfactory/core/render';
 import { audibleCategories, emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Break, type Category } from '../engine/types';
+import { CHAIN_WORKLET_URL, OUTPUT_SEED, type ChainConfig } from './output';
 import { breakMidi, type MidiMapping } from '../midi/breakMidi';
 import { buildFileName, stemFileNames, type NamingPrefs } from './exportName';
 import type { Ingredients } from './ingredients';
@@ -50,6 +54,8 @@ export interface TakeawayResult {
   /** dB the export was turned down to avoid clipping (0 = not needed) */
   reducedDb: number;
   files: number;
+  /** the OUTPUT chain was on but this browser could not run it: the master is unprocessed */
+  outputSkipped?: boolean;
 }
 
 /** Fold everything after `frames` back onto the start (repeatedly, if the tail is longer). */
@@ -71,8 +77,8 @@ export function midiTakeaway(b: Break, only?: readonly Category[], map?: MidiMap
   return { name: naming ? buildFileName(naming, b, '', 'mid') : takeawayName(b, { mode: 'tail', mix: only ? 'audible' : 'full' }, 'mid'), bytes, type: 'audio/midi', notes };
 }
 
-/** Optional category mask for legacy callers; channel gain/pan comes from the mixer snapshot. `map`: the MIDI file's channel and note per track. */
-export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[], mix: MixState = emptyMix(), map?: MidiMapping): Promise<TakeawayResult> {
+/** Optional category mask for legacy callers; channel gain/pan comes from the mixer snapshot. `map`: the MIDI file's channel and note per track. `output`: the OUTPUT chain (master only). */
+export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[], mix: MixState = emptyMix(), map?: MidiMapping, output?: ChainConfig): Promise<TakeawayResult> {
   const dryStems = opts.dryStems ?? true;
   const only = audibleCats ?? audibleCategories(sanitiseMix(mix));
   const timeline = breakTimeline(b);
@@ -94,7 +100,11 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
     choke: hatChoke,
     maxPerVoice: 16,
     onProgress,
+    masterChain: output,
+    chainModuleUrl: CHAIN_WORKLET_URL,
+    fxSeed: OUTPUT_SEED,
   });
+  const outputSkipped = !res.chainProcessed;
   const loopFrames = Math.round(loopSeconds(b) * res.sampleRate);
   let outputs = res.outputs.map((o) => ({ voice: o.voice, channels: o.channels as Float32Array[] }));
   if (opts.mode === 'loop') outputs = outputs.map((o) => ({ ...o, channels: o.channels.map((c) => foldLoop(c, loopFrames)) }));
@@ -121,7 +131,7 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
   const nm = opts.naming;
   const masterName = nm ? buildFileName(nm, b, opts.mode === 'loop' ? 'loop' : '', 'wav') : takeawayName(b, opts, 'wav');
   const masterBytes = await encodeWav16(master.channels, res.sampleRate);
-  if (!opts.stems) return { name: masterName, bytes: masterBytes, type: 'audio/wav', seconds: frames / res.sampleRate, peakDb, reducedDb, files: 1 };
+  if (!opts.stems) return { name: masterName, bytes: masterBytes, type: 'audio/wav', seconds: frames / res.sampleRate, peakDb, reducedDb, files: 1, outputSkipped };
 
   const entries = [{ name: masterName, data: masterBytes }];
   const stemNames = nm ? stemFileNames(nm, b, outputs.slice(1).map((o) => String(o.voice))) : [];
@@ -130,7 +140,7 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
     const mid = midiTakeaway(b, only, map, nm);
     entries.push({ name: mid.name, data: mid.bytes });
   }
-  return { name: nm ? buildFileName(nm, b, 'stems', 'zip') : takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length };
+  return { name: nm ? buildFileName(nm, b, 'stems', 'zip') : takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length, outputSkipped };
 }
 
 /** Offer bytes as a download. */

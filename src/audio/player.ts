@@ -4,6 +4,8 @@
  * Playback goes through Slop Factory Core's Mixer and NotePlayer: the same instruments, voices
  * and choke groups the offline renderer uses for TAKEAWAY.
  *
+ * OUTPUT: the master output chain (audio/output.ts) runs between the mixer and MASTER LEVEL.
+ *
  * Pattern requests use a safe bar, loop or immediate boundary beyond scheduled audio. SOLO and MUTE use Core's mixer gates, so they act at once, also
  * on sounds already ringing, and never change the break's events.
  *
@@ -15,12 +17,14 @@
  * Clock with Start and Stop).
  */
 import { Mixer, NotePlayer } from '@slopfactory/core/audio';
+import { emptyChain, loadOutputChain, type ChainConfig } from '@slopfactory/core/engines';
 import { CATEGORIES, type Break } from '../engine/types';
 import { audible as isAudible, emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
 import { CLOCK, CLOCK_PPQ, START, STOP, songPosition } from '../midi/messages';
 import type { MidiRouter } from '../midi/router';
 import type { Ingredients } from './ingredients';
 import { eventSeconds, hatChoke, ROOT_PITCH } from './timeline';
+import { CHAIN_WORKLET_URL, OUTPUT_SEED } from './output';
 
 export type SwitchMode = 'bar' | 'loop' | 'immediate';
 const LOOKAHEAD = 0.15;
@@ -125,6 +129,10 @@ export class Player {
   loop = true;
   level = DEFAULT_LEVEL;
   private mix: MixState = emptyMix();
+  private output: ChainConfig = emptyChain();
+  /** false until the output chain's worklet has loaded (or when the browser cannot run it) */
+  outputProcessing = false;
+  private building: Promise<void> | null = null;
   onState: () => void = () => {};
   /** A scheduled replacement has reached the audio clock. */
   onSwap: (b: Break) => void = () => {};
@@ -140,18 +148,9 @@ export class Player {
       } catch {
         this.ctx = new AudioContext({ latencyHint: 'interactive' });
       }
-      this.mixer = new Mixer(this.ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
-      this.mixer.output.connect(this.ctx.destination);
-      this.applyMix();
-      for (const c of CATEGORIES) this.attachMeter(c, this.mixer.processedTap(c));
-      this.masterSplit = this.ctx.createChannelSplitter(2);
-      this.mixer.output.connect(this.masterSplit);
-      this.attachMeter('L', this.masterSplit, 0); this.attachMeter('R', this.masterSplit, 1);
-      this.notes = new NotePlayer(this.ctx, this.mixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 16, choke: hatChoke });
-      this.previewMixer = new Mixer(this.ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
-      this.previewMixer.output.connect(this.ctx.destination);
-      this.preview = new NotePlayer(this.ctx, this.previewMixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 4, choke: hatChoke });
+      this.building = this.buildGraph(this.ctx);
     }
+    // resume first: the gesture that allows it must not wait behind the worklet
     if (this.ctx.state !== 'running') {
       try {
         await this.ctx.resume();
@@ -159,7 +158,33 @@ export class Player {
         return false;
       }
     }
+    await this.building;
     return this.ctx.state === 'running';
+  }
+
+  /** The playback graph: transport mixer (with the OUTPUT chain) and the preview mixer. */
+  private async buildGraph(ctx: AudioContext): Promise<void> {
+    const chainAvailable = await loadOutputChain(ctx, CHAIN_WORKLET_URL);
+    this.outputProcessing = chainAvailable;
+    this.mixer = new Mixer(ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false, seed: OUTPUT_SEED, masterChain: this.output, chainAvailable });
+    this.mixer.output.connect(ctx.destination);
+    this.applyMix();
+    for (const c of CATEGORIES) this.attachMeter(c, this.mixer.processedTap(c));
+    this.masterSplit = ctx.createChannelSplitter(2);
+    this.mixer.output.connect(this.masterSplit);
+    this.attachMeter('L', this.masterSplit, 0); this.attachMeter('R', this.masterSplit, 1);
+    this.notes = new NotePlayer(ctx, this.mixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 16, choke: hatChoke });
+    // previews (ingredients, a clicked hit) skip the channel mix and the OUTPUT chain
+    this.previewMixer = new Mixer(ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
+    this.previewMixer.output.connect(ctx.destination);
+    this.preview = new NotePlayer(ctx, this.previewMixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 4, choke: hatChoke });
+    this.onState();
+  }
+
+  /** The OUTPUT chain changed: heard at once, crossfaded (no click). */
+  setOutput(config: ChainConfig): void {
+    this.output = config;
+    this.mixer?.setMasterChain(config);
   }
 
   setLevel(v: number): void {
@@ -289,6 +314,7 @@ export class Player {
     this.clockPulse = 0;
     this.extPulse = -1;
     this.playing = true;
+    this.mixer?.resetFx(this.loopStart);
     this.sendClock([START], this.loopStart);
     this.ticker = makeTicker(() => this.pump());
     this.pump();
