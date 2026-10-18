@@ -84,7 +84,7 @@ export function posLabel(p: { bar: number; step: number; sub: number }): string 
 }
 
 /** The velocity a new hit of a category starts with (a typical stroke). */
-export const DEFAULT_VEL: Record<Category, number> = { kick: 104, snare: 108, ghost: 38, hat: 72, open: 84, ride: 76, crash: 106, perc: 78 };
+export const DEFAULT_VEL: Record<Category, number> = { kick: 104, snare: 108, ghost: 38, htom: 96, mtom: 96, ltom: 98, hat: 72, open: 84, ride: 76, crash: 106, perc: 78 };
 
 export interface ApplyReport {
   /** removals and changes whose generated hit is not in this break */

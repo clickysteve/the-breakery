@@ -32,7 +32,8 @@ export function swingDelay(pos16: number, swing: number): number {
 }
 
 type Group = 'kick' | 'snare' | 'hats' | 'perc' | 'crash';
-const GROUP: Record<Category, Group> = { kick: 'kick', snare: 'snare', ghost: 'snare', hat: 'hats', open: 'hats', ride: 'hats', crash: 'crash', perc: 'perc' };
+// (engine 1 never plays toms: their entries only complete the table)
+const GROUP: Record<Category, Group> = { kick: 'kick', snare: 'snare', ghost: 'snare', htom: 'perc', mtom: 'perc', ltom: 'perc', hat: 'hats', open: 'hats', ride: 'hats', crash: 'crash', perc: 'perc' };
 
 export function chooseFeel(def: StyleDef, recipe: Recipe, rng: Rng): Feel {
   const h = recipe.humanise * def.timingScale;

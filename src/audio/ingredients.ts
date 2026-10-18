@@ -9,7 +9,7 @@ import { sampleFromBytes, type SampleStore } from '@slopfactory/core/storage';
 import { emptyKit, type KitIndex } from '../engine/kit';
 import { CATEGORIES } from '../engine/types';
 import { guessCategory, importable, suggestCategory, type Slot } from './categorise';
-import { demoKit, DEMO_RATE } from './demoKit';
+import { demoKit, DEMO_RATE, NEW_DEMO_IDS } from './demoKit';
 
 export { guessCategory, type Slot };
 export const SLOTS: Slot[] = [...CATEGORIES, 'unsorted'];
@@ -61,6 +61,17 @@ interface SavedItem {
 }
 
 const META_KEY = 'breakery.ingredients.v1';
+/** set once the demo toms have been offered, so a removed one never comes back */
+const DEMO_TOMS_KEY = 'breakery.demo-toms.v1';
+
+function flag(key: string, set = false): boolean {
+  try {
+    if (set) localStorage.setItem(key, '1');
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return set;
+  }
+}
 
 function loadMeta(): SavedItem[] {
   try {
@@ -105,6 +116,15 @@ export class Ingredients {
     }
     const demo = new Map(demoKit().map((d) => [d.id, d]));
     this.items = meta.map((m) => ({ ...m, status: 'loading', message: '', duration: 0, instrument: null, loud: -120 }));
+    // the demo kit grew toms: a visitor who plays the demo kit gets them once (not a fallback: real tom sounds)
+    if (!flag(DEMO_TOMS_KEY) && meta.some((m) => m.source === 'demo')) {
+      for (const id of NEW_DEMO_IDS) {
+        const d = demo.get(id);
+        if (d && !this.items.some((i) => i.id === id)) this.items.push({ id, name: d.name, cat: d.cat, source: 'demo', status: 'loading', message: '', duration: 0, instrument: null, loud: -120 });
+      }
+      flag(DEMO_TOMS_KEY, true);
+      this.save();
+    }
     for (const it of this.items) {
       if (it.source === 'demo') {
         const d = demo.get(it.id);
@@ -150,6 +170,7 @@ export class Ingredients {
 
   /** Add the demo kit (any demo sounds already present keep their categories). */
   loadDemo(): void {
+    flag(DEMO_TOMS_KEY, true);
     const have = new Set(this.items.map((i) => i.id));
     for (const d of demoKit()) {
       if (have.has(d.id)) continue;

@@ -25,8 +25,15 @@ const RULES: Rule[] = [
   { cat: 'kick', words: /kick|bass ?drum|bassdrum|\bkik/, abbr: ['bd', 'kik', 'kck', 'kd'] },
   { cat: 'snare', words: /snare/, abbr: ['sd', 'snr', 'sn'] },
   { cat: 'hat', words: /hat|hihat|closed/, abbr: ['hh', 'ch', 'chh', 'cht', 'hats'] },
-  { cat: 'perc', words: /perc|shaker|shakr|tamb|conga|bongo|clap|rimshot|cowbell|woodblock|clave|floortom|cabasa|guiro|fingersnap|agogo|triangle|timbale|cajon|maraca/, abbr: ['cp', 'rs', 'cb', 'sh', 'rim', 'tom', 'toms', 'snap', 'block', 'shk'] },
+  { cat: 'perc', words: /perc|shaker|shakr|tamb|conga|bongo|clap|rimshot|cowbell|woodblock|clave|cabasa|guiro|fingersnap|agogo|triangle|timbale|cajon|maraca/, abbr: ['cp', 'rs', 'cb', 'sh', 'rim', 'snap', 'block', 'shk'] },
+  // toms only by their position: a plain "tom" could be any of the three (see suggestCategory)
+  { cat: 'htom', words: /(hi|high|rack|small)[ _-]?tom|tom[ _-]?(hi|high)\b/, abbr: ['ht', 'htom', 'hitom'] },
+  { cat: 'mtom', words: /(mid|middle|med)[ _-]?tom|tom[ _-]?mid/, abbr: ['mt', 'mtom', 'midtom'] },
+  { cat: 'ltom', words: /(lo|low|floor|big)[ _-]?tom|tom[ _-]?(lo|low)\b/, abbr: ['lt', 'ltom', 'lotom', 'ft'] },
 ];
+
+/** A tom of no stated size ("tom 2.wav", "Toms/"): which one it is cannot be told from the name. */
+const PLAIN_TOM = /(^|[^a-z])toms?([^a-z]|$)|tom\d/;
 
 /** Categories whose names contain another's word, or that are a kind of another. */
 const REFINES: [Category, Category][] = [
@@ -87,6 +94,7 @@ export function suggestCategory(path: string): Suggestion {
   }
   if (folderCat?.cat) return { cat: folderCat.cat, reason: `folder “${folderCat.folder}”` };
   if (folderCat) return { cat: 'unsorted', reason: `ambiguous folder “${folderCat.folder}”: please choose` };
+  if ([file, ...folders].some((f) => PLAIN_TOM.test(f.toLowerCase()))) return { cat: 'unsorted', reason: 'a tom, but not which one: choose HIGH, MID or LOW TOM' };
   return { cat: 'unsorted', reason: 'no category in the name or folders: please choose' };
 }
 

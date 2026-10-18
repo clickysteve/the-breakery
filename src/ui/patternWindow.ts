@@ -25,7 +25,7 @@ import { Button, MWindow, NumBox } from './widgets';
 import type { UiContext } from './context';
 
 const ROLE_MARK: Record<string, string> = { A: 'GROOVE', A2: 'ANSWER', B: 'DEVELOP', F: 'FILL', T: 'TURNAROUND' };
-const SHORT: Record<Category, string> = { kick: 'KICK', snare: 'SNARE', ghost: 'GHOST', hat: 'HAT', open: 'OPEN', ride: 'RIDE', crash: 'CRASH', perc: 'PERC' };
+const SHORT: Record<Category, string> = { kick: 'KICK', snare: 'SNARE', ghost: 'GHOST', htom: 'HI TOM', mtom: 'MID TOM', ltom: 'LO TOM', hat: 'HAT', open: 'OPEN', ride: 'RIDE', crash: 'CRASH', perc: 'PERC' };
 const CYCLE: Record<string, string> = { beats: 'ACCENTS ON BEATS', offbeats: 'OFF-BEAT ACCENTS', alternate: 'ALTERNATE 16THS', backbeat: 'ACCENTS WITH THE BACKBEAT', tresillo: '3+3+2 ACCENTS' };
 const ORIGIN: Record<string, string> = { added: 'ADDED BY HAND', moved: 'MOVED BY HAND', edited: 'GENERATED, CHANGED BY HAND' };
 /** bars per view: 0 = every bar */

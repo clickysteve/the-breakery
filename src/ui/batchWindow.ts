@@ -8,7 +8,7 @@ import { el, setTip, svgEl } from './dom';
 import { MWindow } from './widgets';
 import type { UiContext } from './context';
 
-const MINI_ROWS: Category[][] = [['kick'], ['snare'], ['ghost'], ['hat', 'ride', 'open']];
+const MINI_ROWS: Category[][] = [['kick'], ['snare'], ['ghost'], ['htom', 'mtom', 'ltom'], ['hat', 'ride', 'open']];
 
 function mini(b: Break, w: number, h: number): string {
   const steps = b.recipe.bars * STEPS;

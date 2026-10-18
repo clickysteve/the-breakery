@@ -192,6 +192,19 @@ function bongo(): Float32Array {
   return finish(drive(n, 1.4), 0.7);
 }
 
+/** A tom: a pitched membrane that drops in pitch as it rings, with a little stick noise. */
+function tom(f0: number, f1: number, decay: number, seed: number): Float32Array {
+  const rng = makeRng(seed);
+  const n = buf(decay * 5);
+  add(n, mul(sweep(n.length, f0, f1, 0.06), env(n.length, decay, 0.001)));
+  add(n, mul(sweep(n.length, f0 * 1.5, f1 * 1.5, 0.04), env(n.length, decay * 0.4)), 0.2);
+  add(n, mul(biquad(noise(n.length, rng), 'bp', f1 * 5, 1.1), env(n.length, 0.018)), 0.35);
+  return finish(drive(n, 1.3), 0.78);
+}
+
+/** Demo sounds added after the first release: given once to visitors who already have the demo kit. */
+export const NEW_DEMO_IDS = ['demo:tom-high', 'demo:tom-mid', 'demo:tom-low'];
+
 let cache: DemoSound[] | null = null;
 
 /** The demo kit (built once, about 0.1 s of computation). */
@@ -212,6 +225,9 @@ export function demoKit(): DemoSound[] {
     s('shaker', 'DEMO SHAKER', 'perc', shaker(11)),
     s('rim', 'DEMO RIM', 'perc', rim()),
     s('bongo', 'DEMO BONGO', 'perc', bongo()),
+    s('tom-high', 'DEMO TOM HIGH', 'htom', tom(250, 185, 0.22, 12)),
+    s('tom-mid', 'DEMO TOM MID', 'mtom', tom(185, 135, 0.28, 13)),
+    s('tom-low', 'DEMO TOM LOW', 'ltom', tom(128, 88, 0.36, 14)),
   ];
   return cache;
 }

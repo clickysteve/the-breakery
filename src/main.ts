@@ -19,6 +19,7 @@ import { batchWindow } from './ui/batchWindow';
 import { ingredientsWindow } from './ui/ingredientsWindow';
 import { patternWindow } from './ui/patternWindow';
 import { recipeWindow } from './ui/recipeWindow';
+import { rollsWindow } from './ui/rollsWindow';
 import { installTooltips } from './ui/tooltip';
 import type { UiContext } from './ui/context';
 
@@ -263,7 +264,8 @@ const wIng = ingredientsWindow(desk, ui, { x: 5, y: 21, w: 208, h: 444 });
 const wRecipe = recipeWindow(desk, ui, { x: 218, y: 21, w: 322, h: 152 });
 const wBake = bakeWindow(desk, ui, { x: 545, y: 21, w: 170, h: 152 });
 const wPattern = patternWindow(desk, ui, { x: 218, y: 178, w: 497, h: 287 });
-const wBatch = batchWindow(desk, ui, { x: 720, y: 21, w: 155, h: 444 });
+const wRolls = rollsWindow(desk, ui, { x: 720, y: 21, w: 155, h: 158 });
+const wBatch = batchWindow(desk, ui, { x: 720, y: 184, w: 155, h: 281 });
 
 // ------------------------------------------------------------------ menus
 interface MenuItem {
@@ -502,6 +504,7 @@ function updateAll(): void {
   wRecipe.update();
   wBake.update();
   wPattern.update();
+  wRolls.update();
   wBatch.update();
   statusEl.textContent = app.status || 'Freshly baked breaks.';
   setTip(statusEl, app.status);

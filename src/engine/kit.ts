@@ -17,6 +17,10 @@ export const FALLBACK: Record<Category, Category[]> = {
   kick: ['kick'],
   snare: ['snare'],
   ghost: ['ghost', 'snare'],
+  // toms never borrow another category's sounds: without tom samples, tom hits are silent
+  htom: ['htom'],
+  mtom: ['mtom'],
+  ltom: ['ltom'],
   hat: ['hat', 'ride'],
   open: ['open'],
   ride: ['ride', 'hat'],

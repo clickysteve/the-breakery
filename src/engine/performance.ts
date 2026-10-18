@@ -38,8 +38,8 @@ export function swingDelay(pos16: number, swing: number): number {
   return warped - p;
 }
 
-type Group = 'kick' | 'snare' | 'hats' | 'perc' | 'crash';
-const GROUP: Record<Category, Group> = { kick: 'kick', snare: 'snare', ghost: 'snare', hat: 'hats', open: 'hats', ride: 'hats', crash: 'crash', perc: 'perc' };
+type Group = 'kick' | 'snare' | 'hats' | 'perc' | 'crash' | 'toms';
+const GROUP: Record<Category, Group> = { kick: 'kick', snare: 'snare', ghost: 'snare', htom: 'toms', mtom: 'toms', ltom: 'toms', hat: 'hats', open: 'hats', ride: 'hats', crash: 'crash', perc: 'perc' };
 
 export function chooseFeel(def: StyleDef, recipe: Recipe, rng: Rng, cycle?: string): Feel {
   const h = recipe.humanise * def.timingScale;

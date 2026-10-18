@@ -11,7 +11,7 @@
  * is from the research: backbeat as anchor, kick as the syncopating voice, ghosts around the
  * backbeat, a continuous timekeeper, variation late in the phrase.
  */
-import type { Recipe } from '../types';
+import type { FlourishKey, Recipe } from '../types';
 
 /** The styles engine 1 knows. */
 export type V1Style = 'funk' | 'hiphop' | 'jungle' | 'broken';
@@ -24,7 +24,7 @@ export interface StyleDef {
   label: string;
   /** min, max, default */
   bpm: [number, number, number];
-  defaults: Omit<Recipe, 'style' | 'bpm' | 'bars' | 'engine'>;
+  defaults: Omit<Recipe, 'style' | 'bpm' | 'bars' | 'engine' | FlourishKey>;
   /** kick preference per sixteenth (step 0 is always taken; backbeat steps are excluded) */
   kickWeights: number[];
   /** kicks per bar at density 0 and 1 (including the downbeat) */

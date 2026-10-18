@@ -7,14 +7,17 @@
 
 import type { ApplyReport, Edits } from './edits';
 
-/** Drum categories, in display order. */
-export const CATEGORIES = ['kick', 'snare', 'ghost', 'hat', 'open', 'ride', 'crash', 'perc'] as const;
+/** Drum categories, in display order (toms high to low, as they sit on a kit). */
+export const CATEGORIES = ['kick', 'snare', 'ghost', 'htom', 'mtom', 'ltom', 'hat', 'open', 'ride', 'crash', 'perc'] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_LABEL: Record<Category, string> = {
   kick: 'KICK',
   snare: 'SNARE',
   ghost: 'GHOST',
+  htom: 'HIGH TOM',
+  mtom: 'MID TOM',
+  ltom: 'LOW TOM',
   hat: 'HAT',
   open: 'OPEN HAT',
   ride: 'RIDE',
@@ -22,8 +25,12 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   perc: 'PERC',
 };
 
-/** General MIDI drum notes per category (for future MIDI output and MIDI file export). */
-export const GM_NOTE: Record<Category, number> = { kick: 36, snare: 38, ghost: 38, hat: 42, open: 46, ride: 51, crash: 49, perc: 39 };
+/** The tom categories, high to low. */
+export const TOMS = ['htom', 'mtom', 'ltom'] as const satisfies readonly Category[];
+export const isTom = (c: Category): boolean => c === 'htom' || c === 'mtom' || c === 'ltom';
+
+/** General MIDI drum notes per category (MIDI file export): toms are GM High Tom, Low-Mid Tom and Low Tom. */
+export const GM_NOTE: Record<Category, number> = { kick: 36, snare: 38, ghost: 38, htom: 50, mtom: 47, ltom: 45, hat: 42, open: 46, ride: 51, crash: 49, perc: 39 };
 
 /** Sixteenth-note steps per 4/4 bar. */
 export const STEPS = 16;
@@ -50,7 +57,22 @@ export type Engine = 1 | 2;
 export const ENGINES: Engine[] = [1, 2];
 export const CURRENT_ENGINE: Engine = 2;
 
-/** The user's generative parameters. All controls are 0..1 except bpm and bars. */
+/** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
+export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
+export type RollSpeed = (typeof ROLL_SPEEDS)[number];
+export const ROLL_TICKS: Record<RollSpeed, number> = { '16': 12, '16t': 8, '32': 6, '32t': 4, '64': 3 };
+export const ROLL_SPEED_LABEL: Record<RollSpeed, string> = { '16': '1/16', '16t': '1/16T', '32': '1/32', '32t': '1/32T', '64': '1/64' };
+/** ROLLS: the velocity shape across a roll. */
+export const ROLL_DYNAMICS = ['even', 'crescendo', 'decrescendo', 'alternating', 'human'] as const;
+export type RollDynamics = (typeof ROLL_DYNAMICS)[number];
+/** ROLLS: where rolls go. accent = leading into a strong hit; phrase = the end of the phrase (and of its sections); fills = inside the fill bars; anywhere = any of these, in any bar. */
+export const ROLL_PLACES = ['accent', 'phrase', 'fills', 'anywhere'] as const;
+export type RollPlace = (typeof ROLL_PLACES)[number];
+/** ROLLS: which drums may roll. hat = the timekeeper (hat or ride); tom = the three toms. */
+export const ROLL_TARGETS = ['snare', 'hat', 'perc', 'tom', 'kick'] as const;
+export type RollTarget = (typeof ROLL_TARGETS)[number];
+
+/** The user's generative parameters. All controls are 0..1 except bpm, bars and the roll settings. */
 export interface Recipe {
   style: Style;
   bpm: number;
@@ -72,9 +94,24 @@ export interface Recipe {
   variation: number;
   /** length and intensity of the turnaround fill */
   fills: number;
+  /** TOMS: how much the toms take part in fills and phrase development (0 = never) */
+  toms: number;
+  /** ROLLS: how many rolls (0 = none) */
+  rolls: number;
+  /** ROLLS: hits per roll */
+  rollLength: number;
+  rollSpeed: RollSpeed;
+  rollDynamics: RollDynamics;
+  rollPlace: RollPlace;
+  rollTargets: RollTarget[];
 }
 
-export const RECIPE_KEYS = ['density', 'complexity', 'syncopation', 'ghosts', 'swing', 'humanise', 'variation', 'fills'] as const;
+/** The 0..1 controls (a missing one is 0: TOMS and ROLLS are 0 in recipes saved before they existed). */
+export const RECIPE_KEYS = ['density', 'complexity', 'syncopation', 'ghosts', 'swing', 'humanise', 'variation', 'fills', 'toms', 'rolls'] as const;
+/** The recipe fields added with TOMS and ROLLS (recipes saved before them have none). */
+export type FlourishKey = 'toms' | 'rolls' | 'rollLength' | 'rollSpeed' | 'rollDynamics' | 'rollPlace' | 'rollTargets';
+export const MIN_ROLL = 2;
+export const MAX_ROLL = 16;
 export type RecipeKey = (typeof RECIPE_KEYS)[number];
 
 /**

@@ -16,7 +16,7 @@
  * Engine 1 keeps its own frozen copy of the original four (v1/styles.ts).
  */
 import { STYLE_DEFS as V1_DEFS, type V1Style } from './v1/styles';
-import { CURRENT_ENGINE, type Bars, type Engine, type Recipe, type Style } from './types';
+import { CURRENT_ENGINE, type Bars, type Engine, type FlourishKey, type Recipe, type RollTarget, type Style } from './types';
 
 export type FillKind = 'run' | 'displace' | 'drop' | 'stutter' | 'chop' | 'roll';
 /** Ghost-note figures around a backbeat b (see support.ts). */
@@ -31,7 +31,7 @@ export interface StyleDef {
   blurb: string;
   /** min, max, default */
   bpm: [number, number, number];
-  defaults: Omit<Recipe, 'style' | 'bpm' | 'bars' | 'engine'>;
+  defaults: Omit<Recipe, 'style' | 'bpm' | 'bars' | 'engine' | FlourishKey>;
   // ---- foundation
   /** 'two-four': snares on 2 and 4; 'three': one backbeat on 3 (half-time feel) */
   backbeat: 'two-four' | 'three';
@@ -281,9 +281,56 @@ function v1Defaults(style: Style): StyleDef['defaults'] | null {
   return d ? d.defaults : null;
 }
 
-/** A fresh recipe with the style's defaults (engine 1 uses its own, as released). */
+/** A fresh recipe with the style's defaults (engine 1 uses its own, as released, with no TOMS or ROLLS). */
 export function defaultRecipe(style: Style = 'funk', bars: Bars = 2, engine: Engine = CURRENT_ENGINE): Recipe {
   const d = STYLE_DEFS[style];
   const old = engine === 1 ? v1Defaults(style) : null;
-  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ?? d.defaults) };
+  const fl = FLOURISH[style].defaults;
+  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl }) };
 }
+
+// ------------------------------------------------------------------ TOMS and ROLLS (engine 2)
+
+/** Tom figures (toms.ts). */
+export type TomFigure = 'descend' | 'ascend' | 'alternate' | 'answer' | 'linear';
+
+/**
+ * Each recipe's toms and rolls: the defaults of the TOMS and ROLLS controls, how readily the toms
+ * join fills (tomP) and which figures they play, how readily rolls appear (rollP) and which drums
+ * tend to roll. Design hypotheses like the rest of the recipes: funk and half-time drummers go
+ * round the toms; hip-hop, boom bap and garage barely touch them (an answer at most); jungle, D&B
+ * and breakcore roll the snare at 32nds and faster; garage and hip-hop roll the hats.
+ */
+export interface Flourish {
+  defaults: Pick<Recipe, FlourishKey>;
+  tomP: number;
+  tomFigures: Record<TomFigure, number>;
+  rollP: number;
+  rollWeights: Record<RollTarget, number>;
+}
+
+// prettier-ignore
+export const FLOURISH: Record<Style, Flourish> = {
+  funk:      { defaults: { toms: 0.35, rolls: 0.15, rollLength: 4, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'accent', rollTargets: ['snare', 'tom'] },
+               tomP: 1, tomFigures: { descend: 1, ascend: 0.3, alternate: 0.6, answer: 0.5, linear: 0.4 }, rollP: 0.5, rollWeights: { snare: 1, hat: 0.4, perc: 0.3, tom: 0.6, kick: 0.1 } },
+  hiphop:    { defaults: { toms: 0.2, rolls: 0.2, rollLength: 3, rollSpeed: '32', rollDynamics: 'even', rollPlace: 'accent', rollTargets: ['hat', 'snare'] },
+               tomP: 0.6, tomFigures: { descend: 0.6, ascend: 0.2, alternate: 0.3, answer: 1, linear: 0.2 }, rollP: 0.5, rollWeights: { snare: 0.6, hat: 1, perc: 0.3, tom: 0.3, kick: 0.2 } },
+  jungle:    { defaults: { toms: 0.3, rolls: 0.45, rollLength: 6, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'accent', rollTargets: ['snare', 'hat', 'tom'] },
+               tomP: 0.7, tomFigures: { descend: 0.8, ascend: 0.3, alternate: 0.6, answer: 0.4, linear: 0.6 }, rollP: 1, rollWeights: { snare: 1, hat: 0.5, perc: 0.3, tom: 0.5, kick: 0.2 } },
+  broken:    { defaults: { toms: 0.35, rolls: 0.3, rollLength: 4, rollSpeed: '32', rollDynamics: 'human', rollPlace: 'anywhere', rollTargets: ['snare', 'perc', 'tom'] },
+               tomP: 0.9, tomFigures: { descend: 0.5, ascend: 0.5, alternate: 0.7, answer: 0.6, linear: 0.8 }, rollP: 0.7, rollWeights: { snare: 0.8, hat: 0.5, perc: 0.8, tom: 0.6, kick: 0.3 } },
+  boombap:   { defaults: { toms: 0.15, rolls: 0.1, rollLength: 3, rollSpeed: '32', rollDynamics: 'even', rollPlace: 'phrase', rollTargets: ['snare'] },
+               tomP: 0.5, tomFigures: { descend: 0.5, ascend: 0.1, alternate: 0.3, answer: 1, linear: 0.1 }, rollP: 0.35, rollWeights: { snare: 1, hat: 0.5, perc: 0.2, tom: 0.3, kick: 0.1 } },
+  hardcore:  { defaults: { toms: 0.25, rolls: 0.4, rollLength: 8, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'phrase', rollTargets: ['snare', 'kick'] },
+               tomP: 0.6, tomFigures: { descend: 1, ascend: 0.2, alternate: 0.4, answer: 0.2, linear: 0.5 }, rollP: 0.9, rollWeights: { snare: 1, hat: 0.3, perc: 0.1, tom: 0.4, kick: 0.6 } },
+  dnb:       { defaults: { toms: 0.3, rolls: 0.4, rollLength: 4, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'accent', rollTargets: ['snare', 'hat', 'tom'] },
+               tomP: 0.7, tomFigures: { descend: 0.8, ascend: 0.3, alternate: 0.5, answer: 0.3, linear: 0.7 }, rollP: 0.9, rollWeights: { snare: 1, hat: 0.6, perc: 0.3, tom: 0.5, kick: 0.2 } },
+  halftime:  { defaults: { toms: 0.4, rolls: 0.3, rollLength: 6, rollSpeed: '32t', rollDynamics: 'crescendo', rollPlace: 'phrase', rollTargets: ['snare', 'hat', 'tom'] },
+               tomP: 1, tomFigures: { descend: 1, ascend: 0.4, alternate: 0.5, answer: 0.5, linear: 0.6 }, rollP: 0.8, rollWeights: { snare: 1, hat: 0.7, perc: 0.3, tom: 0.6, kick: 0.2 } },
+  garage:    { defaults: { toms: 0.1, rolls: 0.25, rollLength: 3, rollSpeed: '16t', rollDynamics: 'alternating', rollPlace: 'accent', rollTargets: ['hat', 'perc'] },
+               tomP: 0.4, tomFigures: { descend: 0.3, ascend: 0.2, alternate: 0.3, answer: 1, linear: 0.2 }, rollP: 0.7, rollWeights: { snare: 0.5, hat: 1, perc: 0.8, tom: 0.2, kick: 0.1 } },
+  electro:   { defaults: { toms: 0.3, rolls: 0.2, rollLength: 4, rollSpeed: '16', rollDynamics: 'even', rollPlace: 'phrase', rollTargets: ['snare', 'tom'] },
+               tomP: 0.8, tomFigures: { descend: 1, ascend: 0.5, alternate: 0.3, answer: 0.4, linear: 0.3 }, rollP: 0.6, rollWeights: { snare: 1, hat: 0.6, perc: 0.3, tom: 0.7, kick: 0.3 } },
+  breakcore: { defaults: { toms: 0.3, rolls: 0.7, rollLength: 8, rollSpeed: '64', rollDynamics: 'crescendo', rollPlace: 'anywhere', rollTargets: ['snare', 'kick', 'hat', 'tom'] },
+               tomP: 0.7, tomFigures: { descend: 0.7, ascend: 0.5, alternate: 0.6, answer: 0.3, linear: 0.8 }, rollP: 1.3, rollWeights: { snare: 1, hat: 0.5, perc: 0.4, tom: 0.5, kick: 0.7 } },
+};

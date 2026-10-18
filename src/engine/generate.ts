@@ -22,11 +22,12 @@ import { developPhrase, mutateCell, planBars, tidy } from './phrase';
 import { freshSeed, hashString, stream } from './rng';
 import { applyEdits, hasEdits, type Edits } from './edits';
 import { autoSamples, finishSamples, type SampleContext } from './samples';
-import { STYLE_DEFS } from './styles';
+import { FLOURISH, STYLE_DEFS } from './styles';
 import { generateSupport, planSupport } from './support';
+import { addToms } from './toms';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
-import { clamp, LAYERS, MAX_BARS, MIN_BARS, RECIPE_KEYS, type Bars, type Break, type Engine, type Layer, type Mutation, type Recipe, type Seeds } from './types';
+import { clamp, LAYERS, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type Bars, type Break, type BreakEvent, type Engine, type Layer, type Mutation, type Recipe, type RollTarget, type Seeds } from './types';
 
 /** Recipe values made safe (clamped, known style and engine, whole bars 1–8). */
 export function sanitiseRecipe(r: Recipe): Recipe {
@@ -37,8 +38,18 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   if (engine === 1 && !V1_STYLES.includes(def.style as V1Style)) engine = 2; // engine 1 only knows the original four
   const out: Recipe = { ...r, style: def.style, engine, bpm: clamp(Math.round(Number(r.bpm) || def.bpm[2]), 40, 220), bars };
   for (const k of RECIPE_KEYS) out[k] = clamp(Number(r[k]) || 0, 0, 1);
+  // the roll settings (recipes saved before ROLLS existed take the style's; ROLLS itself is then 0)
+  const fl = FLOURISH[def.style].defaults;
+  out.rollLength = Number.isFinite(Number(r.rollLength)) && r.rollLength !== null ? clamp(Math.round(Number(r.rollLength)), MIN_ROLL, MAX_ROLL) : fl.rollLength;
+  out.rollSpeed = (ROLL_SPEEDS as readonly string[]).includes(String(r.rollSpeed)) ? r.rollSpeed : fl.rollSpeed;
+  out.rollDynamics = (ROLL_DYNAMICS as readonly string[]).includes(String(r.rollDynamics)) ? r.rollDynamics : fl.rollDynamics;
+  out.rollPlace = (ROLL_PLACES as readonly string[]).includes(String(r.rollPlace)) ? r.rollPlace : fl.rollPlace;
+  out.rollTargets = Array.isArray(r.rollTargets) ? ROLL_TARGETS.filter((t) => (r.rollTargets as unknown[]).includes(t)) : [...fl.rollTargets];
   return out;
 }
+
+/** The roll targets toggled (kept in the canonical order). */
+export const toggleTarget = (ts: readonly RollTarget[], t: RollTarget): RollTarget[] => ROLL_TARGETS.filter((x) => (x === t ? !ts.includes(t) : ts.includes(x)));
 
 function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
   const def = STYLE_DEFS[recipe.style];
@@ -67,6 +78,16 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
 }
 
 /**
+ * TOMS and ROLLS (engine 2): layers over the performed break, from their own streams, so the rest of
+ * the break (every other hit's velocity, timing and AUTO sample) is the same whatever they do.
+ * FREEZE BEAT keeps them (what they play comes from the beat seed), FREEZE FEEL how they play it.
+ */
+function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: Seeds): BreakEvent[] {
+  const ctx = { def: STYLE_DEFS[recipe.style], fl: FLOURISH[recipe.style], recipe, feel: core.feel, roles: core.plan };
+  return addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
+}
+
+/**
  * BAKE a break. `edits` (the user's hand edits, edits.ts) are applied to the generated events
  * after the AUTO sample choice and before the PICK modes, so the generator and the AUTO choice
  * are untouched by them, and playback, export, stems, MIDI and the pattern view all use the
@@ -76,7 +97,8 @@ export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(),
   const recipe = sanitiseRecipe(recipeIn);
   const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
   const main = autoSamples(core.events, kit, seeds.kit, samples);
-  const { events, report } = applyEdits(core.events, edits, recipe);
+  const layered = recipe.engine === 2 ? flourish(core, recipe, seeds) : core.events;
+  const { events, report } = applyEdits(layered, edits, recipe);
   finishSamples(events, kit, seeds.kit, samples, names, main);
   const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
   return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...core, events, ...ed };
