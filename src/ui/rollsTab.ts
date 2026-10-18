@@ -1,8 +1,10 @@
 /**
- * ROLLS (a tab of the RECIPE window): roll generation. ROLL GENERATION switches the ROLLS layer
- * on and off (off: new breaks get no rolls; the rolls already in the pattern are kept until CLEAR
- * ROLLS deletes them), then how likely rolls are, how long and fast, their dynamics, where they go
- * and which drums roll. Part of the recipe: every change re-bakes the same seeds.
+ * ROLLS (a tab of the RECIPE window): roll generation. ROLL GENERATION switches every new roll on
+ * and off (the ROLLS layer, the fills' rolls, CHOP's retriggers). It is the user's preference: off
+ * until switched on, and kept through recipe changes, new breaks and reloads; no recipe turns it
+ * on. Off, new breaks get no rolls and the rolls already in the pattern are kept until CLEAR ROLLS
+ * deletes them. Then how likely rolls are, how long and fast, their dynamics, where they go and
+ * which drums roll: part of the recipe, every change re-bakes the same seeds.
  */
 import { toggleTarget } from '../engine/generate';
 import { CATEGORY_LABEL, MAX_ROLL, MIN_ROLL, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEED_LABEL, ROLL_SPEEDS, ROLL_TARGETS, TOMS, type RollDynamics, type RollPlace, type RollSpeed, type RollTarget } from '../engine/types';
@@ -42,13 +44,13 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   const sel = (x: number, y: number, w: number, aria: string, options: readonly string[], text: (o: string) => string, set: (v: string) => void) => {
     return new GemSelect(b, [x, y, w, 14], { label: aria, fontSize: 8, options: options.map((o) => ({ value: o, label: text(o) })), onChange: set });
   };
-  const on = () => app.recipe.rollsOn !== false;
+  const on = () => app.rollGeneration;
 
   // ---- ROLL GENERATION: the master switch, and deleting rolls (a different thing)
   label(b, 5, 6, 'ROLL GENERATION', 'head');
   const enable = new Button(b, [90, 3, 58, 14], 'ENABLED', {
     cls: 'small',
-    tip: 'ROLL GENERATION: on, the ROLLS settings add rolls to every break; off, new breaks (BAKE, BATCH, a seed, MUTATE) get no rolls. Turning it off does not delete the rolls already in this pattern: they are kept as hits, and CLEAR ROLLS deletes them. ⌘Z undoes either.',
+    tip: 'ROLL GENERATION: off until you switch it on, and it stays as you set it (changing recipe, RANDOM RECIPE, BAKE, BATCH, seeds, MUTATE, CHOP and reloading never change it). On, the ROLLS settings add rolls to every break; off, new breaks get no rolls at all: fills play their rolls as plain fills, and CHOP makes no retrigger rolls. Toms do not need it (RECIPE ▸ TOM ACTIVITY). Turning it off does not delete the rolls already in this pattern: they are kept as hits, and CLEAR ROLLS deletes them. ⌘Z undoes either.',
     onPress: () => app.setRollsOn(!on()),
   });
   const clear = new Button(b, [W - 4 - 72, 3, 72, 14], 'CLEAR ROLLS', {
@@ -122,7 +124,7 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
     note.textContent = e1
       ? 'LEGACY BREAK: NO ROLLS · RECIPE ▸ USE GROOVE'
       : !on()
-        ? 'GENERATION OFF: NEW BREAKS GET NO ROLLS · EXISTING ROLLS ARE KEPT'
+        ? 'GENERATION OFF: NO NEW ROLLS (YOUR SETTING, KEPT) · EXISTING ROLLS ARE KEPT'
         : r.rolls <= 0
           ? 'PROBABILITY 0: NO NEW ROLLS'
           : !r.rollTargets.length

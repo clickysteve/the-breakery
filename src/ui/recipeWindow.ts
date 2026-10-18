@@ -1,9 +1,10 @@
 /**
  * RECIPE · CHOP · ROLLS · MUTATE, one window with four tabs.
  *
- * RECIPE: style (with RANDOM RECIPE), tempo, bars, seed (with DICE, history and favourite), the
- * GENERATE row (GROOVE, the generator, then CHOP, the transformation; a LEGACY break offers USE
- * CURRENT GROOVE), the eight generative controls and TOM ACTIVITY. Every change re-bakes the same
+ * RECIPE: style (with RANDOM RECIPE), tempo, bars, seed (with DICE, history and favourite), a row
+ * showing CHOP (the transformation) and ROLL GENERATION, each opening its tab (a LEGACY break offers
+ * USE CURRENT GROOVE there), the eight generative controls and TOM ACTIVITY. GROOVE, the only
+ * generator, has no selector: every break is baked by it. Every change re-bakes the same
  * seeds, so you hear what the control does to this break. Every number can be clicked and typed
  * (emmm's numerical fields). CHOP: the phrase transformation (chopTab.ts). ROLLS: roll generation
  * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
@@ -58,8 +59,8 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const rolls = rollsTab(rollsPane, ui, W);
   const mut = mutateTab(mutatePane, ui, W);
 
-  // RECIPE: two rows of recipes (the last cell of the second row is RANDOM RECIPE). GENERATE is not
-  // a recipe but what is done with it (GROOVE, then CHOP), so it has its own row below, between rules.
+  // RECIPE: two rows of recipes (the last cell of the second row is RANDOM RECIPE). What is done with
+  // the GROOVE (CHOP) and whether it rolls are not recipes, so they have their own row below, between rules.
   const perRow = 6;
   const bw = Math.floor((W - 8 - (perRow - 1) * 2) / perRow);
   const styleBtns = STYLES.map((s, i) => {
@@ -124,19 +125,17 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const fav = new Button(b, [W - 4 - 24, y2, 24, 15], 'FAV', { cls: 'small', tip: 'Save this break to the favourites (S): recipe, seeds, mutations and sample settings. Inverted when it is one; press again to remove it. Favourites are in the Seeds menu.', onPress: () => app.toggleFavourite() });
 
   el('div', 'rule', b, [4, 49, W - 8]);
-  label(b, 5, 54, 'GENERATE', 'head');
-  const groove = new Button(b, [56, 51, bw, 13], 'GROOVE', {
-    cls: 'small',
-    tip: 'GROOVE: the generator. The recipe and seeds bake an original drum performance: a phrase of kicks, snares, ghosts, hats, toms, fills and rolls with a coherent feel. It is the source CHOP transforms.',
-    onPress: () => app.say(app.legacy ? 'LEGACY: this break was baked by the first release’s generator. USE GROOVE re-bakes it with the current GROOVE.' : 'GROOVE is the generator: every break is baked by it, and CHOP (if on) transforms it.'),
-  });
-  label(b, 56 + bw + 4, 54, '▸');
-  const chopBtn = new Button(b, [56 + bw + 14, 51, bw + 20, 13], 'CHOP OFF', {
+  const chopBtn = new Button(b, [4, 51, bw + 20, 13], 'CHOP OFF', {
     cls: 'small',
     tip: 'CHOP: the transformation. It re-arranges the GROOVE’s phrase (recalls, swaps, repeats, retriggers, drop-outs). Opens the CHOP tab.',
     onPress: () => win.setTab(1),
   });
-  const genNote = el('div', 'label tiny', b, [56 + 2 * bw + 40, 55, W - 4 - 76 - (56 + 2 * bw + 40)]);
+  const rollsBtn = new Button(b, [4 + bw + 23, 51, bw + 20, 13], 'ROLLS OFF', {
+    cls: 'small',
+    tip: 'ROLL GENERATION: off until you switch it on, and kept as you set it whatever the recipe. Toms do not need it (TOM ACTIVITY). Opens the ROLLS tab.',
+    onPress: () => win.setTab(2),
+  });
+  const genNote = el('div', 'label tiny', b, [4 + 2 * (bw + 23) + 2, 55, W - 4 - 76 - (4 + 2 * (bw + 23) + 2)]);
   const useGroove = new Button(b, [W - 4 - 72, 51, 72, 13], 'USE GROOVE', {
     cls: 'small',
     tip: 'USE CURRENT GROOVE: this break was made by the first release’s generator (LEGACY) and plays exactly as it did. This re-bakes the same seed and controls with today’s GROOVE. One way; ⌘Z returns to the legacy break.',
@@ -166,7 +165,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   CONTROLS.forEach((c, i) => rangeAt(i < 4 ? i : i + 1, c.key, c.label, { format: c.format ?? pct, parse: c.parse, tip: c.tip }));
   rangeAt(4, 'toms', 'TOM ACTIVITY', {
     format: pct,
-    tip: 'TOM ACTIVITY: how much the high, mid and low toms take part, mostly in fills (descending and rising runs, snare/tom combinations, linear fills, answers to the backbeat). 0 = never. Needs FILLS for tom fills and VARIATION for toms in answer and development bars. Turning it up changes nothing else in the break.',
+    tip: 'TOM ACTIVITY: how prominent the high, mid and low toms are. 0 = no toms; 20% an occasional short phrase; 50% noticeable phrases; 100% a tom phrase in most bars. More means more phrases, longer ones and more voices: fills into the next bar (descending and rising runs, snare into toms, snare and toms in turn, linear fills, dotted-eighth groupings) and, inside the bar, answers to the backbeat and off-beat accents. The recipe shapes them. Independent of ROLLS; a kit with fewer than three toms plays its phrases on the toms it has. Turning it up changes nothing else in the break.',
   });
   const tomNote = el('div', 'label tiny', b, [4 + colW + 8 + 1, 69 + 4 * 15 + 4, colW - 2]);
 
@@ -174,13 +173,13 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     styleBtns.forEach((btn, i) => {
       btn.on = STYLES[i] === app.recipe.style;
     });
-    groove.on = !app.legacy;
-    groove.text = app.legacy ? 'LEGACY' : 'GROOVE';
     const c = app.chop;
     chopBtn.on = app.chopped;
     chopBtn.text = c.on ? `CHOP ${Math.round(c.amount * 100)}% ${c.slice.toUpperCase()}` : 'CHOP OFF';
+    rollsBtn.on = app.rollGeneration && !app.legacy;
+    rollsBtn.text = app.legacy ? 'NO ROLLS' : app.rollGeneration ? 'ROLLS ON' : 'ROLLS OFF';
     useGroove.el.style.display = app.legacy ? '' : 'none';
-    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : 'GENERATION ▸ TRANSFORMATION';
+    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : '';
     bpm.update();
     bars.update();
     seed.update();

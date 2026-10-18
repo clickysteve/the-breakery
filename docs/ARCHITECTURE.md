@@ -92,7 +92,21 @@ from its own streams (the BEAT seed for what and where, the FEEL seed for how), 
 change another hit's velocity, timing or sample; at 0 they add nothing and draw nothing, and every
 recipe saved before them (no TOMS or ROLLS field = 0) bakes exactly as before
 (`test/engine2.test.ts` checks 132 reference breaks). Tom fills re-voice a generated snare run or
-play their own figure in fill bars, keep the backbeat, and decide once for every answer bar. A
+play their own figure, keep the backbeat, and decide once for every answer bar.
+
+`Recipe.revision` (CURRENT_REVISION, engine 2; absent = 0) versions what TOM ACTIVITY and ROLL
+GENERATION do, so saved breaks reproduce exactly (`test/fixtures/toms-rolls-rev0-golden.json`).
+Revision 0 is the fills as released (`addToms`: one all-or-nothing draw per bar, weighted by the
+bar's role, so in a 4-bar plan almost only the turnaround could get toms). Revision 1
+(`addTomPhrases`) ranks phrase slots through the pattern (phrase ends first, then inside bars),
+and TOM ACTIVITY sets how many are used, how long they are and how many toms they span, with the
+recipe's `TomPhrasing` (FLOURISH) leaning it; a fixed number of draws per bar keeps everything
+else in place, and `tomVoices` spreads the phrases over the toms the kit has. In revision 1 a
+roll never removes a tom phrase hit, and ROLL GENERATION off (`holdsRolls`) holds back every
+roll: the fills' rolls play as plain fills and CHOP's RETRIGGER makes none. ROLL GENERATION is
+the user's preference (`App.rollGeneration`, saved, off for a new user); every new or changed
+recipe is baked with it (`App.fresh`), and a restored break that disagrees follows it with its
+rolls kept as hits. A
 roll is N strokes exactly SPEED ticks apart ending one stroke before its anchor (swing moves the
 roll as a whole); it never crosses a bar line or runs over a backbeat, downbeat kick, crash, tom
 fill or another roll, and the hands it needs stop timekeeping and ghosts under it. The toms are

@@ -134,7 +134,8 @@ describe('JUNGLE phrases', () => {
     };
     for (const [style, sigs] of Object.entries(golden)) {
       const got = [1, 2, 3].map((s) => {
-        const b = bake(defaultRecipe(style as Recipe['style'], 4), seedsFrom(s));
+        // revision 0: the toms as they were then (revision 1's tom phrases are tested in toms.test.ts)
+        const b = bake({ ...defaultRecipe(style as Recipe['style'], 4), revision: 0 }, seedsFrom(s));
         return hashString(JSON.stringify(b.events.map((e) => [e.cat, e.bar, e.step, e.sub, e.vel, e.offsetMs, e.role])));
       });
       expect(got, style).toEqual(sigs);

@@ -13,7 +13,7 @@ import { SECTION_DEFS, type Section } from '../engine/sections';
 import { freshSeed } from '../engine/rng';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -74,9 +74,13 @@ interface Saved {
   mutate?: MutateSettings;
   /** the OUTPUT tab: the master output chain (Slop Factory Core chain configuration) */
   output?: ChainConfig;
+  /** ROLL GENERATION: the user's preference (absent: off for a new user; a state saved before it keeps what its break had) */
+  rollGeneration?: boolean;
 }
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
+
+const ROLLS_ON_NOTE = 'ROLL GENERATION ON: rolls follow the ROLLS settings.';
 
 const LEGACY_NOTE = 'This break was made by the first release’s generator (LEGACY), so it plays exactly as it did. RECIPE ▸ USE GROOVE re-bakes the same seed with today’s GROOVE.';
 
@@ -130,6 +134,13 @@ export class App {
   /** what MUTATE does (the MUTATE tab) */
   mutation: MutateSettings = defaultMutate();
   /**
+   * ROLL GENERATION, the user's preference: off until they switch it on, and kept (saved) through
+   * everything else: recipe changes, RANDOM RECIPE, BAKE, BATCH, seeds, MUTATE, CHOP, reloads. Every
+   * break baked from here on carries it in its recipe (rollsOn), so the switch and the generator
+   * always agree; no recipe's defaults ever turn it back on.
+   */
+  rollGeneration = false;
+  /**
    * OUTPUT: the master output chain. App settings like the mixer: saved, never part of the break
    * or of undo. Every change is heard at once and saved.
    */
@@ -143,9 +154,11 @@ export class App {
   constructor(public ingredients: Ingredients, public player: Player, initialSeed?: string) {
     const s = readJson(STATE_KEY) as Partial<Saved> | null;
     const fromUrl = initialSeed !== undefined ? parseSeed(initialSeed) : null;
-    // a saved LEGACY break reproduces as it was; a seed from a link is a new break, baked by the GROOVE
-    this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : defaultRecipe('funk', 2);
-    if (fromUrl) this.recipe = current(this.recipe);
+    // ROLL GENERATION: off for a new user; a state saved before the preference existed keeps what its break had
+    this.rollGeneration = typeof s?.rollGeneration === 'boolean' ? s.rollGeneration : s?.recipe ? s.recipe.rollsOn !== false : false;
+    // a saved break (LEGACY too) reproduces as it was; a seed from a link is a new break, baked by the current GROOVE
+    this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : this.fresh(defaultRecipe('funk', 2));
+    if (fromUrl) this.recipe = this.fresh(current(this.recipe));
     this.seeds = fromUrl ? seedsFrom(fromUrl.seed) : (s?.seeds ?? seedsFrom(freshSeed()));
     this.seedName = fromUrl ? fromUrl.name : (s?.seedName ?? null);
     this.frozen = { ...noFreeze(), ...(s?.frozen ?? {}) };
@@ -170,6 +183,11 @@ export class App {
     player.setLevel(typeof s?.level === 'number' ? s.level : player.level);
     player.setMix(this.mix);
     this.current = this.bakeWith(this.seeds);
+    // a saved break whose recipe disagrees with the preference follows it (its rolls are kept as hits)
+    if (this.rollsDisagree) {
+      this.switchRolls(this.rollGeneration);
+      this.current = this.bakeWith(this.seeds);
+    }
     player.setBreak(this.current);
     player.onSwap = () => { this.ingredients.releaseRetired?.(); this.changed(false); };
     this.remember();
@@ -193,7 +211,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -246,22 +264,31 @@ export class App {
     return ` Your ${n} hand edit${n === 1 ? '' : 's'} stay with the previous break: ◀ goes back to it (FREEZE EDITS carries edits onto new breaks).`;
   }
 
+  /**
+   * The recipe for a new or changed break: ROLL GENERATION as the user set it (whatever the recipe
+   * says) and the current GROOVE revision (engine 2). Only restoring a break (history, favourites,
+   * undo, a reload) bakes a recipe as it was saved.
+   */
+  private fresh(r: Recipe): Recipe {
+    return sanitiseRecipe({ ...r, rollsOn: this.rollGeneration, ...(r.engine === 2 ? { revision: CURRENT_REVISION } : {}) });
+  }
+
   /** A new break is never LEGACY: the recipe moves to the current GROOVE. Returns a note for the status line. */
   private leaveLegacy(): string {
-    if (!this.legacy) return '';
-    this.recipe = current(this.recipe);
-    return ' (Now with the current GROOVE: the legacy break stays in the history.)';
+    const note = this.legacy ? ' (Now with the current GROOVE: the legacy break stays in the history.)' : '';
+    this.recipe = this.fresh(current(this.recipe));
+    return note;
   }
 
   setRecipe(patch: Partial<Recipe>): void {
-    this.recipe = sanitiseRecipe({ ...this.recipe, ...patch });
+    this.recipe = this.fresh({ ...this.recipe, ...patch });
     this.history.replaceCurrent(this.entry);
     this.rebake();
   }
 
   /** Choose a style: its defaults replace the controls (BPM too), baked by the current GROOVE. CHOP's settings stay. */
   setStyle(style: Style): void {
-    this.recipe = sanitiseRecipe({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
     this.history.replaceCurrent(this.entry);
     this.rebake();
   }
@@ -278,7 +305,7 @@ export class App {
    */
   useCurrentGroove(): void {
     if (!this.legacy) return;
-    this.recipe = current(this.recipe);
+    this.recipe = this.fresh(current(this.recipe));
     this.history.replaceCurrent(this.entry);
     this.rebake();
     this.say('Re-baked with the current GROOVE: same seed and controls (⌘Z returns to the legacy break).');
@@ -295,7 +322,7 @@ export class App {
     const choices = others.length ? others : pool;
     const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
     const note = this.leaveEdits();
-    this.recipe = sanitiseRecipe({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
     this.seeds = reseed(this.seeds, this.frozen);
     this.seedName = null;
     this.picked = null;
@@ -421,7 +448,7 @@ export class App {
       return false;
     }
     const note = this.leaveEdits();
-    this.recipe = sanitiseRecipe({ ...this.recipe, ...patch });
+    this.recipe = this.fresh({ ...this.recipe, ...patch });
     this.seeds = next;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
@@ -439,13 +466,28 @@ export class App {
     return { rolls: g.length, hits: g.reduce((n, x) => n + x.events.length, 0) };
   }
 
+  /** Does the current recipe disagree with ROLL GENERATION (a restored engine-2 break baked the other way)? */
+  private get rollsDisagree(): boolean {
+    return this.recipe.engine === 2 && (this.recipe.rollsOn !== false) !== this.rollGeneration;
+  }
+
   /**
-   * ROLL GENERATION on or off. Off: new breaks get no rolls from ROLLS, and the roll hits already in
-   * this pattern are KEPT (as hits placed by hand); CLEAR ROLLS deletes them. On again: kept hits
-   * the generator plays at the same place again are not doubled. Undoable.
+   * ROLL GENERATION on or off: the user's preference, saved, and kept until they change it. Off:
+   * new breaks get no rolls, and the roll hits already in this pattern are KEPT (as hits placed by
+   * hand); CLEAR ROLLS deletes them. On again: kept hits the generator plays at the same place
+   * again are not doubled. Undoable.
    */
   setRollsOn(on: boolean): void {
-    if ((this.recipe.rollsOn !== false) === on) return;
+    if (this.rollGeneration === on && !this.rollsDisagree) return;
+    this.rollGeneration = on;
+    this.status = this.switchRolls(on);
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+  }
+
+  /** Bake this break with roll generation on or off (the rest of its recipe as it is), keeping the rolls it had. Returns a note for the status line. */
+  private switchRolls(on: boolean): string {
+    if ((this.recipe.rollsOn !== false) === on) return on ? ROLLS_ON_NOTE : 'ROLL GENERATION OFF: new breaks get no rolls.';
     if (!on) {
       const before = this.current.events.filter((e) => e.role === 'roll' && e.manual !== 'added' && e.manual !== 'moved');
       this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: false });
@@ -453,22 +495,19 @@ export class App {
       let edits = this.edits;
       let kept = 0;
       for (const e of before) {
-        if (after.some((x) => x.cat === e.cat && hitKey(x) === hitKey(e))) continue; // still there (a fill's roll)
+        if (after.some((x) => x.cat === e.cat && hitKey(x) === hitKey(e))) continue; // still there (a fill's roll, or its stroke as a plain fill)
         const r = addHit(edits, after, { cat: e.cat, bar: e.bar, step: e.step, sub: e.sub, vel: e.vel, offsetMs: e.offsetMs, role: 'roll', ...(e.pinned ? { sample: e.pinned } : {}) });
         if (r.edits !== edits) kept++;
         edits = r.edits;
       }
       this.edits = edits;
-      this.status = `ROLL GENERATION OFF: new breaks get no rolls.${kept ? ` The ${kept} roll hit${kept === 1 ? '' : 's'} already here ${kept === 1 ? 'is' : 'are'} kept; CLEAR ROLLS deletes them.` : ''}`;
-    } else {
-      this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: true });
-      const gen = new Set(this.bakeWith(this.seeds, this.recipe, null).events.filter((e) => e.role === 'roll').map((e) => hitKey(e)));
-      const added = this.edits.added.filter((m) => !(m.role === 'roll' && !m.from && gen.has(hitKey(m)) && !this.edits.removed.includes(hitKey(m))));
-      if (added.length !== this.edits.added.length) this.edits = { ...this.edits, added };
-      this.status = 'ROLL GENERATION ON: rolls follow the ROLLS settings.';
+      return `ROLL GENERATION OFF: new breaks get no rolls.${kept ? ` The ${kept} roll hit${kept === 1 ? '' : 's'} already here ${kept === 1 ? 'is' : 'are'} kept; CLEAR ROLLS deletes them.` : ''}`;
     }
-    this.history.replaceCurrent(this.entry);
-    this.rebake();
+    this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: true });
+    const gen = new Set(this.bakeWith(this.seeds, this.recipe, null).events.filter((e) => e.role === 'roll').map((e) => hitKey(e)));
+    const added = this.edits.added.filter((m) => !(m.role === 'roll' && !m.from && gen.has(hitKey(m)) && !this.edits.removed.includes(hitKey(m))));
+    if (added.length !== this.edits.added.length) this.edits = { ...this.edits, added };
+    return ROLLS_ON_NOTE;
   }
 
   // ---------------------------------------------------------------- chop
@@ -496,7 +535,7 @@ export class App {
     if (this.chopLocked) return this.say(`CHOP is applied: this pattern has ${editCount(this.edits)} hand edit${editCount(this.edits) === 1 ? '' : 's'} on the chopped result. ⌘Z them, or Edit ▸ Clear All Hand Edits, to change CHOP again.`);
     const next = sanitiseChop({ ...this.chop, ...patch })!;
     if (JSON.stringify(next) === JSON.stringify(this.recipe.chop)) return;
-    this.recipe = sanitiseRecipe({ ...this.recipe, chop: next });
+    this.recipe = this.fresh({ ...this.recipe, chop: next });
     this.history.replaceCurrent(this.entry);
     this.rebake();
     this.status = next.on ? describeChop(this.current.chop) : 'CHOP off: the pattern is the GROOVE (the settings are kept).';
@@ -539,6 +578,12 @@ export class App {
     this.selected = null;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
+    // it follows ROLL GENERATION as every break does (the rolls it was baked with are kept as hits)
+    if (this.rollsDisagree) {
+      this.switchRolls(this.rollGeneration);
+      this.show(this.bakeWith(this.seeds));
+      this.history.replaceCurrent(this.entry);
+    }
   }
 
   historyBack(): void {
@@ -647,7 +692,7 @@ export class App {
   private snapshot(): string {
     return JSON.stringify({ current: this.current, recipe: this.recipe, seeds: this.seeds,
       seedName: this.seedName, samples: this.samples, edits: this.edits,
-      selected: this.selected, batch: this.batch, picked: this.picked });
+      selected: this.selected, batch: this.batch, picked: this.picked, rollGeneration: this.rollGeneration });
   }
 
   /** Re-apply the edit layer to the current seeds: playback follows at once (not at the loop point). */
@@ -810,7 +855,7 @@ export class App {
   }
 
   private restoreSnapshot(s: string): void {
-    const o = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked'>;
+    const o = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'>;
     Object.assign(this, o);
     // The player applies the selected live transition policy to restored snapshots.
     this.player.update(this.current);

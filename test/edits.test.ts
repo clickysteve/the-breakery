@@ -444,6 +444,7 @@ describe('complete pattern snapshots', () => {
 
   it('preserves rolls, sample references, manual edits and selected hit without regenerating', () => {
     const app = makeApp();
+    app.setRollsOn(true);
     app.setStyle('jungle');
     app.setRecipe({ bars: 4, rolls: 1, rollLength: 8, rollPlace: 'anywhere' });
     for (let seed = 13; seed < 100 && !app.current.events.some(e => e.role === 'roll'); seed++) app.setSeed(seed);

@@ -103,8 +103,8 @@ describe('pattern length 1–8 bars', () => {
     }
     expect(fBars / SEEDS.length).toBeGreaterThan(0.7);
     for (const seed of SEEDS.slice(0, 10)) {
-      // (ROLLS is its own control: with ROLLS 0 too, there is no fill or roll at all)
-      const b = bake({ ...defaultRecipe('funk', 8), fills: 0, variation: 0, rolls: 0 }, seedsFrom(seed));
+      // (ROLLS and TOM ACTIVITY are their own controls: with both at 0 too, there is no fill or roll at all)
+      const b = bake({ ...defaultRecipe('funk', 8), fills: 0, variation: 0, rolls: 0, toms: 0 }, seedsFrom(seed));
       expect(b.events.filter((e) => e.role === 'fill' || e.role === 'roll').length).toBe(0);
     }
   });

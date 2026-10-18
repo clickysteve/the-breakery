@@ -142,6 +142,9 @@ export function addRolls(events: BreakEvent[], ctx: RollContext, rng: Rng, frng:
   };
   spanOf((e) => e.role === 'roll', 'the fill’s roll');
   spanOf((e) => e.role === 'fill' && (e.cat === 'htom' || e.cat === 'mtom' || e.cat === 'ltom'), 'the tom fill');
+  spanOf((e) => e.role === 'accent' && (e.cat === 'htom' || e.cat === 'mtom' || e.cat === 'ltom'), 'the tom accent');
+  const phrased = (recipe.revision ?? 0) >= 1;
+  const tomPhrase = (e: BreakEvent) => (e.role === 'fill' || e.role === 'accent') && (e.cat === 'htom' || e.cat === 'mtom' || e.cat === 'ltom');
 
   for (let i = 0; i < count; i++) {
     // every roll draws the same numbers whatever happens, so one roll's choice never shifts the next
@@ -176,7 +179,8 @@ export function addRolls(events: BreakEvent[], ctx: RollContext, rng: Rng, frng:
       }
     let start = end - n * d;
     const floor = Math.max(bar * TPB, ...busy.filter(([, s1]) => s1 <= end).map(([, s1]) => s1));
-    const protectedTicks = out.filter((e) => e.bar === bar && (isBackbeat(e) || e.cat === 'crash' || (e.cat === 'kick' && e.step === 0 && e.sub === 0))).map(tickOf).filter((t) => t < end);
+    // from revision 1 the tom phrases (TOM ACTIVITY) are protected too: a roll never removes one
+    const protectedTicks = out.filter((e) => e.bar === bar && (isBackbeat(e) || e.cat === 'crash' || (e.cat === 'kick' && e.step === 0 && e.sub === 0) || (phrased && tomPhrase(e)))).map(tickOf).filter((t) => t < end);
     const lo = Math.max(floor, ...protectedTicks.map((t) => t + 1));
     while (start < lo && n > 0) {
       n--;

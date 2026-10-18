@@ -28,12 +28,12 @@ import { autoSamples, finishSamples, type SampleContext } from './samples';
 import { FLOURISH, STYLE_DEFS } from './styles';
 import { generateSupport, planSupport } from './support';
 import { addRolls } from './rolls';
-import { addToms } from './toms';
+import { addTomPhrases, addToms, tomVoices } from './toms';
 import { sanitiseChop } from './chopper';
 import { transform } from './transform';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
-import { CATEGORIES, clamp, LAYERS, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds } from './types';
+import { CATEGORIES, clamp, CURRENT_REVISION, LAYERS, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds } from './types';
 
 /** Recipe values made safe (clamped, known style and engine, whole bars 1–8). */
 export function sanitiseRecipe(r: Recipe): Recipe {
@@ -53,6 +53,10 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   out.rollTargets = Array.isArray(r.rollTargets) ? ROLL_TARGETS.filter((t) => (r.rollTargets as unknown[]).includes(t)) : [...fl.rollTargets];
   if (r.rollsOn === false) out.rollsOn = false;
   else delete out.rollsOn;
+  // the GROOVE revision (engine 2 only; absent = 0, as every recipe saved before revisions)
+  const rev = engine === 2 ? clamp(Math.floor(Number(r.revision) || 0), 0, CURRENT_REVISION) : 0;
+  if (rev) out.revision = rev;
+  else delete out.revision;
   // the new JUNGLE phrase belongs to engine 2's JUNGLE only; anything else (or anything saved before it) keeps the old
   if (r.jungleCuts === true && def.style === 'jungle' && engine === 2) out.jungleCuts = true;
   else delete out.jungleCuts;
@@ -122,14 +126,32 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
   return { plan: roles, feel, timekeeper: plan.timekeeper, events };
 }
 
+/** Does this recipe hold back every new roll (ROLL GENERATION off, revision 1 on)? Before revision 1 it held back only the ROLLS layer. */
+export const holdsRolls = (r: Recipe): boolean => r.rollsOn === false && (r.revision ?? 0) >= 1;
+
+/**
+ * ROLL GENERATION off (revision 1): the GROOVE's own rolls (a fill's roll, a JUNGLE retrigger
+ * burst, a BREAKCORE stutter) are played as plain fills: their strokes on the sixteenth grid stay,
+ * as fill hits, and the faster strokes between them go. The rhythm of the fill is kept; nothing
+ * is retriggered. Runs after the AUTO sample choice and the toms, so no other hit's sample, and
+ * no tom, changes.
+ */
+export function plainFills(events: BreakEvent[]): BreakEvent[] {
+  return events
+    .filter((e) => e.role !== 'roll' || e.sub === 0)
+    .map((e) => (e.role === 'roll' ? { ...e, role: 'fill' as const, why: `${e.why.replace(/ \(32nd retrigger\)$/, '')} (played as a plain fill: ROLL GENERATION is off)` } : e));
+}
+
 /**
  * TOMS and ROLLS (engine 2): layers over the performed break, from their own streams, so the rest of
  * the break (every other hit's velocity, timing and AUTO sample) is the same whatever they do.
  * FREEZE BEAT keeps them (what they play comes from the beat seed), FREEZE FEEL how they play it.
+ * The toms come first and never depend on ROLLS: from revision 1 they are phrases over the whole
+ * pattern (addTomPhrases), voiced on the toms the kit has; before it, fills in the fill bars.
  */
-function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: Seeds): BreakEvent[] {
+function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: Seeds, kit: KitIndex): BreakEvent[] {
   const ctx = { def: STYLE_DEFS[recipe.style], fl: FLOURISH[recipe.style], recipe, feel: core.feel, roles: core.plan };
-  const withToms = addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
+  const withToms = (recipe.revision ?? 0) >= 1 ? addTomPhrases(core.events, ctx, stream(seeds.beat, 'tom-phrases'), stream(seeds.feel, 'toms'), tomVoices(kit)) : addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
   if (recipe.rollsOn === false) return withToms;
   return addRolls(withToms, { ...ctx, timekeeper: core.timekeeper }, stream(seeds.beat, 'rolls'), stream(seeds.feel, 'rolls'));
 }
@@ -142,7 +164,9 @@ function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: 
 export function groove(recipe: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}): { core: Omit<Break, 'recipe' | 'seeds'>; events: BreakEvent[]; main: ReturnType<typeof autoSamples> } {
   const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
   const main = autoSamples(core.events, kit, seeds.kit, samples);
-  const events = recipe.engine === 2 ? flourish(core, recipe, seeds) : core.events;
+  const flourished = recipe.engine === 2 ? flourish(core, recipe, seeds, kit) : core.events;
+  // the toms are the same whatever ROLL GENERATION is: the GROOVE's rolls become plain fills after them
+  const events = holdsRolls(recipe) ? plainFills(flourished) : flourished;
   return { core, events, main };
 }
 

@@ -38,6 +38,7 @@ export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edit
   const k: unknown[] = [r.engine, r.style, r.bpm, r.bars, r.density, r.complexity, r.syncopation, r.ghosts, r.swing, r.humanise, r.variation, r.fills, s.beat, s.detail, s.feel, s.kit, (s.mut ?? []).map((m) => (m.style ? [m.seed, m.beat, m.detail, m.style, m.depth, m.range, m.cats ?? null] : [m.seed, m.beat, m.detail]))];
   if (r.rollsOn === false) k.push('no rolls');
   if (r.jungleCuts) k.push('jungle cuts');
+  if (r.revision) k.push(['revision', r.revision]);
   if (chopActive(r.chop)) k.push(['chop', r.chop!.amount, r.chop!.slice, r.chop!.retrigger, r.chop!.variant]);
   if (hasEdits(e.edits)) k.push(editsKey(e.edits));
   return JSON.stringify(k);

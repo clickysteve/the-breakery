@@ -57,6 +57,16 @@ export const MAX_BARS = 8;
 export type Engine = 1 | 2;
 export const ENGINES: Engine[] = [1, 2];
 export const CURRENT_ENGINE: Engine = 2;
+/**
+ * Revisions of GROOVE (engine 2) that change what a saved recipe bakes. A recipe carries its
+ * revision, as it carries its engine, so a break saved before a revision reproduces exactly:
+ *   0 (absent)  as released up to Phase 10
+ *   1           TOM ACTIVITY plays tom phrases (toms.ts addTomPhrases); ROLL GENERATION off holds
+ *               back every new roll: the ROLLS layer, the fills' rolls and retrigger bursts (played
+ *               as plain fills instead) and CHOP's retriggers
+ * New breaks are baked with the current revision.
+ */
+export const CURRENT_REVISION = 1;
 
 /** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
 export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
@@ -105,8 +115,15 @@ export interface Recipe {
   rollDynamics: RollDynamics;
   rollPlace: RollPlace;
   rollTargets: RollTarget[];
-  /** ROLL GENERATION (engine 2): false = the ROLLS layer adds no rolls (absent = on). Rolls already in a break are not deleted by it. */
+  /**
+   * ROLL GENERATION (engine 2): false = no new rolls (absent = on, as every break saved before it
+   * existed). From revision 1 that covers every new roll: the ROLLS layer, the fills' rolls and
+   * CHOP's retriggers. Rolls already in a break are not deleted by it. The app sets it from the
+   * user's ROLL GENERATION preference (off until switched on), never from a recipe's defaults.
+   */
   rollsOn?: boolean;
+  /** GROOVE revision (engine 2; absent = 0): see CURRENT_REVISION */
+  revision?: number;
   /**
    * JUNGLE only: develop the phrase with fragments, displaced snares and retrigger bursts (jungle.ts).
    * Absent means the way JUNGLE developed before Phase 7, so JUNGLE breaks saved earlier reproduce exactly.
@@ -202,6 +219,8 @@ export type Role =
   | 'crash'
   | 'perc'
   | 'fill'
+  /** a tom accent or a short tom answer between the kick and snare accents (TOM ACTIVITY) */
+  | 'accent'
   /** a four-on-the-floor kick layered under the break (HARDCORE) */
   | 'floor kick'
   /** a hit copied from another place in the groove by a chop (event-level resequencing) */
