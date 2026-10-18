@@ -106,7 +106,7 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
 
   function update(): void {
     const r = app.recipe;
-    const e1 = r.engine === 1;
+    const e1 = app.legacy;
     const live = on() && !e1;
     enable.text = on() ? 'ENABLED' : 'DISABLED';
     enable.on = on();
@@ -128,7 +128,7 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
     const kit = app.ingredients.kit();
     const missing = TOMS.filter((t) => !kit[t].length);
     note.textContent = e1
-      ? 'ENGINE 1 HAS NO ROLLS: SWITCH TO ENGINE 2'
+      ? 'LEGACY BREAK: NO ROLLS · RECIPE ▸ USE GROOVE'
       : !on()
         ? 'GENERATION OFF: NEW BREAKS GET NO ROLLS · EXISTING ROLLS ARE KEPT'
         : r.rolls <= 0

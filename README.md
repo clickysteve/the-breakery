@@ -22,10 +22,11 @@ over: every hit can be added, moved, deleted or changed by hand.
 | | |
 |---|---|
 | **INGREDIENTS** | Your sample library: KICK, SNARE, GHOST, HIGH TOM, MID TOM, LOW TOM, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. |
-| **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), ENGINE 1/2, BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, eight controls and TOM ACTIVITY. |
+| **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, eight controls and TOM ACTIVITY. |
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
 | **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, or your hand EDITS, when baking again. |
+| **CHOP** | (a tab beside RECIPE) Transform the GROOVE: re-arrange its phrase (recalls, swaps, repeats, retriggers, drop-outs) with AMOUNT, SLICE SIZE (LARGE, MEDIUM, SMALL, MICRO) and RETRIGGER; RE-CHOP. Non-destructive: the GROOVE is kept. |
 | **ROLLS** | (a tab beside RECIPE) Roll generation on/off, probability, length, speed 1/16–1/64 and triplets, dynamics, placement, which drums; CLEAR ROLLS. |
 | **MUTATE** | (a tab beside RECIPE) MUTATE PATTERN with a style, depth, range and tracks; CREATE RELATED SECTION (verse, chorus, breakdown, build, fill, alternate). |
 | **PATTERN** | See every hit and why it is there; edit hits by hand (click to add or delete, shift+click to edit, drag to move; velocity, timing, sample) with undo; SOLO and MUTE each drum. Dense rolls show as one group (ROLL ×N): click to expand. |
@@ -89,16 +90,22 @@ from any folder of any static server). `npm run evaluate` regenerates
    for what it does. **Every number can be typed**: click it (the value is selected), type,
    Return; Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or
    drag, or double-click to type a value. **BARS** is 1–8. **SEED** takes a number or any words
-   ("funky chicken"): the same seed, recipe and engine always bake the same break. **DICE** rolls a
+   ("funky chicken"): the same seed and recipe always bake the same break. **DICE** rolls a
    named seed; **◀ ▶** (or ← →) move through the history; **FAV** saves the break (recipe, seeds,
    mutations and sample settings; favourites are in the **Seeds** menu). **TOM ACTIVITY** sets how
    much the toms join the fills. The **MUTATE** tab (U) makes a related variation by changing the
    groove itself, so every bar follows: a **STYLE** (MUSICAL, SUBTLE, RHYTHMIC, FILLS, SPARSE,
    DENSE, WILD), a **DEPTH**, a **RANGE** (the last part of the phrase) and ALL or chosen
    **TRACKS**; **CREATE RELATED SECTION** makes a verse, chorus, breakdown, build, fill or
-   alternate section from the current break. Each is a new break in the history (◀ returns). **ENGINE** switches between
-   the current generator (2) and the first release's (1), kept so old breaks reproduce and so you
-   can compare them on the same seed.
+   alternate section from the current break. Each is a new break in the history (◀ returns).
+   **GENERATE** shows what makes the pattern: the **GROOVE** (the generator), then **CHOP** (the
+   transformation; the button opens its tab). A break saved by the first release opens as
+   **LEGACY** and plays exactly as it did; **USE GROOVE** re-bakes it with today's generator.
+   The **CHOP** tab re-arranges the GROOVE's phrase as a producer would chop a break: **AMOUNT**
+   (0 is the GROOVE exactly; low keeps it recognisable, high fragments it), **SLICE SIZE** and
+   **RETRIGGER** (fast re-strikes, written as rolls you can edit). Each recipe chops in its own way.
+   Every change is recalculated from the GROOVE (seeds unchanged); **RE-CHOP** tries another chop.
+   Once you edit a hit by hand, CHOP is applied and stays fixed until you undo the edits.
 3. **Bake.** **BAKE** (B) for a new break; **BATCH** (N) for eight candidates (1–8 to audition).
    **FREEZE RHYTHM** keeps hit placement and performance and changes only the samples; **FREEZE
    SAMPLES** keeps the sample choices; or freeze single layers: BEAT (kick and snare), DETAIL
@@ -236,8 +243,12 @@ drag, ⌘Z).
 * **Engine 2 is not yet evaluated by ear**, and neither are rolls and tom fills. They are
   checked by tests and by inspecting generated patterns ([docs/EVALUATION.md](docs/EVALUATION.md)),
   but their listening tests have not been run.
-* Changing engines changes the break: engine 2 bakes different breaks from the same seeds. Breaks
-  saved before engine 2 open with engine 1 and reproduce exactly.
+* **CHOP is not yet evaluated by ear.** It is checked by tests and by reading generated grids
+  ([docs/chop-report.md](docs/chop-report.md)); no listening test has been run.
+* Breaks saved with the first release's generator open as LEGACY and reproduce exactly, but a
+  typed seed now always bakes with the current GROOVE (before, with engine 1 selected, it baked an
+  engine 1 break). There is no engine selector.
+* CHOP is fixed once a pattern has hand edits (they are positional, on the chopped result).
 * 4/4 only. Hits sit on a grid of 12 ticks per sixteenth (so 1/32, 1/64 and 16th and 32nd
   triplets, not quintuplets).
 * Toms never borrow another drum's sound: with no tom samples, tom hits are silent. A visitor
@@ -273,7 +284,8 @@ drag, ⌘Z).
 ## Next steps
 
 1. Run the listening tests (docs/EVALUATION.md §4: engine 1 vs 2, timing, long patterns,
-   recipes, sample modes, MUTATE, rolls, toms, editing) with a real kit and tune from them.
+   recipes, sample modes, MUTATE, rolls, toms, editing, CHOP at low, medium and high AMOUNT per
+   recipe) with a real kit and tune from them.
 2. Calibrate fill, tom and roll tendencies from the Groove MIDI Dataset; flams and drags as
    their own gestures; dragging a hit to another row (change its drum).
 3. BREED two favourites; a MUTATE strength measured by rhythmic edit distance.

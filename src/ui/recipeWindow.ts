@@ -1,14 +1,17 @@
 /**
- * RECIPE · ROLLS · MUTATE, one window with three tabs.
+ * RECIPE · CHOP · ROLLS · MUTATE, one window with four tabs.
  *
- * RECIPE: style (with RANDOM RECIPE), engine (a separate row: the generator, not a recipe), tempo, bars, seed (with DICE, history and favourite), the eight
- * generative controls and TOM ACTIVITY. Every change re-bakes the same seeds, so you hear what the
- * control does to this break. Every number can be clicked and typed (emmm's numerical fields).
- * ROLLS: roll generation (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
+ * RECIPE: style (with RANDOM RECIPE), tempo, bars, seed (with DICE, history and favourite), the
+ * GENERATE row (GROOVE, the generator, then CHOP, the transformation; a LEGACY break offers USE
+ * CURRENT GROOVE), the eight generative controls and TOM ACTIVITY. Every change re-bakes the same
+ * seeds, so you hear what the control does to this break. Every number can be clicked and typed
+ * (emmm's numerical fields). CHOP: the phrase transformation (chopTab.ts). ROLLS: roll generation
+ * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
  */
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORY_LABEL, MAX_BARS, MIN_BARS, STYLES, TOMS, type Bars, type RecipeKey } from '../engine/types';
+import { chopTab } from './chopTab';
 import { el, label, setTip } from './dom';
 import { mutateTab } from './mutateTab';
 import { rollsTab } from './rollsTab';
@@ -30,7 +33,7 @@ const CONTROLS: { key: RecipeKey; label: string; tip: string; format?: (v: numbe
     format: (v) => `${Math.round(swingPercent(v))}%`,
     parse: (t) => (num(t) === null ? null : (Math.max(50, Math.min(75, num(t)!)) - 50) / 25),
   },
-  { key: 'humanise', label: 'HUMANISE', tip: "The drummer's tendencies: a laid-back snare (more on 2 than on 4), hats leaning ahead, accents a touch late, small correlated drifts. Engine 2: up to ±18 ms. Not random jitter." },
+  { key: 'humanise', label: 'HUMANISE', tip: "The drummer's tendencies: a laid-back snare (more on 2 than on 4), hats leaning ahead, accents a touch late, small correlated drifts. Up to ±18 ms. Not random jitter." },
   { key: 'variation', label: 'VARIATION', tip: 'How much later bars differ from the first: answers, development bars, chops (JUNGLE, HARDCORE, BREAKCORE). Programmed recipes repeat exactly below 50%.' },
   { key: 'fills', label: 'FILLS', tip: 'Length and drama of the fills: snare runs, delayed backbeats with early crashes, drop-outs, stutters, chops and rolls. In 6–8 bars a short half-way fill answers the last one.' },
 ];
@@ -48,14 +51,15 @@ const BAR_PLAN: Record<number, string> = {
 
 export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
-  const [b, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement];
+  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'CHOP', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
+  const [b, chopPane, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
   const W = rect.w - 2;
+  const chop = chopTab(chopPane, ui, W);
   const rolls = rollsTab(rollsPane, ui, W);
   const mut = mutateTab(mutatePane, ui, W);
 
-  // RECIPE: two rows of recipes (the last cell of the second row is RANDOM RECIPE). ENGINE is not a
-  // recipe but the generator that bakes it, so it has its own labelled row below, between rules.
+  // RECIPE: two rows of recipes (the last cell of the second row is RANDOM RECIPE). GENERATE is not
+  // a recipe but what is done with it (GROOVE, then CHOP), so it has its own row below, between rules.
   const perRow = 6;
   const bw = Math.floor((W - 8 - (perRow - 1) * 2) / perRow);
   const styleBtns = STYLES.map((s, i) => {
@@ -70,7 +74,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   });
   const random = new Button(b, [4 + 5 * (bw + 2), 15, bw, 13], 'RANDOM', {
     cls: 'small',
-    tip: 'RANDOM RECIPE: pick a different recipe at random and bake a new break with it. The length, kit and ENGINE stay, FREEZE is respected, and ⌘Z undoes it. (ENGINE 1 chooses among its four recipes.)',
+    tip: 'RANDOM RECIPE: pick a different recipe at random and bake a new break with it. The length, kit and CHOP settings stay, FREEZE is respected, and ⌘Z undoes it.',
     onPress: () => void app.randomRecipe(),
   });
   random.el.setAttribute('aria-label', 'Random recipe');
@@ -112,7 +116,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     maxLength: 40,
     pxPerUnit: 6,
     label: 'Seed: a number or a name',
-    tip: 'The seed: a number, or any words ("funky chicken", "glasgow 1993"). The same seed, recipe and engine always bake the same break. Click and type, then Return. ↑ ↓ step to neighbouring numbers (not related breaks: MUTATE makes those). +N = mutations.',
+    tip: 'The seed: a number, or any words ("funky chicken", "glasgow 1993"). The same seed and recipe always bake the same break. Click and type, then Return. ↑ ↓ step to neighbouring numbers (not related breaks: MUTATE makes those). +N = mutations.',
   });
   const dice = new Button(b, [bx, y2, 26, 15], 'DICE', { cls: 'small', tip: 'DICE: roll a new named seed for every layer (D)', onPress: () => app.dice() });
   const back = new Button(b, [bx + 28, y2, 12, 15], '◀', { cls: 'small', tip: 'Back to the previous seed in the history (←)', onPress: () => app.historyBack() });
@@ -120,18 +124,25 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const fav = new Button(b, [W - 4 - 24, y2, 24, 15], 'FAV', { cls: 'small', tip: 'Save this break to the favourites (S): recipe, seeds, mutations and sample settings. Inverted when it is one; press again to remove it. Favourites are in the Seeds menu.', onPress: () => app.toggleFavourite() });
 
   el('div', 'rule', b, [4, 49, W - 8]);
-  label(b, 5, 54, 'ENGINE', 'head');
-  const engineBtns = ([1, 2] as const).map((n, i) =>
-    new Button(b, [48 + i * (bw + 2), 51, bw, 13], `ENGINE ${n}`, {
-      cls: 'small',
-      tip:
-        n === 2
-          ? 'ENGINE 2: the current generator, which bakes every recipe. The engine is not a recipe: it is the version of the generator that the chosen recipe runs on.'
-          : 'ENGINE 1: the first release’s generator, kept exactly so its breaks still reproduce from their seeds. It knows only FUNK, HIP-HOP, JUNGLE and BROKEN, has no toms, rolls or MUTATE, and you can switch to compare the two on the same seed.',
-      onPress: () => app.setEngine(n),
-    }),
-  );
-  label(b, 48 + 2 * (bw + 2) + 3, 54, 'GENERATOR · NOT A RECIPE', 'tiny');
+  label(b, 5, 54, 'GENERATE', 'head');
+  const groove = new Button(b, [56, 51, bw, 13], 'GROOVE', {
+    cls: 'small',
+    tip: 'GROOVE: the generator. The recipe and seeds bake an original drum performance: a phrase of kicks, snares, ghosts, hats, toms, fills and rolls with a coherent feel. It is the source CHOP transforms.',
+    onPress: () => app.say(app.legacy ? 'LEGACY: this break was baked by the first release’s generator. USE GROOVE re-bakes it with the current GROOVE.' : 'GROOVE is the generator: every break is baked by it, and CHOP (if on) transforms it.'),
+  });
+  label(b, 56 + bw + 4, 54, '▸');
+  const chopBtn = new Button(b, [56 + bw + 14, 51, bw + 20, 13], 'CHOP OFF', {
+    cls: 'small',
+    tip: 'CHOP: the transformation. It re-arranges the GROOVE’s phrase (recalls, swaps, repeats, retriggers, drop-outs). Opens the CHOP tab.',
+    onPress: () => win.setTab(1),
+  });
+  const genNote = el('div', 'label tiny', b, [56 + 2 * bw + 40, 55, W - 4 - 76 - (56 + 2 * bw + 40)]);
+  const useGroove = new Button(b, [W - 4 - 72, 51, 72, 13], 'USE GROOVE', {
+    cls: 'small',
+    tip: 'USE CURRENT GROOVE: this break was made by the first release’s generator (LEGACY) and plays exactly as it did. This re-bakes the same seed and controls with today’s GROOVE. One way; ⌘Z returns to the legacy break.',
+    onPress: () => app.useCurrentGroove(),
+  });
+  useGroove.el.setAttribute('aria-label', 'Use current GROOVE');
   el('div', 'rule', b, [4, 66, W - 8]);
 
   // the eight controls in two columns, and TOM ACTIVITY (the toms are instruments, so they are part of the recipe)
@@ -163,9 +174,13 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     styleBtns.forEach((btn, i) => {
       btn.on = STYLES[i] === app.recipe.style;
     });
-    engineBtns.forEach((btn, i) => {
-      btn.on = app.recipe.engine === i + 1;
-    });
+    groove.on = !app.legacy;
+    groove.text = app.legacy ? 'LEGACY' : 'GROOVE';
+    const c = app.chop;
+    chopBtn.on = app.chopped;
+    chopBtn.text = c.on ? `CHOP ${Math.round(c.amount * 100)}% ${c.slice.toUpperCase()}` : 'CHOP OFF';
+    useGroove.el.style.display = app.legacy ? '' : 'none';
+    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : 'GENERATION ▸ TRANSFORMATION';
     bpm.update();
     bars.update();
     seed.update();
@@ -178,10 +193,11 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     const kit = app.ingredients.kit();
     const have = TOMS.filter((t) => kit[t].length);
     const tomHits = app.current.events.filter((e) => (TOMS as readonly string[]).includes(e.cat)).length;
-    tomNote.textContent = app.recipe.engine === 1 ? 'ENGINE 1 HAS NO TOMS' : `${tomHits} TOM HIT${tomHits === 1 ? '' : 'S'} · SAMPLES ${have.length}/3`;
+    tomNote.textContent = app.legacy ? 'LEGACY BREAK: NO TOMS' : `${tomHits} TOM HIT${tomHits === 1 ? '' : 'S'} · SAMPLES ${have.length}/3`;
     setTip(tomNote, have.length === 3 ? 'High, mid and low tom samples are loaded (INGREDIENTS). Tom hits follow their MIXER channels and MIDI notes.' : `No sample for ${TOMS.filter((t) => !kit[t].length).map((t) => CATEGORY_LABEL[t]).join(', ')}: those hits are silent until one is loaded (INGREDIENTS), or the demo kit is added.`);
-    if (win.tab === 1) rolls.update();
-    if (win.tab === 2) mut.update();
+    if (win.tab === 1) chop.update();
+    if (win.tab === 2) rolls.update();
+    if (win.tab === 3) mut.update();
   }
   function setTipBars(): void {
     bars.el.dataset.tip = `Pattern length, 1–8 bars (now ${app.recipe.bars}: ${BAR_PLAN[app.recipe.bars]}). Click and type, or ↑ ↓.`;

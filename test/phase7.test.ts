@@ -12,6 +12,17 @@ import { defaultRecipe } from '../src/engine/styles';
 import { V1_STYLES } from '../src/engine/v1/styles';
 import { CATEGORIES, STYLES, TPS, type Bars, type Break, type Recipe, type Seeds } from '../src/engine/types';
 
+/** where and how hard each hit is (the samples depend on the kit) */
+const shape = (b: Break) => JSON.stringify(b.events.map((e) => [e.cat, e.bar, e.step, e.sub, e.vel, e.offsetMs]));
+
+/** An App restored from a save made with the first release's generator (engine 1). */
+function legacyApp(style: 'funk' | 'jungle' | 'hiphop' | 'broken', seeds: Seeds = seedsFrom(4242)) {
+  localStorage.setItem('breakery.state.v1', JSON.stringify({ recipe: { ...defaultRecipe(style, 4), engine: 1 }, seeds, seedName: null }));
+  const k = kit();
+  const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setOutput() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
+  return { app: new App({ kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' } as never, player as never) };
+}
+
 const SEEDS = Array.from({ length: 24 }, (_, i) => i + 1);
 const jungle = (bars: Bars, over: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe('jungle', bars), ...over });
 const kit = (): KitIndex => {
@@ -198,15 +209,13 @@ describe('RANDOM RECIPE', () => {
     for (const e of app.current.events) if (e.sample) expect(ids.has(e.sample)).toBe(true);
   });
 
-  it('with ENGINE 1 chooses only among the four recipes it knows, and keeps ENGINE 1', () => {
-    const { app } = makeApp();
-    app.setStyle('funk');
-    app.setEngine(1);
-    for (let i = 0; i < 20; i++) {
-      const style = app.randomRecipe(i / 20);
-      expect(V1_STYLES as readonly string[]).toContain(style);
-      expect(app.recipe.engine).toBe(1);
-    }
+  it('from a LEGACY break bakes with the current GROOVE, and can choose any recipe', () => {
+    const { app } = legacyApp('funk');
+    expect(app.legacy).toBe(true);
+    const style = app.randomRecipe(0.9);
+    expect(app.legacy).toBe(false);
+    expect(app.recipe.engine).toBe(2);
+    expect(V1_STYLES as readonly string[]).not.toContain(style);
   });
 
   it('respects FREEZE: frozen layers keep their seeds, the others change', () => {
@@ -248,24 +257,49 @@ describe('RANDOM RECIPE', () => {
   });
 });
 
-describe('ENGINE is a generator, not a recipe', () => {
+describe('LEGACY breaks (the first release\'s generator)', () => {
   beforeEach(() => {
     const m = new Map<string, string>();
     (globalThis as { localStorage?: Storage }).localStorage = { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k), clear: () => m.clear(), key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; } };
   });
-  it('switching it keeps the recipe, and ENGINE 1 refuses recipes it does not know', () => {
-    const k = kit();
-    const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setOutput() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
-    const app = new App({ kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' } as never, player as never, '7');
-    app.setStyle('jungle');
-    app.setEngine(1);
+  it('a saved engine 1 break reloads and reproduces exactly, without offering an engine choice', () => {
+    const r: Recipe = { ...defaultRecipe('jungle', 4), engine: 1 };
+    const seeds = seedsFrom(777);
+    const { app } = legacyApp('jungle', seeds);
+    expect(app.legacy).toBe(true);
     expect(app.recipe.engine).toBe(1);
     expect(app.recipe.style).toBe('jungle');
-    app.setEngine(2);
+    expect(shape(app.current)).toBe(shape(bake(r, seeds)));
+    expect('setEngine' in app).toBe(false);
+  });
+  it('USE CURRENT GROOVE re-bakes the same seed and controls with the GROOVE, one undo step', () => {
+    const seeds = seedsFrom(777);
+    const { app } = legacyApp('jungle', seeds);
+    const legacy = JSON.stringify(app.current.events);
+    app.useCurrentGroove();
+    expect(app.legacy).toBe(false);
     expect(app.recipe.engine).toBe(2);
-    app.setStyle('hardcore');
-    app.setEngine(1);
-    expect(app.recipe.engine).toBe(2); // refused: ENGINE 1 does not know HARDCORE
-    expect(app.recipe.style).toBe('hardcore');
+    expect(app.recipe.jungleCuts).toBe(true);
+    expect(app.seeds).toEqual(seeds);
+    expect(shape(app.current)).toBe(shape(bake({ ...defaultRecipe('jungle', 4), jungleCuts: true }, seeds)));
+    app.undo();
+    expect(app.legacy).toBe(true);
+    expect(JSON.stringify(app.current.events)).toBe(legacy);
+  });
+  it('BAKE and a new seed leave LEGACY: new breaks use the current GROOVE', () => {
+    const a = legacyApp('funk').app;
+    a.bake();
+    expect(a.legacy).toBe(false);
+    const b = legacyApp('funk').app;
+    b.setSeed(12345);
+    expect(b.legacy).toBe(false);
+    expect(shape(b.current)).toBe(shape(bake(defaultRecipe('funk', 4), seedsFrom(12345))));
+  });
+  it('MUTATE is refused on a LEGACY break, with a message', () => {
+    const { app } = legacyApp('funk');
+    const before = JSON.stringify(app.current.events);
+    app.mutate();
+    expect(JSON.stringify(app.current.events)).toBe(before);
+    expect(app.status).toMatch(/LEGACY/);
   });
 });

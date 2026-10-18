@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
+  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
   const tabs = $$('.mtab');
-  check(tabs.length === 9, `9 tabs, got ${tabs.length}`);
+  check(tabs.length === 10, `10 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);
@@ -72,7 +72,7 @@ export async function run(): Promise<string> {
   // tab switching keeps state and does not touch playback
   const before = JSON.stringify(app.current.events);
   const recipe = JSON.stringify(app.recipe);
-  for (const t of ['ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
+  for (const t of ['CHOP', 'ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
     await chooseTab(t);
     const tab = $$('.mtab').find((x) => x.textContent === t)!;
     check(tab.classList.contains('on') && tab.getAttribute('aria-selected') === 'true', `${t} selected`);
@@ -82,16 +82,16 @@ export async function run(): Promise<string> {
   check(JSON.stringify(app.current.events) === before && JSON.stringify(app.recipe) === recipe, 'tab switching changes nothing');
   check(!$$('.mwin .btn').some((b) => /^MUT$/.test(b.textContent ?? '')), 'no MUT button left in RECIPE');
 
-  // RECIPE tab: ENGINE is its own labelled row (a generator, not a recipe); RANDOM RECIPE sits with the recipes
+  // RECIPE tab: GENERATE is its own labelled row (GROOVE ▸ CHOP, not recipes); no ENGINE selector; RANDOM RECIPE sits with the recipes
   await chooseTab('RECIPE');
   const recipeWin = win('RECIPE');
   const rbtn = (t: string) => $$('.btn', recipeWin).find((b) => b.textContent === t)!;
-  const engines = ['ENGINE 1', 'ENGINE 2'].map(rbtn);
-  check(engines.every(Boolean) && rbtn('RANDOM'), 'ENGINE 1, ENGINE 2 and RANDOM buttons in RECIPE');
-  check($$('.label.head', recipeWin).some((l) => l.textContent === 'ENGINE'), 'an ENGINE heading');
-  check(rect(engines[0]!).top > rect(rbtn('RANDOM')).bottom && rect(engines[0]!).top > rect($$('.btn', recipeWin).find((b) => b.textContent === 'DICE')!).bottom, 'ENGINE sits in its own row below the recipes and the BPM row');
-  check(engines[1]!.classList.contains('on') && !engines[0]!.classList.contains('on'), 'ENGINE 2 shown selected');
-  check(!$$('.btn', recipeWin).some((b) => b.textContent === 'ENGINE' || b.textContent === 'ENGINE 3'), 'no engine button posing as a recipe');
+  check(rbtn('GROOVE') && rbtn('CHOP OFF') && rbtn('RANDOM'), 'GROOVE, CHOP and RANDOM buttons in RECIPE');
+  check($$('.label.head', recipeWin).some((l) => l.textContent === 'GENERATE'), 'a GENERATE heading');
+  check(rect(rbtn('GROOVE')).top > rect(rbtn('RANDOM')).bottom && rect(rbtn('GROOVE')).top > rect($$('.btn', recipeWin).find((b) => b.textContent === 'DICE')!).bottom, 'GENERATE sits in its own row below the recipes and the BPM row');
+  check(rbtn('GROOVE').classList.contains('on'), 'GROOVE shown as the generator');
+  check(!$$('.btn').some((b) => /^ENGINE \d/.test(b.textContent ?? '')), 'no ENGINE 1 / ENGINE 2 selector anywhere');
+  check(!visible(rbtn('USE GROOVE')), 'USE GROOVE only for LEGACY breaks');
   const wr = rect(recipeWin);
   for (const b of $$('.btn, .label, .range', recipeWin).filter(visible)) check(rect(b).right <= wr.right + 1 && rect(b).left >= wr.left - 1 && rect(b).bottom <= wr.bottom + 1, `${b.textContent} inside the RECIPE window`);
   const btns = $$('.btn', recipeWin).filter(visible).map((b) => [b, rect(b)] as const);
@@ -107,6 +107,32 @@ export async function run(): Promise<string> {
   app.undo();
   await tick();
   check(app.recipe.style === styleBefore, 'RANDOM RECIPE undone');
+
+  // CHOP tab: the GENERATE row opens it; ENABLED, AMOUNT, SLICE SIZE and RETRIGGER chop the same GROOVE; one undo step each
+  const groove = JSON.stringify(app.current.events);
+  const grooveSeeds = JSON.stringify(app.seeds);
+  await press(rbtn('CHOP OFF'), 3, 3);
+  check(recipeWin.querySelector('.mtab.on')?.textContent === 'CHOP', 'the CHOP button opens the CHOP tab');
+  const cbtn = (t: string) => $$('.btn', recipeWin).filter(visible).find((b) => b.textContent === t)!;
+  for (const t of ['DISABLED', 'RE-CHOP', 'LARGE', 'MEDIUM', 'SMALL', 'MICRO']) check(cbtn(t), `CHOP tab: ${t}`);
+  check($$('.range', recipeWin).filter(visible).length === 2, 'CHOP tab: AMOUNT and RETRIGGER range bars');
+  check($$('.label', recipeWin).filter(visible).some((l) => l.textContent === 'RECIPE ▸ GROOVE ▸ CHOP ▸ PATTERN'), 'CHOP tab: the flow');
+  await press(cbtn('DISABLED'), 3, 3);
+  check(app.chopped && JSON.stringify(app.current.events) !== groove && JSON.stringify(app.seeds) === grooveSeeds, 'ENABLED chops the same GROOVE (same seeds)');
+  check(cbtn('ENABLED')?.classList.contains('on'), 'ENABLED shown on');
+  await press(cbtn('MICRO'), 3, 3);
+  check(app.chop.slice === 'micro' && cbtn('MICRO').classList.contains('on'), 'SLICE SIZE MICRO');
+  for (const b of $$('.btn, .label, .range', recipeWin).filter(visible)) check(rect(b).right <= wr.right + 1 && rect(b).left >= wr.left - 1 && rect(b).bottom <= wr.bottom + 1, `${b.textContent} inside the RECIPE window (CHOP)`);
+  const cb = $$('.btn, .range', recipeWin).filter(visible).map((b) => [b, rect(b)] as const);
+  for (let i = 0; i < cb.length; i++) for (let j = i + 1; j < cb.length; j++) {
+    const a = cb[i]![1], c = cb[j]![1];
+    check(a.right <= c.left + 0.5 || c.right <= a.left + 0.5 || a.bottom <= c.top + 0.5 || c.bottom <= a.top + 0.5, `CHOP: ${cb[i]![0].textContent} overlaps ${cb[j]![0].textContent}`);
+  }
+  app.undo();
+  app.undo();
+  await tick();
+  check(!app.chopped && JSON.stringify(app.current.events) === groove, 'CHOP undone back to the GROOVE');
+  await chooseTab('RECIPE');
 
   // ---------------------------------------------------------------- mixer layout and controls
   await chooseTab('MIXER');

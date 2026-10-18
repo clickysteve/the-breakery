@@ -49,9 +49,10 @@ export const MIN_BARS = 1;
 export const MAX_BARS = 8;
 
 /**
- * The generation algorithm. 1 = The Breakery 0.1 (frozen, so its breaks stay reproducible from
- * their seeds), 2 = the current engine. A recipe carries its engine, so favourites, history and
- * links reproduce exactly.
+ * Which version of GROOVE (the generation strategy) baked a break. 2 = GROOVE as it is now, the
+ * only one offered for new breaks; 1 = The Breakery 0.1's generator, kept internally (LEGACY) so
+ * breaks saved with it reproduce exactly from their seeds. Not a choice in the interface: a recipe
+ * carries its engine, so favourites, history and saved state reproduce exactly.
  */
 export type Engine = 1 | 2;
 export const ENGINES: Engine[] = [1, 2];
@@ -111,6 +112,29 @@ export interface Recipe {
    * Absent means the way JUNGLE developed before Phase 7, so JUNGLE breaks saved earlier reproduce exactly.
    */
   jungleCuts?: true;
+  /** CHOP: the transformation applied to the GROOVE (absent = none: every recipe saved before CHOP) */
+  chop?: ChopSettings;
+}
+
+/** CHOP SLICE SIZE: the typical fragment, in sixteenths (recipes lengthen or shorten some of them). */
+export const SLICE_SIZES = ['large', 'medium', 'small', 'micro'] as const;
+export type SliceSize = (typeof SLICE_SIZES)[number];
+export const SLICE_STEPS: Record<SliceSize, number> = { large: 8, medium: 4, small: 2, micro: 1 };
+
+/**
+ * CHOP (chopper.ts): rearranges fragments of the GROOVE. Non-destructive: the result is always
+ * computed from the GROOVE baked from the seeds, never from an earlier result.
+ */
+export interface ChopSettings {
+  /** ENABLED (off keeps the settings for later) */
+  on: boolean;
+  /** AMOUNT 0..1: how much of the phrase is edited (0 = the GROOVE exactly) */
+  amount: number;
+  slice: SliceSize;
+  /** RETRIGGER 0..1: how often and how hard fragments are retriggered (0 = no new retriggers) */
+  retrigger: number;
+  /** RE-CHOP: another chop of the same GROOVE (0 = the first, from the BEAT seed) */
+  variant: number;
 }
 
 /** The 0..1 controls (a missing one is 0: TOMS and ROLLS are 0 in recipes saved before they existed). */
@@ -254,7 +278,17 @@ export interface Break {
   edits?: Edits;
   /** edits that could not apply to this break (kept, not dropped) */
   editReport?: ApplyReport;
+  /** what CHOP did to the GROOVE (absent when CHOP is off) */
+  chop?: ChopReport;
 }
+
+/** What CHOP did: how many slices it edited, and how. */
+export interface ChopReport {
+  slices: number;
+  edited: number;
+  ops: Partial<Record<ChopOp, number>>;
+}
+export type ChopOp = 'recall' | 'swap' | 'repeat' | 'double' | 'retrigger' | 'gap';
 
 /** Grid ticks of an event from the start of the break. */
 export function gridTick(e: Pick<BreakEvent, 'bar' | 'step' | 'sub'>): number {

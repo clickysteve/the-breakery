@@ -7,13 +7,13 @@
  */
 import { addHit, deleteHit, describeEdits, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
 import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
+import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from '../engine/chopper';
 import { rollGroups } from '../engine/rolls';
 import { SECTION_DEFS, type Section } from '../engine/sections';
 import { freshSeed } from '../engine/rng';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { V1_STYLES } from '../engine/v1/styles';
-import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type Engine, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -78,6 +78,14 @@ interface Saved {
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
 
+const LEGACY_NOTE = 'This break was made by the first release’s generator (LEGACY), so it plays exactly as it did. RECIPE ▸ USE GROOVE re-bakes the same seed with today’s GROOVE.';
+
+/** The current GROOVE for a recipe: a LEGACY recipe moves to engine 2 (with the Phase 7 JUNGLE). Other recipes are returned as they are. */
+function current(r: Recipe): Recipe {
+  if (r.engine !== 1) return r;
+  return sanitiseRecipe({ ...r, engine: CURRENT_ENGINE, ...(r.style === 'jungle' ? { jungleCuts: true as const } : {}) });
+}
+
 function readJson(key: string): unknown {
   try {
     const raw = localStorage.getItem(key);
@@ -134,8 +142,10 @@ export class App {
 
   constructor(public ingredients: Ingredients, public player: Player, initialSeed?: string) {
     const s = readJson(STATE_KEY) as Partial<Saved> | null;
-    this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : defaultRecipe('funk', 2);
     const fromUrl = initialSeed !== undefined ? parseSeed(initialSeed) : null;
+    // a saved LEGACY break reproduces as it was; a seed from a link is a new break, baked by the GROOVE
+    this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : defaultRecipe('funk', 2);
+    if (fromUrl) this.recipe = current(this.recipe);
     this.seeds = fromUrl ? seedsFrom(fromUrl.seed) : (s?.seeds ?? seedsFrom(freshSeed()));
     this.seedName = fromUrl ? fromUrl.name : (s?.seedName ?? null);
     this.frozen = { ...noFreeze(), ...(s?.frozen ?? {}) };
@@ -164,7 +174,7 @@ export class App {
     player.onSwap = () => { this.ingredients.releaseRetired?.(); this.changed(false); };
     this.remember();
     this.baseline = this.snapshot();
-    if (s?.recipe && this.recipe.engine === 1) this.status = 'Restored with ENGINE 1, so this break sounds as it did. Switch RECIPE ▸ ENGINE to 2 to hear the new generator on the same seed.';
+    if (this.legacy) this.status = LEGACY_NOTE;
   }
 
   onChange(fn: () => void): void {
@@ -236,43 +246,56 @@ export class App {
     return ` Your ${n} hand edit${n === 1 ? '' : 's'} stay with the previous break: ◀ goes back to it (FREEZE EDITS carries edits onto new breaks).`;
   }
 
+  /** A new break is never LEGACY: the recipe moves to the current GROOVE. Returns a note for the status line. */
+  private leaveLegacy(): string {
+    if (!this.legacy) return '';
+    this.recipe = current(this.recipe);
+    return ' (Now with the current GROOVE: the legacy break stays in the history.)';
+  }
+
   setRecipe(patch: Partial<Recipe>): void {
     this.recipe = sanitiseRecipe({ ...this.recipe, ...patch });
     this.history.replaceCurrent(this.entry);
     this.rebake();
   }
 
-  /** Choose a style: its defaults replace the controls (BPM too). Keeps the engine where it can. */
+  /** Choose a style: its defaults replace the controls (BPM too), baked by the current GROOVE. CHOP's settings stay. */
   setStyle(style: Style): void {
-    this.recipe = sanitiseRecipe(defaultRecipe(style, this.recipe.bars, this.recipe.engine));
+    this.recipe = sanitiseRecipe({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
     this.history.replaceCurrent(this.entry);
     this.rebake();
   }
 
-  setEngine(engine: Engine): void {
-    if (engine === 1 && this.recipe.engine !== 1) {
-      const r = sanitiseRecipe({ ...this.recipe, engine: 1 });
-      if (r.engine !== 1) {
-        this.say(`ENGINE 1 only knows FUNK, HIP-HOP, JUNGLE and BROKEN. ${STYLE_DEFS[this.recipe.style].label} needs ENGINE 2.`);
-        return;
-      }
-    }
-    this.setRecipe({ engine });
-    this.say(engine === CURRENT_ENGINE ? 'ENGINE 2: the current generator.' : `ENGINE 1: the first release’s generator, kept so its breaks reproduce. Same seed, same recipe: compare by ear.${this.seeds.mut?.length ? ' (Mutations apply to engine 2 only.)' : ''}`);
+  /** Is this break LEGACY (baked by the first release's generator, kept so saved breaks reproduce)? */
+  get legacy(): boolean {
+    return this.recipe.engine === 1;
   }
 
   /**
-   * RANDOM RECIPE: a different recipe at random (never ENGINE, which is the generator and not a
-   * recipe: ENGINE 1 only knows its four), and a new break from it. The pattern length, the kit and
-   * the ENGINE stay; the seeds follow FREEZE exactly as BAKE does. One undo step. `roll` 0..1 picks the recipe.
+   * USE CURRENT GROOVE: a LEGACY break (restored from a save made with the first release's
+   * generator) re-baked with today's GROOVE: same seed, same controls. One way, undoable; nothing
+   * offers the legacy generator for new breaks.
+   */
+  useCurrentGroove(): void {
+    if (!this.legacy) return;
+    this.recipe = current(this.recipe);
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.say('Re-baked with the current GROOVE: same seed and controls (⌘Z returns to the legacy break).');
+  }
+
+  /**
+   * RANDOM RECIPE: a different recipe at random, and a new break from it with the current GROOVE.
+   * The pattern length, the kit and CHOP stay; the seeds follow FREEZE exactly as BAKE does. One
+   * undo step. `roll` 0..1 picks the recipe.
    */
   randomRecipe(roll = Math.random()): Style {
-    const pool: Style[] = this.recipe.engine === 1 ? [...V1_STYLES] : [...STYLES];
+    const pool: Style[] = [...STYLES];
     const others = pool.filter((s) => s !== this.recipe.style);
     const choices = others.length ? others : pool;
     const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
     const note = this.leaveEdits();
-    this.recipe = sanitiseRecipe(defaultRecipe(style, this.recipe.bars, this.recipe.engine));
+    this.recipe = sanitiseRecipe({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
     this.seeds = reseed(this.seeds, this.frozen);
     this.seedName = null;
     this.picked = null;
@@ -287,9 +310,9 @@ export class App {
     this.setStyle(this.recipe.style);
   }
 
-  /** BAKE: new seeds for the layers that are not frozen. */
+  /** BAKE: new seeds for the layers that are not frozen, baked by the current GROOVE (a LEGACY recipe moves to it). */
   bake(): void {
-    const note = this.leaveEdits();
+    const note = this.leaveEdits() + this.leaveLegacy();
     this.seeds = reseed(this.seeds, this.frozen);
     this.seedName = null;
     this.picked = null;
@@ -301,7 +324,7 @@ export class App {
 
   /** BATCH: several candidates from new seeds (frozen layers kept); the first becomes current. */
   bakeBatch(n = BATCH_SIZE): void {
-    const note = this.leaveEdits();
+    const note = this.leaveEdits() + this.leaveLegacy();
     this.batch = [];
     for (let i = 0; i < n; i++) this.batch.push(this.bakeWith(reseed(this.seeds, this.frozen)));
     this.pick(0);
@@ -328,7 +351,7 @@ export class App {
 
   /** Set every layer from one seed (a number, or a name). */
   setSeed(seed: number, name: string | null = null): void {
-    const note = this.leaveEdits();
+    const note = this.leaveEdits() + this.leaveLegacy();
     this.seeds = seedsFrom(Math.max(0, Math.floor(seed)) >>> 0);
     this.seedName = name;
     this.picked = null;
@@ -393,8 +416,8 @@ export class App {
       this.say('Nothing to mutate: BEAT and DETAIL are both frozen.');
       return false;
     }
-    if (this.recipe.engine === 1) {
-      this.say('MUTATE needs ENGINE 2 (engine 1 is kept exactly as released).');
+    if (this.legacy) {
+      this.say('MUTATE works on the current GROOVE: this is a LEGACY break, kept exactly as released. RECIPE ▸ USE GROOVE first.');
       return false;
     }
     const note = this.leaveEdits();
@@ -446,6 +469,49 @@ export class App {
     }
     this.history.replaceCurrent(this.entry);
     this.rebake();
+  }
+
+  // ---------------------------------------------------------------- chop
+
+  /** CHOP's settings (the defaults, with the recipe's slice size, until CHOP is first used). */
+  get chop(): ChopSettings {
+    return this.recipe.chop ?? { ...defaultChop(), slice: CHOP_STYLE[this.recipe.style].slice };
+  }
+
+  /**
+   * CHOP is fixed while the pattern has hand edits: they were made on the chopped result, and a
+   * new chop would move hits under them. Until the first hand edit CHOP is a preview, recalculated
+   * from the GROOVE at every change; undoing the edits (or CLEAR ALL HAND EDITS) frees it again.
+   */
+  get chopLocked(): boolean {
+    return hasEdits(this.edits);
+  }
+
+  /**
+   * Change CHOP (ENABLED, AMOUNT, SLICE SIZE, RETRIGGER). The pattern is CHOP of the GROOVE baked
+   * from the same seeds (never of the previous result), so AMOUNT 0 is the GROOVE again. The batch
+   * follows, as for any recipe change. A drag is one undo step.
+   */
+  setChop(patch: Partial<ChopSettings>): void {
+    if (this.chopLocked) return this.say(`CHOP is applied: this pattern has ${editCount(this.edits)} hand edit${editCount(this.edits) === 1 ? '' : 's'} on the chopped result. ⌘Z them, or Edit ▸ Clear All Hand Edits, to change CHOP again.`);
+    const next = sanitiseChop({ ...this.chop, ...patch })!;
+    if (JSON.stringify(next) === JSON.stringify(this.recipe.chop)) return;
+    this.recipe = sanitiseRecipe({ ...this.recipe, chop: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = next.on ? describeChop(this.current.chop) : 'CHOP off: the pattern is the GROOVE (the settings are kept).';
+    this.changed(false);
+  }
+
+  /** RE-CHOP: another chop of the same GROOVE with the same settings (the next variant). */
+  reChop(): void {
+    if (!this.chop.on) return this.say('RE-CHOP: switch CHOP on first.');
+    this.setChop({ variant: this.chop.variant + 1 });
+  }
+
+  /** Is CHOP changing this pattern? */
+  get chopped(): boolean {
+    return chopActive(this.recipe.chop);
   }
 
   /** CLEAR ROLLS: delete every roll hit in this pattern (generated, from fills, or kept). Undoable; ROLL GENERATION is unchanged. */
