@@ -84,10 +84,12 @@ describe('demo kit', () => {
     for (const c of CATEGORIES) expect(kit.some((d) => d.cat === c)).toBe(true);
     for (const d of kit) {
       let peak = 0;
+      let finite = true;
       for (const v of d.data) {
-        expect(Number.isFinite(v)).toBe(true);
-        peak = Math.max(peak, Math.abs(v));
+        if (!Number.isFinite(v)) finite = false;
+        else if (Math.abs(v) > peak) peak = Math.abs(v);
       }
+      expect(finite).toBe(true);
       expect(peak).toBeGreaterThan(0.2);
       expect(peak).toBeLessThanOrEqual(1);
       expect(d.data.length / DEMO_RATE).toBeLessThan(4);
