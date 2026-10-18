@@ -313,14 +313,14 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       const sample = e.sample ? `\nSample: ${app.ingredients.name(e.sample)}${e.sampleWhy ? ` (${e.sampleWhy})` : ''}` : '\nNO SAMPLE (silent)';
       const origin = e.manual ? `\n${ORIGIN[e.manual]}${e.editWhy ? `: ${e.editWhy}` : ''}` : '';
       const tip = `${CATEGORY_LABEL[e.cat]} · ${posLabel(e)} · velocity ${e.vel}${timing}\n${e.why}${origin}${sample}${app.audible(e.cat) ? '' : '\n(silenced by SOLO / MUTE)'}\nClick: select · drag: move · right-click: delete`;
-      const fill = e.sample ? 'var(--ink)' : 'none';
+      const fill = e.sample ? 'var(--hits)' : 'none';
       const faint = app.audible(e.cat) ? '' : ' opacity="0.35"';
-      s += `<rect class="hit" data-tip="${esc(tip)}" x="${x.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${h}" fill="${fill}" stroke="var(--ink)" stroke-width="${e.sample ? 0 : 1}" ${e.sample ? '' : 'stroke-dasharray="1 1"'}${faint}/>`;
+      s += `<rect class="hit" data-tip="${esc(tip)}" x="${x.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${h}" fill="${fill}" stroke="var(--hits)" stroke-width="${e.sample ? 0 : 1}" ${e.sample ? '' : 'stroke-dasharray="1 1"'}${faint}/>`;
       // hand edits: a filled mark (added or moved) or a hollow one (changed) above the hit
       if (e.manual) {
         const my = Math.max(TOP + row * RH + 1, y - 3);
         const mx = x + w / 2 - 1;
-        s += e.manual === 'edited' ? `<rect x="${(mx - 0.5).toFixed(2)}" y="${my - 0.5}" width="2" height="2" fill="none" stroke="var(--ink)" stroke-width="0.8" pointer-events="none"/>` : `<rect x="${mx.toFixed(2)}" y="${my - 1}" width="2" height="2" fill="var(--ink)" pointer-events="none"/>`;
+        s += e.manual === 'edited' ? `<rect x="${(mx - 0.5).toFixed(2)}" y="${my - 0.5}" width="2" height="2" fill="none" stroke="var(--edits)" stroke-width="0.8" pointer-events="none"/>` : `<rect x="${mx.toFixed(2)}" y="${my - 1}" width="2" height="2" fill="var(--edits)" pointer-events="none"/>`;
       }
       if (sel && e.ref === sel) {
         const ry = TOP + row * RH + 1;

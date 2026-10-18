@@ -21,11 +21,18 @@ import { patternWindow } from './ui/patternWindow';
 import { recipeWindow } from './ui/recipeWindow';
 import { rollsWindow } from './ui/rollsWindow';
 import { installTooltips } from './ui/tooltip';
+import { applyPalette } from '@slopfactory/core/palette';
+import { paletteLibrary } from './ui/palette';
+import { paletteWindow } from './ui/paletteWindow';
 import type { UiContext } from './ui/context';
 
 const W = 880;
 const H = 470;
 const REPO = 'https://github.com/clickysteve/the-breakery';
+
+// ------------------------------------------------------------------ palette (before anything is drawn)
+const palettes = paletteLibrary();
+applyPalette(palettes.config, palettes.selected.colors);
 
 // ------------------------------------------------------------------ screen
 const stage = el('div', '', document.body);
@@ -245,7 +252,7 @@ async function doTakeaway(): Promise<void> {
   }
 }
 
-(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, takeaway, importEntries }; // for debugging and automation
+(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, takeaway, importEntries, palettes }; // for debugging and automation
 
 const ui: UiContext = {
   app,
@@ -266,6 +273,7 @@ const wBake = bakeWindow(desk, ui, { x: 545, y: 21, w: 170, h: 152 });
 const wPattern = patternWindow(desk, ui, { x: 218, y: 178, w: 497, h: 287 });
 const wRolls = rollsWindow(desk, ui, { x: 720, y: 21, w: 155, h: 158 });
 const wBatch = batchWindow(desk, ui, { x: 720, y: 184, w: 155, h: 281 });
+const wPalette = paletteWindow(desk, palettes, { x: 288, y: 60 });
 
 // ------------------------------------------------------------------ menus
 interface MenuItem {
@@ -289,7 +297,13 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
   {
     title: 'BREAKERY',
     cls: 'logo',
-    items: () => [{ label: 'About The Breakery…', action: () => void about() }, { label: 'Keys…', action: keysHelp }, { sep: true }, { label: 'Research Notes ↗', action: () => window.open(`${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md`, '_blank', 'noopener') }],
+    items: () => [
+      { label: 'About The Breakery…', action: () => void about() },
+      { label: 'Keys…', action: keysHelp },
+      { label: 'Palette…', checked: () => wPalette.win.open, action: () => wPalette.toggle() },
+      { sep: true },
+      { label: 'Research Notes ↗', action: () => window.open(`${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md`, '_blank', 'noopener') },
+    ],
   },
   {
     title: 'File',

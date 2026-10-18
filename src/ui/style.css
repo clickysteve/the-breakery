@@ -16,6 +16,8 @@
   --dim: #000;
   --activity: #000;
   --selection: #000;
+  --hits: #000;
+  --edits: #000;
   --font: 'Tiny5', 'Geneva', 'Chicago', system-ui, sans-serif;
   --font-tiny: 'Silkscreen', 'Tiny5', monospace;
   /* 1-bit fills (2×2 logical-pixel cells) */

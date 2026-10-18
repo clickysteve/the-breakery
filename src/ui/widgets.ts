@@ -12,6 +12,8 @@ export interface WindowOpts {
   y: number;
   w: number;
   h: number;
+  /** a close box (emmm's triangle): the window can be hidden and shown again */
+  closable?: boolean;
 }
 
 /** A window: title in a tab with a slanted edge; drag the title bar to move it. */
@@ -24,6 +26,17 @@ export class MWindow {
     this.el.setAttribute('role', 'region');
     this.el.setAttribute('aria-label', o.title);
     const tb = el('div', 'titlebar', this.el);
+    if (o.closable) {
+      const c = el('div', 'close', tb);
+      c.appendChild(svgEl(13, 15, `<polygon points="3.5,3.5 11.5,3.5 3.5,11.5" fill="var(--paper)" stroke="var(--ink)"/>`));
+      c.setAttribute('role', 'button');
+      c.setAttribute('aria-label', `Close ${o.title}`);
+      setTip(c, 'Close');
+      c.addEventListener('pointerdown', (e) => {
+        e.stopPropagation();
+        this.close();
+      });
+    }
     this.titleEl = el('div', 'title', tb, undefined, o.title);
     const slant = el('div', 'slant', tb);
     slant.appendChild(svgEl(16, 16, `<polygon points="0,0 1,0 16,15.5 0,15.5" fill="var(--paper)"/><line x1="0.5" y1="0" x2="16" y2="15.5" stroke="var(--ink)"/>`));
@@ -47,6 +60,16 @@ export class MWindow {
   }
   setTitle(t: string): void {
     if (this.titleEl.textContent !== t) this.titleEl.textContent = t;
+  }
+  show(): void {
+    this.el.classList.remove('hidden');
+    this.front();
+  }
+  close(): void {
+    this.el.classList.add('hidden');
+  }
+  get open(): boolean {
+    return !this.el.classList.contains('hidden');
   }
 }
 

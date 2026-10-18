@@ -20,7 +20,7 @@ function mini(b: Break, w: number, h: number): string {
     const r = MINI_ROWS.findIndex((cats) => cats.includes(e.cat));
     if (r < 0) continue;
     const hh = Math.max(1, Math.round((e.vel / 127) * (rh - 1)));
-    s += `<rect x="${((e.bar * STEPS + e.step) * cw).toFixed(2)}" y="${(r + 1) * rh - hh}" width="${Math.max(1, cw - 0.4).toFixed(2)}" height="${hh}" fill="var(--ink)"/>`;
+    s += `<rect x="${((e.bar * STEPS + e.step) * cw).toFixed(2)}" y="${(r + 1) * rh - hh}" width="${Math.max(1, cw - 0.4).toFixed(2)}" height="${hh}" fill="var(--hits)"/>`;
   }
   return s;
 }
