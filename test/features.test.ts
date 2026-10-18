@@ -56,7 +56,7 @@ describe('pattern length 1–8 bars', () => {
           // every bar has something in it
           for (let bar = 0; bar < bars; bar++) expect(b.events.some((e) => e.bar === bar)).toBe(true);
         }
-  });
+  }, 15000); // Exhaustive per-event assertions across 352 patterns need headroom on CI.
 
   it('loops, timelines and MIDI files are exactly the bars long', () => {
     for (const bars of BARS) {
