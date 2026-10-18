@@ -12,7 +12,7 @@
  *    (doubles, as in the documented "double kick" of the Amen and the paired kicks of Funky
  *    Drummer), scaled per style.
  * 4. HARDCORE may layer a four-on-the-floor kick under the break ("looped breakbeats to funk up
- *    house's four-to-the-floor", Reynolds, via docs/BREAKBEAT_RESEARCH.md §1.6). Those kicks may
+ *    house's four-to-the-floor", Reynolds, via docs/BREAKBEAT_RESEARCH.md §1.4). Those kicks may
  *    sit under a backbeat: it is a layer, not the break's own kick.
  */
 import { onsetArray, posName, syncopation } from './meter';

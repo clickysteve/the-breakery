@@ -2,7 +2,7 @@
  * Layer B (engine 2): supporting voices, placed in response to the foundation, not independently.
  *
  * - Timekeeper (hat or ride): eighths or sixteenths, with ONE accent cycle chosen per break and
- *   repeated every bar (docs/BREAKBEAT_RESEARCH.md §3.4): accents on the beats, on the off-beats,
+ *   repeated every bar (docs/BREAKBEAT_RESEARCH.md §3.3, §3.4): accents on the beats, on the off-beats,
  *   on alternate sixteenths (the measured Porcaro hi-hat: every second sixteenth accented), with
  *   the backbeat (the loudest hats coincide with the snare), or a 3+3+2 grouping. Velocity changes
  *   therefore form a pattern, never independent noise. Open-hat lifts on the style's off-beats,

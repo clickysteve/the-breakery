@@ -14,10 +14,11 @@
  *   not at 4), hats on or ahead, the kick near the grid, ghosts looser than accents, louder hat
  *   accents a touch later than soft strokes (laid-back strokes were played louder: Danielsen et
  *   al. 2015). On top: a small slow drift with short-range anticorrelation (Räsänen et al. 2015).
- *   Engine 1 capped everything at ±10 ms and its defaults averaged about 1 ms, judged too subtle
- *   (EVALUATION.md); engine 2 allows ±18 ms and defaults to roughly 3–6 ms mean deviation, still
- *   below the ±15–25 ms shifts that lowered groove ratings for a quantised pattern (Frühauf et al.
- *   2013). HUMANISE 0 is exactly on the grid (plus swing).
+ *   Engine 1 capped everything at ±10 ms and its defaults averaged about 1 ms, judged possibly too
+ *   subtle (EVALUATION.md). Engine 2 enlarges the TENDENCIES, not the noise: ±18 ms cap; at the
+ *   recipe defaults the mean deviation is about 1–2.6 ms overall but the beat-2 snare sits 5–9 ms
+ *   late in FUNK and HIP-HOP (docs/evaluation-report.md), still below the ±15–25 ms shifts that
+ *   lowered groove ratings for a quantised pattern (Frühauf et al. 2013). HUMANISE 0 is exactly on the grid (plus swing).
  */
 import { correlatedNoise, type Rng } from './rng';
 import type { StyleDef } from './styles';

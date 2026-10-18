@@ -1,7 +1,7 @@
 /**
  * Metre: the strong/weak hierarchy of a 4/4 bar at sixteenth-note resolution, a
  * Longuet-Higgins & Lee style syncopation measure, and Euclidean rhythms.
- * See docs/BREAKBEAT_RESEARCH.md §1.5 and §2.
+ * See docs/BREAKBEAT_RESEARCH.md §3.1, §3.2 and §5.
  */
 import { STEPS } from './types';
 

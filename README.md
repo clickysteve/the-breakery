@@ -9,8 +9,10 @@ snare, hats that keep time with a drummer's accents, a feel, and a turnaround th
 into the top of the loop. Then you take it away as a WAV, to sample, slice and rearrange in your
 sampler or DAW.
 
-It is not a step sequencer. You guide it (style, tempo, density, syncopation, ghosts, swing,
-humanise, variation, fills) and it composes.
+It is not a step sequencer. You guide it (recipe, tempo, length, density, syncopation, ghosts,
+swing, humanise, variation, fills) and it composes: one to eight bars built as a phrase, with a
+groove, an answer, development, fills and a turnaround, and in the UK breakbeat recipes chopped,
+resequenced bars and rolls.
 
 <https://breakery.allmyfriendsaresynths.com/>
 
@@ -19,11 +21,12 @@ humanise, variation, fills) and it composes.
 | | |
 |---|---|
 | **INGREDIENTS** | Your sample library: KICK, SNARE, GHOST, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. |
-| **RECIPE** | Style (FUNK, HIP-HOP, JUNGLE, BROKEN), BPM, 1/2/4 bars, seed, and eight controls. |
+| **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), ENGINE 1/2, BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, MUTATE, and eight controls. |
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
-| **FREEZE** | Keep chosen layers (BEAT, DETAIL, FEEL, KIT) when baking again. |
-| **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; optionally per-drum stems and a MIDI file. |
+| **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, when baking again. |
+| **PATTERN** | See every hit and why it is there; SOLO and MUTE each drum. |
+| **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
 
 OVERBAKE (destructive mutation) and BREED are planned; see *Next steps*.
 
@@ -60,24 +63,45 @@ from any folder of any static server). `npm run evaluate` regenerates
 ## Using it
 
 1. **Ingredients.** On a first visit the demo kit is loaded: original sounds synthesised in the
-   browser, so you can try everything at once. To use your own: **LOAD…** (or drop WAV/AIFF
-   files anywhere on the screen). File names like `BD_01.wav`, `snare ghost.wav` or `OH.wav` are
-   sorted into categories automatically; anything else goes to UNSORTED. Select a category to see
+   browser, so you can try everything at once. To use your own: **LOAD…** for files, **FOLDER…**
+   for a whole folder and its sub-folders, or drop files or folders anywhere on the screen.
+   Categories are suggested from folder and file names (`Kicks/`, `BD_01.wav`, `snare ghost.wav`,
+   `OH.wav`, `Open Hats/hat 3.wav` …); ambiguous names go to UNSORTED (never discarded), and a
+   folder import ends with a review list where you can correct every suggestion. Hidden files
+   (`._kick.wav`) and non-audio files are skipped and counted. Select a category to see
    its samples; preview (▶), reassign (the pop-up) or remove (×) each one. A category with no
    samples shows MISSING, NONE: SILENT, or the fallback it uses (GHOST uses SNARE; HAT and RIDE
    stand in for each other). Samples are stored in this browser (IndexedDB) and never uploaded.
-2. **Recipe.** Pick a style (it sets every control to that style's defaults), then adjust.
-   Every change re-bakes the same seed, so you hear what the control does to this break.
-   Hover any control for what it does.
+   **PICK** chooses how a category with several samples uses them: AUTO (the original: one main
+   sample per break with occasional alternates), FIXED (the ● sample), RANDOM, ROUND ROBIN,
+   WEIGHTED (type a weight 0–9 beside each sample), VELOCITY (soft hits play the quietest sample,
+   loud hits the loudest), ALTERNATE (never twice in a row) or PER BAR. Every choice is
+   deterministic, the same in playback and TAKEAWAY, and explained when you hover a hit.
+2. **Recipe.** Pick a recipe (it sets every control to its defaults), then adjust. Every change
+   re-bakes the same seed, so you hear what the control does to this break. Hover any control
+   for what it does. **Every number can be typed**: click it (the value is selected), type,
+   Return; Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or
+   drag, or double-click to type a value. **BARS** is 1–8. **SEED** takes a number or any words
+   ("funky chicken"): the same seed, recipe and engine always bake the same break. **DICE** rolls a
+   named seed; **◀ ▶** (or ← →) move through the history; **FAV** saves the break (recipe, seeds,
+   mutations and sample settings; favourites are in the **Seeds** menu); **MUT** makes a related
+   variation by changing the groove a little, so every bar follows. **ENGINE** switches between
+   the current generator (2) and the first release's (1), kept so old breaks reproduce and so you
+   can compare them on the same seed.
 3. **Bake.** **BAKE** (B) for a new break; **BATCH** (N) for eight candidates (1–8 to audition).
-   **FREEZE** a layer to keep it: BEAT (kick and snare), DETAIL (ghosts, hats, percussion,
-   cymbals), FEEL (timing and dynamics), KIT (sample choices).
+   **FREEZE RHYTHM** keeps hit placement and performance and changes only the samples; **FREEZE
+   SAMPLES** keeps the sample choices; or freeze single layers: BEAT (kick and snare), DETAIL
+   (ghosts, hats, percussion, cymbals), FEEL (timing and dynamics).
 4. **Listen and look.** Space plays/stops; changes arrive at the loop point. The PATTERN shows
    each hit at its performed position (swing and feel included), with height for velocity.
-   Hover a hit to see why it is there ("ghost on 1a: anticipates the backbeat on 2"); click it to
-   hear it.
+   Hover a hit to see why it is there ("ghost on 1a: anticipates the backbeat on 2") and why it
+   plays its sample; click it to hear it. **S** and **M** beside each row SOLO and MUTE that drum,
+   at once, without changing the break (if any row is soloed, only soloed rows play: SOLO wins over
+   MUTE). Patterns longer than four bars can be viewed whole or four bars at a time.
 5. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
-   bars' length with the tail folded onto the start, for looping at the stated tempo. *+ Stems*
+   bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
+   renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
+   `_audible`; stems and MIDI follow the same choice). *+ Stems*
    adds one WAV per drum in a ZIP. 44.1 kHz, 16-bit stereo, named like
    `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
    (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
@@ -89,23 +113,29 @@ from any folder of any static server). `npm run evaluate` regenerates
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
 
-`?seed=12345` in the address sets the seed. Keys: **BREAKERY ▸ Keys…**.
+`?seed=12345` or `?seed=funky%20chicken` in the address sets the seed. Keys: **BREAKERY ▸ Keys…**.
 
 ## How it generates
 
-A layered generator, deterministic from seeds:
+A layered generator, deterministic from seeds (engine 2):
 
-1. **Phrase plan**: groove, answer, turnaround (A / A T / A A2 A T).
-2. **Foundation**: backbeat snares (displaced in some styles), kicks chosen from metrical
-   preferences and their relation to the snares; many candidates are scored against target
-   density and target *syncopation* (a moderate amount grooves best), and the best is kept.
-3. **Supporting voices**, conditioned on the foundation: hats/ride in eighths or sixteenths with
-   open-hat lifts; ghost snares anticipating and answering the backbeat; percussion in the gaps.
-4. **Phrase development**: later bars are variations of the first, mostly in their second
-   half; the last bar gets a fill.
-5. **Performance**: velocity by role and a two-bar hat-accent contour; Linn-style swing;
-   per-drum timing tendencies (snare a touch late, never early) with small *correlated* drifts —
-   not random jitter.
+1. **Phrase plan** for the length: A (groove), A2 (answer), B (development), F (a short half-way
+   fill), T (turnaround). 1 bar: A · 2: A T · 4: A A2 A T · 8: A A2 A F | A A2 B T. Answers
+   repeat; the half-way fill and the turnaround use the same kind of fill.
+2. **Foundation**: backbeat snares (2 and 4, or 3 in HALF-TIME; displaced in some recipes), fixed
+   kicks where the recipe has a skeleton (D&B), kicks chosen from metrical preferences, relations to
+   the snares and a liking for pairs; many candidates are scored against target density and target
+   *syncopation* (a moderate amount grooves best). HARDCORE can layer a four-on-the-floor kick.
+3. **Supporting voices**, conditioned on the foundation: hats/ride with one repeating accent cycle;
+   open-hat lifts; ghost-note figures around the true backbeats (anticipation, rebound, two-stroke
+   pickups); percussion in the gaps, on the backbeat or on the off-beats.
+4. **Phrase development**: answers and development bars vary the groove, mostly in their second
+   half; JUNGLE, HARDCORE and BREAKCORE **chop** development bars (blocks of the groove resequenced,
+   after Collins' and Hockman & Davies' descriptions of breakbeat cutting) and end on rolls.
+5. **Performance**: velocity by role and accent cycle; Linn-style swing (subtle by default, as
+   measured in classic breaks); consistent per-drum tendencies (the snare laid back more on 2 than
+   on 4, never early; hats ahead; accents a touch late) with small *correlated* drifts, not jitter.
+6. **Sample selection** per category (PICK).
 
 Why each of these choices: [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). How the
 code is organised: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -128,11 +158,16 @@ follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
 
 ## Current limitations
 
-* **Not yet evaluated by ear.** The generator has been checked by automated tests and by
-  comparing its structure with random patterns ([docs/EVALUATION.md](docs/EVALUATION.md)), but
-  the listening test there has not been run.
-* 4/4 only; sixteenth grid with 32nd-note drags; no half-time feel, no toms.
-* Small fill vocabulary. Recipe values are hand-set hypotheses.
+* **Engine 2 is not yet evaluated by ear.** The first release was liked by its user; engine 2's
+  changes are checked by tests and by comparing structure with engine 1 and random patterns
+  ([docs/EVALUATION.md](docs/EVALUATION.md)), but its listening tests have not been run.
+* Changing engines changes the break: engine 2 bakes different breaks from the same seeds. Breaks
+  saved before engine 2 open with engine 1 and reproduce exactly.
+* 4/4 only; sixteenth grid with 32nd and faster roll subdivisions; no toms.
+* Chops rearrange hits, not audio: no slice tails, pitch, time-stretch or resampling.
+* Recipe values are hand-set hypotheses; some genre rules are not from reliable sources (see
+  the research notes, §7).
+* Typed numbers need a hardware keyboard.
 * The demo kit is synthetic and plain. Use real one-shots for real results.
 * MIDI is file export only: no MIDI output, clock or input. Note lengths are fixed (a 64th),
   and SNARE and GHOST share GM note 38 (on separate tracks); hits on the same note at the same
@@ -142,13 +177,12 @@ follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
 
 ## Next steps
 
-1. Run the listening test (docs/EVALUATION.md §4) with a real kit and tune recipes from it.
-2. Milestone 2: richer fills (toms), half-time, better JUNGLE ghost/edit behaviour, per-style
-   hat models, smarter sample choice (e.g. softer snare samples for ghosts).
-3. Milestone 3: BREED (layer-seed and recipe inheritance), controlled mutation, keeping
-   favourites.
-4. Milestone 4 (jungle laboratory): slice the rendered break at its known hit times,
-   rearrange, retrigger, pitch; OVERBAKE.
+1. Run the listening tests (docs/EVALUATION.md §4: engine 1 vs 2, timing, long patterns,
+   recipes, sample modes, MUTATE) with a real kit and tune from them.
+2. Toms and a richer fill vocabulary; calibrate tendencies from the Groove MIDI Dataset.
+3. BREED two favourites; a MUTATE strength measured by rhythmic edit distance.
+4. Audio slicing (OVERBAKE): play chopped events as slices of the rendered break, at its known
+   hit times, with tails, pitch and time-stretch.
 5. MIDI: live MIDI output and clock in/out (the file export's note mapping and timing carry
    over); a choice of note map for drum machines that are not General MIDI.
 
@@ -156,10 +190,12 @@ follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
 
 The research behind the design, with links and notes on how much of each source was read:
 [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). Key sources: the Groove MIDI
-Dataset and GrooVAE (Gillick et al. 2019); microtiming and groove (Davies et al. 2013;
-Frühauf, Kopiez & Platz 2013; Senn et al. 2016); correlated timing fluctuations (Hennig et al.
-2011; Räsänen et al. 2015); syncopation and groove (Witek et al. 2014); Euclidean rhythms
-(Toussaint 2005).
+Dataset and GrooVAE (Gillick et al. 2019); swing in classic breaks (Frane 2017); breakbeat
+resequencing in hardcore, jungle and drum & bass (Hockman & Davies 2015); automatic breakbeat
+cutting (Collins 2001); microtiming and groove (Davies et al. 2013; Frühauf, Kopiez & Platz 2013;
+Senn et al. 2016; Hellmer et al. 2015; Danielsen et al. 2015); correlated timing fluctuations
+(Hennig et al. 2011; Räsänen et al. 2015); syncopation and groove (Witek et al. 2014); Euclidean
+rhythms (Toussaint 2005).
 
 ## Licence
 

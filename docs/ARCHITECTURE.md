@@ -5,7 +5,9 @@ INGREDIENTS ──kit index──┐
 RECIPE + SEEDS ──────────┤
                          ▼
                    engine/generate.ts  (pure TypeScript, no DOM, no audio)
-   phrase plan → foundation → support → phrase development → performance → samples
+   engine 2: phrase plan → foundation → support → [mutations] → phrase development
+             (answers, development, chops, fills) → performance → sample selection
+   engine 1 (v1/, frozen): the first release's generator, then the same sample selection
                          │
                          ▼  Break = structured events
           ┌──────────────┼───────────────┐
@@ -25,10 +27,10 @@ RECIPE + SEEDS ──────────┤
 
 | Folder | What | Depends on |
 |---|---|---|
-| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D), `performance` (Layer C), `kit` (sample choice), `generate` (BAKE), `analysis` (metrics), `ascii` (text grids). | nothing (pure, testable in Node) |
-| `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (sample library and storage), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
+| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and rolls), `performance` (Layer C), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
+| `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (sample library, storage, folder import, loudness), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
 | `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF). | audio/timeline, engine |
-| `src/app/` | `app.ts`: state and actions (recipe, seeds, freeze, batch, persistence). | engine, audio |
+| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence). | engine, audio |
 | `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window. | app |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
@@ -59,14 +61,40 @@ Every random decision draws from a named stream derived from one of four layer s
 
 | Seed | Streams | FREEZE keeps |
 |---|---|---|
-| `beat` | foundation, kick/snare variation, fills, crash placement | kick and snare pattern |
+| `beat` | foundation, kick/snare variation, chops, fills, crash placement | kick and snare pattern (FREEZE BEAT; RHYTHM = beat + detail + feel) |
 | `detail` | timekeeper plan, ghosts, lifts, percussion, their variation | supporting voices |
 | `feel` | performance | timing and dynamics tendencies |
-| `kit` | main sample per category, alternates | sample choices |
+| `kit` | sample selection (AUTO's main sample and alternates; RANDOM, ALTERNATE, PER BAR …) | sample choices (FREEZE SAMPLES) |
 
-The rhythm never depends on the loaded samples (fallbacks are resolved after generation). The
-SEED box sets all four seeds to the same value; BAKE draws a new seed for each layer that is not
-frozen. Changing a control re-bakes the same seeds, so its effect is heard on the same break.
+The rhythm never depends on the loaded samples (fallbacks and sample selection are resolved after
+generation). The SEED box sets all four seeds to the same value: a number, or a name hashed with
+32-bit FNV-1a over its normalised UTF-8 bytes (`hashSeedName`), so names are stable across
+browsers and versions. BAKE draws a new seed for each layer that is not frozen. Changing a control
+re-bakes the same seeds, so its effect is heard on the same break. MUTATE appends a mutation
+(its own seed plus which layers it may change) to `seeds.mut`; each one applies a few variation
+operations to the groove cell before the phrase is developed.
+
+## Engines and reproducibility
+
+`Recipe.engine` says which generator baked a break. Engine 1 (`src/engine/v1/`, with its own frozen
+recipe table) is the first release's code; `test/engine1.test.ts` checks 120 reference breaks from
+that release still come out identical, sample choices included (AUTO is the original sample
+choice). A saved recipe without an engine is engine 1. Engine 1 knows only the original four
+recipes and ignores mutations; choosing a new recipe switches to engine 2. Tune engine 2 freely;
+never change `v1/`.
+
+## Sample selection
+
+`samples.ts` runs after generation on the finished events and stores the chosen sample and the
+reason (`sampleWhy`) on each event, so playback, export, stems and the pattern view agree. Stateful
+modes restart at the top of the break (every loop is identical); RANDOM and WEIGHTED hash the KIT
+seed with the hit's position, so a hit keeps its sample when other hits change.
+
+## Solo and mute
+
+`app/mix.ts` holds the rule (any SOLO wins; otherwise MUTE silences), which is Core's mixer rule:
+live playback sets Core's strip gates (immediate, also on ringing sounds), and TAKEAWAY's AUDIBLE
+MIX filters the timeline and MIDI by the same rule. Previews use a second, ungated mixer.
 
 ## Audio
 
@@ -96,11 +124,12 @@ frozen. Changing a control re-bakes the same seeds, so its effect is heard on th
 
 ## Where future features fit
 
-* **BREED** (Milestone 3): a child takes layer seeds and recipe values from two parents (e.g.
+* **BREED**: a child takes layer seeds and recipe values from two parents (e.g.
   beat seed from one, feel from the other, recipe values interpolated) — the layered seeds make
   this natural. Event-level crossover can work bar-by-bar on the `role`-annotated events.
-* **OVERBAKE / slicing** (Milestone 4): every hit's exact time is known (`eventSeconds`), so
-  slice points come for free; transformations can operate on the event list before rendering.
+* **OVERBAKE / audio slicing**: every hit's exact time is known (`eventSeconds`), so slice points
+  come for free; `chop.ts` already resequences events, and an audio engine could play the chopped
+  events as slices of a rendered break (with tails, pitch and stretch).
 * **MIDI output**: the file export already turns events into GM notes with `eventTick`; live
   output would send the same notes, and MIDI clock would drive `Player.loopStart`. Nothing in the engine depends on audio, so MIDI output can replace or
   accompany the sampler.

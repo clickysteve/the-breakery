@@ -94,7 +94,7 @@ export function freshSeed(): number {
  * A smooth, correlated random sequence (first-order autoregressive, unit variance). Used for
  * drifts in velocity and timing, instead of independent noise: research on human timing finds
  * correlated fluctuations, and listeners prefer them to uncorrelated "humanize" jitter
- * (see docs/BREAKBEAT_RESEARCH.md §1.4).
+ * (see docs/BREAKBEAT_RESEARCH.md §3.3).
  */
 export function correlatedNoise(rng: Rng, n: number, rho: number): number[] {
   const out: number[] = [];
