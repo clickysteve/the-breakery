@@ -7,7 +7,7 @@
  * kit is loaded, through the same selection settings.
  */
 import { editsKey, hasEdits, sanitiseEdits, type Edits } from '../engine/edits';
-import { sanitiseRecipe } from '../engine/generate';
+import { sanitiseMutation, sanitiseRecipe } from '../engine/generate';
 import { sanitiseSampleSettings, type SampleSettings } from '../engine/samples';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Recipe, type Seeds } from '../engine/types';
@@ -34,7 +34,8 @@ export const FAVOURITES_MAX = 200;
 export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edits }): string {
   const r = sanitiseRecipe(e.recipe);
   const s = e.seeds;
-  const k: unknown[] = [r.engine, r.style, r.bpm, r.bars, r.density, r.complexity, r.syncopation, r.ghosts, r.swing, r.humanise, r.variation, r.fills, s.beat, s.detail, s.feel, s.kit, (s.mut ?? []).map((m) => [m.seed, m.beat, m.detail])];
+  const k: unknown[] = [r.engine, r.style, r.bpm, r.bars, r.density, r.complexity, r.syncopation, r.ghosts, r.swing, r.humanise, r.variation, r.fills, s.beat, s.detail, s.feel, s.kit, (s.mut ?? []).map((m) => (m.style ? [m.seed, m.beat, m.detail, m.style, m.depth, m.range, m.cats ?? null] : [m.seed, m.beat, m.detail]))];
+  if (r.rollsOn === false) k.push('no rolls');
   if (hasEdits(e.edits)) k.push(editsKey(e.edits));
   return JSON.stringify(k);
 }
@@ -112,7 +113,7 @@ export function sanitiseEntry(v: unknown): SeedEntry | null {
   if (!o || !o.recipe || !o.seeds) return null;
   const s = o.seeds;
   if (![s.beat, s.detail, s.feel, s.kit].every(isSeed)) return null;
-  const mut = Array.isArray(s.mut) ? s.mut.filter((m) => m && isSeed(m.seed)).map((m) => ({ seed: m.seed >>> 0, beat: !!m.beat, detail: !!m.detail })) : [];
+  const mut = Array.isArray(s.mut) ? s.mut.filter((m) => m && isSeed(m.seed)).map(sanitiseMutation) : [];
   const edits = sanitiseEdits(o.edits, CATEGORIES);
   return {
     recipe: sanitiseRecipe(o.recipe),

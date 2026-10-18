@@ -38,6 +38,8 @@ export interface ManualHit {
   sample?: string;
   /** when it was a generated hit moved by hand: what it was */
   from?: { key: string; role: Role; why: string };
+  /** a roll hit kept when ROLL GENERATION was turned off (still drawn and counted as a roll) */
+  role?: 'roll';
 }
 
 export interface Edits {
@@ -125,8 +127,8 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
       step: m.step,
       sub: m.sub,
       level: m.vel / 127,
-      role: 'manual',
-      why: m.from ? `moved by hand to ${pos} (generated as ${m.from.role}: ${m.from.why})` : `added by hand at ${pos}`,
+      role: m.role === 'roll' || m.from?.role === 'roll' ? 'roll' : 'manual',
+      why: m.from ? `moved by hand to ${pos} (generated as ${m.from.role}: ${m.from.why})` : m.role === 'roll' ? `roll hit at ${pos}, kept when roll generation was turned off` : `added by hand at ${pos}`,
       vel: m.vel,
       swing: Math.round(swingDelay(m.step + m.sub / TPS, recipe.swing) * 1000) / 1000 || 0,
       offsetMs: m.offsetMs,
@@ -192,13 +194,13 @@ export interface EditResult {
 }
 
 /** Add a hit by hand. If one is already there, that hit is the result (nothing is added). */
-export function addHit(edits: Edits, events: BreakEvent[], hit: { cat: Category; bar: number; step: number; sub: number; vel?: number; offsetMs?: number; sample?: string }): EditResult {
+export function addHit(edits: Edits, events: BreakEvent[], hit: { cat: Category; bar: number; step: number; sub: number; vel?: number; offsetMs?: number; sample?: string; role?: 'roll' }): EditResult {
   const there = events.find((e) => e.cat === hit.cat && e.bar === hit.bar && e.step === hit.step && e.sub === hit.sub);
   if (there) return { edits, ref: there.ref ?? null };
   const out = clone(edits);
   const id = newId(out);
   // a generated hit that was removed here comes back as a hand-placed one (the removal stays, so it is not doubled)
-  out.added.push({ id, cat: hit.cat, bar: hit.bar, step: hit.step, sub: hit.sub, vel: clamp(Math.round(hit.vel ?? DEFAULT_VEL[hit.cat]), 1, 127), offsetMs: hit.offsetMs ?? 0, ...(hit.sample ? { sample: hit.sample } : {}) });
+  out.added.push({ id, cat: hit.cat, bar: hit.bar, step: hit.step, sub: hit.sub, vel: clamp(Math.round(hit.vel ?? DEFAULT_VEL[hit.cat]), 1, 127), offsetMs: hit.offsetMs ?? 0, ...(hit.sample ? { sample: hit.sample } : {}), ...(hit.role === 'roll' ? { role: 'roll' as const } : {}) });
   return { edits: out, ref: manualRef(id) };
 }
 
@@ -343,6 +345,7 @@ export function sanitiseEdits(v: unknown, cats: readonly string[]): Edits {
         offsetMs: clamp(Number(m.offsetMs) || 0, -MANUAL_OFFSET_MS, MANUAL_OFFSET_MS),
         ...(typeof m.sample === 'string' && m.sample ? { sample: m.sample } : {}),
         ...(m.from && typeof m.from.key === 'string' ? { from: { key: m.from.key, role: m.from.role, why: String(m.from.why ?? '') } } : {}),
+        ...(m.role === 'roll' ? { role: 'roll' as const } : {}),
       });
     }
   // ids must be unique

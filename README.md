@@ -22,12 +22,14 @@ over: every hit can be added, moved, deleted or changed by hand.
 | | |
 |---|---|
 | **INGREDIENTS** | Your sample library: KICK, SNARE, GHOST, HIGH TOM, MID TOM, LOW TOM, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. |
-| **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), ENGINE 1/2, BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, MUTATE, and eight controls. |
+| **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), ENGINE 1/2, BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, eight controls and TOM ACTIVITY. |
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
 | **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, or your hand EDITS, when baking again. |
-| **ROLLS · TOMS** | Rolls (amount, length, speed 1/16–1/64 and triplets, shape, where, which drums) and the toms' part in fills. |
-| **PATTERN** | See every hit and why it is there; edit hits by hand (add, select, move, delete, velocity, timing, sample) with undo; SOLO and MUTE each drum. |
+| **ROLLS** | (a tab beside RECIPE) Roll generation on/off, probability, length, speed 1/16–1/64 and triplets, dynamics, placement, which drums; CLEAR ROLLS. |
+| **MUTATE** | (a tab beside RECIPE) MUTATE PATTERN with a style, depth, range and tracks; CREATE RELATED SECTION (verse, chorus, breakdown, build, fill, alternate). |
+| **PATTERN** | See every hit and why it is there; edit hits by hand (click to add or delete, shift+click to edit, drag to move; velocity, timing, sample) with undo; SOLO and MUTE each drum. Dense rolls show as one group (ROLL ×N): click to expand. |
+| **MIXER** | (a tab beside PATTERN) Level, pan, MUTE, SOLO and a meter for each drum, the master level with output meters and PEAK. |
 | **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
 | **MIDI** | Play the break out to drum machines and DAWs (per-track device, channel and note), play the samples from pads or an external sequencer, follow an external MIDI clock or send one (MIDI ▸ MIDI Settings…). |
 | **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, or your own. |
@@ -88,8 +90,12 @@ from any folder of any static server). `npm run evaluate` regenerates
    drag, or double-click to type a value. **BARS** is 1–8. **SEED** takes a number or any words
    ("funky chicken"): the same seed, recipe and engine always bake the same break. **DICE** rolls a
    named seed; **◀ ▶** (or ← →) move through the history; **FAV** saves the break (recipe, seeds,
-   mutations and sample settings; favourites are in the **Seeds** menu); **MUT** makes a related
-   variation by changing the groove a little, so every bar follows. **ENGINE** switches between
+   mutations and sample settings; favourites are in the **Seeds** menu). **TOM ACTIVITY** sets how
+   much the toms join the fills. The **MUTATE** tab (U) makes a related variation by changing the
+   groove itself, so every bar follows: a **STYLE** (MUSICAL, SUBTLE, RHYTHMIC, FILLS, SPARSE,
+   DENSE, WILD), a **DEPTH**, a **RANGE** (the last part of the phrase) and ALL or chosen
+   **TRACKS**; **CREATE RELATED SECTION** makes a verse, chorus, breakdown, build, fill or
+   alternate section from the current break. Each is a new break in the history (◀ returns). **ENGINE** switches between
    the current generator (2) and the first release's (1), kept so old breaks reproduce and so you
    can compare them on the same seed.
 3. **Bake.** **BAKE** (B) for a new break; **BATCH** (N) for eight candidates (1–8 to audition).
@@ -99,15 +105,18 @@ from any folder of any static server). `npm run evaluate` regenerates
 4. **Listen and look.** Space plays/stops; changes arrive at the loop point. The PATTERN shows
    each hit at its performed position (swing and feel included), with height for velocity.
    Hover a hit to see why it is there ("ghost on 1a: anticipates the backbeat on 2") and why it
-   plays its sample; click it to hear it. **S** and **M** beside each row SOLO and MUTE that drum,
+   plays its sample; shift+click it to hear it. **S** and **M** beside each row SOLO and MUTE that drum,
    at once, without changing the break (if any row is soloed, only soloed rows play: SOLO wins over
-   MUTE). **VIEW** shows every bar, or 4, 2 or 1 bar at a time (◀ ▶ to page), close enough to
-   see and edit 64th-note rolls.
+   MUTE); the **MIXER** tab adds level, pan and meters. **VIEW** shows every bar, or 4, 2 or 1 bar
+   at a time (◀ ▶ to page). A roll too dense to see hit by hit is drawn as one outlined group
+   (**ROLL ×N**): click it to expand it to its bar, where every hit of it is drawn (dithered, so
+   the main hits stay strongest) and edited on its own; right-click it to delete the whole roll.
 5. **Edit by hand.** Click an empty place in the PATTERN to add a hit (on the **SNAP** grid:
-   1/16, 1/32, 1/64, 1/16T, 1/32T); click a hit to select it (and hear it); drag it sideways to
-   move it (a 32nd stays a 32nd: moves keep a hit's offset from the grid); drag from an empty
-   place to paint several; right-click a hit, press Delete or Backspace, or **DEL**, to delete it;
-   Escape deselects. The strip under the grid sets the selected hit's **VEL** (1–127), **TIME**
+   1/16, 1/32, 1/64, 1/16T, 1/32T); click a hit to delete it (a click toggles); **shift+click** a
+   hit to select it (and hear it); drag a hit sideways to move it (past a small threshold, so a
+   click never moves it; a 32nd stays a 32nd: moves keep a hit's offset from the grid); drag from
+   an empty place to paint several; right-click a hit, press Delete or Backspace, or **DEL**, to
+   delete it; Escape deselects. The strip under the grid sets the selected hit's **VEL** (1–127), **TIME**
    (± ms against its place and swing), **SAMPLE** (any loaded sample, or its category's PICK
    mode), and has ◀ ▶ (move by a SNAP step; ← → too), **DUP**, **DEL** and **REVERT** (back to the
    generated hit). ⌘Z / ⇧⌘Z undo and redo every edit; **CLEAR EDITS** removes them all. Hits you
@@ -118,13 +127,16 @@ from any folder of any static server). `npm run evaluate` regenerates
    BATCH, a seed, DICE, MUTATE, the history) starts unedited, and your edits stay with the old
    break in the history (◀ returns to it) and in a favourite; **FREEZE EDITS** (E) carries them
    onto new breaks instead.
-6. **Rolls and toms.** **ROLLS · TOMS**: **AMOUNT** (how many rolls), **LENGTH** (hits per roll),
-   **SPEED** (1/16, 1/16T, 1/32, 1/32T, 1/64), **SHAPE** (EVEN, CRESCENDO, DECRESCENDO, ALTERNATING,
-   HUMAN), **PLACE** (BEFORE ACCENT, PHRASE END, FILLS, ANYWHERE) and the drums that may roll
-   (SNR, HAT, PRC, TOM, KCK). Every roll leads into something (a backbeat, the loop point, a tom
-   fill, a beat) and its strokes are real hits you can edit one by one. **TOMS** sets how much the
-   toms join the fills: descending and rising runs, snare/tom combinations, linear fills,
-   answers to the backbeat. Without tom samples, tom hits are silent (the demo kit has toms).
+6. **Rolls and toms.** The **ROLLS** tab: **ROLL GENERATION** (ENABLED / DISABLED: off, new
+   breaks get no rolls, and the rolls already in the pattern are kept until **CLEAR ROLLS**
+   deletes them), **PROBABILITY** (0 = no new rolls), **LENGTH** (hits per roll), **SPEED** (1/16,
+   1/16T, 1/32, 1/32T, 1/64), **DYNAMICS** (EVEN, CRESCENDO, DECRESCENDO, ALTERNATING, HUMAN),
+   **PLACEMENT** (BEFORE ACCENT, PHRASE END, FILLS, ANYWHERE) and the **TARGET TRACKS** that may
+   roll (SNARE, HATS, PERC, TOMS, KICK), with the number of rolls in the pattern. Every roll leads
+   into something (a backbeat, the loop point, a tom fill, a beat) and its strokes are real hits
+   you can edit one by one. **TOM ACTIVITY** (RECIPE) sets how much the toms join the fills:
+   descending and rising runs, snare/tom combinations, linear fills, answers to the backbeat.
+   Without tom samples, tom hits are silent (the demo kit has toms).
 7. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
    bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
    renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
@@ -253,7 +265,7 @@ drag, ⌘Z).
 * Most browsers cannot drop MIDI already queued: on stop, hits in the 150 ms look-ahead still
   go out, each with its Note Off.
 * No OVERBAKE, BREED, slicing, pitch or effects.
-* Desktop-first: the fixed screen (now 880 × 470, for the ROLLS · TOMS and BATCH column)
+* Desktop-first: the fixed screen (880 × 470)
   scales to fit; phones work best in landscape (in portrait it is small).
 
 ## Next steps

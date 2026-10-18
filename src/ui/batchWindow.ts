@@ -35,7 +35,7 @@ export function batchWindow(parent: HTMLElement, ui: UiContext, rect: { x: numbe
   const cols = W >= 400 ? BATCH_SIZE : 2;
   const rows = Math.ceil(BATCH_SIZE / cols);
   const cw = Math.floor((W - 8 - gap * (cols - 1)) / cols);
-  const ch = Math.min(64, Math.floor((rect.h - 18 - 8 - gap * (rows - 1)) / rows));
+  const ch = Math.min(100, Math.floor((rect.h - 18 - 8 - gap * (rows - 1)) / rows));
   const note = el('div', 'empty-note', b, [8, 12, W - 16]);
   note.textContent = 'Press BATCH (or N) to bake eight candidates from the recipe. Audition them here and keep the one you want; FREEZE keeps chosen layers across the batch.';
   const boxes = Array.from({ length: BATCH_SIZE }, (_, i) => {
