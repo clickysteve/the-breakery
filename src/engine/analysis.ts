@@ -22,6 +22,15 @@ export interface BreakStats {
   /** kicks on the same step as a snare accent, per bar */
   kickSnareClashes: number;
   meanAbsOffsetMs: number;
+  /** fraction of ghost notes within two sixteenths of a true backbeat (not any snare) */
+  ghostsNearBackbeat: number;
+  /** mean |velocity difference| of the timekeeper at the same step in different bars (lower = a repeating accent cycle) */
+  hatAccentDrift: number;
+  /** mean microtiming of the beat-2 and the beat-4 backbeats (ms) */
+  lag2Ms: number;
+  lag4Ms: number;
+  /** hits placed by chops or rolls, per bar */
+  chops: number;
 }
 
 const accent = (e: BreakEvent) => e.cat === 'snare' && e.vel >= 70;
@@ -46,6 +55,17 @@ export function analyse(events: BreakEvent[], bars: number): BreakStats {
   }
   const ghosts = events.filter((e) => e.cat === 'ghost');
   const near = ghosts.filter((g) => events.some((e) => accent(e) && e.bar === g.bar && Math.abs(e.step - g.step) <= 1)).length;
+  const isBB = (e: BreakEvent) => e.cat === 'snare' && (e.role === 'backbeat' || e.role === 'displaced backbeat');
+  const nearBB = ghosts.filter((g) => events.some((e) => isBB(e) && e.bar === g.bar && Math.abs(e.step - g.step) <= 2)).length;
+  const timeAt = new Map<number, number[]>();
+  for (const e of events) if (e.role === 'time' && e.sub === 0) timeAt.set(e.step, [...(timeAt.get(e.step) ?? []), e.vel]);
+  let drift = 0;
+  let nd = 0;
+  for (const vs of timeAt.values()) for (let i = 1; i < vs.length; i++) (drift += Math.abs(vs[i]! - vs[0]!)), nd++;
+  const lagAt = (step: number) => {
+    const xs = events.filter((e) => isBB(e) && e.step === step && e.sub === 0).map((e) => e.offsetMs);
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  };
   const first = barOnsets(events, 0);
   let sim = 0;
   for (let b = 1; b < bars; b++) {
@@ -64,6 +84,11 @@ export function analyse(events: BreakEvent[], bars: number): BreakStats {
     barSimilarity: bars > 1 ? sim / (bars - 1) : 1,
     kickSnareClashes: clashes / bars,
     meanAbsOffsetMs: events.length ? events.reduce((a, e) => a + Math.abs(e.offsetMs), 0) / events.length : 0,
+    ghostsNearBackbeat: ghosts.length ? nearBB / ghosts.length : 0,
+    hatAccentDrift: nd ? drift / nd : 0,
+    lag2Ms: lagAt(4),
+    lag4Ms: lagAt(12),
+    chops: events.filter((e) => e.role === 'chop' || e.role === 'roll').length / bars,
   };
 }
 

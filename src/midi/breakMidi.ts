@@ -9,7 +9,7 @@
  * though both are GM note 38. Every hit of the score is written, sampled or not.
  */
 import { CORE_PPQ, eventTick } from '../audio/timeline';
-import { CATEGORIES, CATEGORY_LABEL, GM_NOTE, clamp, type Break } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, GM_NOTE, clamp, type Break, type Category } from '../engine/types';
 import { writeSmf, type SmfTrack } from './smf';
 
 /** File resolution: divides Core's 96 000 evenly, fine enough for microtiming, standard in DAWs. */
@@ -25,11 +25,13 @@ export interface BreakMidi {
   notes: number;
 }
 
-export function breakMidi(b: Break): BreakMidi {
+/** `only`: write just these categories (AUDIBLE MIX); every category by default. */
+export function breakMidi(b: Break, only?: readonly Category[]): BreakMidi {
   const bpm = b.recipe.bpm;
   type Note = { tick: number; key: number; vel: number; cat: (typeof CATEGORIES)[number] };
   const byPlace = new Map<string, Note>();
   for (const e of b.events) {
+    if (only && !only.includes(e.cat)) continue;
     const n: Note = { tick: Math.round((eventTick(e, bpm) * MIDI_PPQ) / CORE_PPQ), key: GM_NOTE[e.cat], vel: clamp(Math.round(e.vel), 1, 127), cat: e.cat };
     const id = `${n.tick}:${n.key}`;
     const had = byPlace.get(id);

@@ -5,10 +5,12 @@
  * and choke groups the offline renderer uses for TAKEAWAY.
  *
  * A new break (BAKE, or choosing a BATCH candidate) waits for the loop point while playing, so
- * the music never jumps mid-bar.
+ * the music never jumps mid-bar. SOLO and MUTE use Core's mixer gates, so they act at once, also
+ * on sounds already ringing, and never change the break's events.
  */
 import { Mixer, NotePlayer } from '@slopfactory/core/audio';
 import { CATEGORIES, type Break } from '../engine/types';
+import { emptyMix, type MixState } from '../app/mix';
 import type { Ingredients } from './ingredients';
 import { eventSeconds, hatChoke, loopSeconds, ROOT_PITCH } from './timeline';
 
@@ -41,6 +43,9 @@ export class Player {
   ctx: AudioContext | null = null;
   private mixer: Mixer | null = null;
   private notes: NotePlayer | null = null;
+  /** previews (INGREDIENTS ▶, clicking a hit) bypass solo/mute: a second, ungated mixer */
+  private previewMixer: Mixer | null = null;
+  private preview: NotePlayer | null = null;
   private ticker: { stop(): void } | null = null;
   private current: Break | null = null;
   private pending: Break | null = null;
@@ -51,6 +56,7 @@ export class Player {
   playing = false;
   loop = true;
   level = DEFAULT_LEVEL;
+  private mix: MixState = emptyMix();
   onState: () => void = () => {};
   /** a pending break became current (at the loop point) */
   onSwap: (b: Break) => void = () => {};
@@ -68,7 +74,11 @@ export class Player {
       }
       this.mixer = new Mixer(this.ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
       this.mixer.output.connect(this.ctx.destination);
+      this.applyMix();
       this.notes = new NotePlayer(this.ctx, this.mixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 16, choke: hatChoke });
+      this.previewMixer = new Mixer(this.ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
+      this.previewMixer.output.connect(this.ctx.destination);
+      this.preview = new NotePlayer(this.ctx, this.previewMixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 4, choke: hatChoke });
     }
     if (this.ctx.state !== 'running') {
       try {
@@ -83,6 +93,18 @@ export class Player {
   setLevel(v: number): void {
     this.level = v;
     this.mixer?.setMasterGain(v);
+    this.previewMixer?.setMasterGain(v);
+  }
+
+  /** SOLO / MUTE per category (Core's mixer: any solo wins; otherwise muted voices are silent). */
+  setMix(mix: MixState): void {
+    this.mix = JSON.parse(JSON.stringify(mix)) as MixState;
+    this.applyMix();
+  }
+
+  private applyMix(): void {
+    if (!this.mixer) return;
+    for (const c of CATEGORIES) this.mixer.setStrip(c, { mute: this.mix[c].mute, solo: this.mix[c].solo });
   }
 
   private build(b: Break): void {
@@ -173,7 +195,7 @@ export class Player {
   /** Play one sample now (INGREDIENTS preview, clicking a hit in the pattern). */
   async audition(voice: string, sample: string, vel = 110): Promise<void> {
     if (!(await this.ensure())) return;
-    this.trigger(voice, sample, vel, this.ctx!.currentTime + 0.005);
+    this.preview!.noteOn(`p${this.seq++}`, voice, { time: this.ctx!.currentTime + 0.005, pitch: ROOT_PITCH, velocity: vel, instrument: sample });
   }
 
   /** Current position: bar index and fractional sixteenth, or null when stopped. */

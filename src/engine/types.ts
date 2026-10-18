@@ -30,16 +30,30 @@ export const TPS = 12;
 /** Grid ticks per bar. */
 export const TPB = STEPS * TPS;
 
-export type Style = 'funk' | 'hiphop' | 'jungle' | 'broken';
-export const STYLES: Style[] = ['funk', 'hiphop', 'jungle', 'broken'];
+export type Style = 'funk' | 'hiphop' | 'boombap' | 'jungle' | 'broken' | 'hardcore' | 'dnb' | 'halftime' | 'garage' | 'electro' | 'breakcore';
+/** Recipes in display order: the four originals first. */
+export const STYLES: Style[] = ['funk', 'hiphop', 'jungle', 'broken', 'boombap', 'hardcore', 'dnb', 'halftime', 'garage', 'electro', 'breakcore'];
 
-export type Bars = 1 | 2 | 4;
+/** Pattern length in bars. */
+export type Bars = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export const MIN_BARS = 1;
+export const MAX_BARS = 8;
+
+/**
+ * The generation algorithm. 1 = The Breakery 0.1 (frozen, so its breaks stay reproducible from
+ * their seeds), 2 = the current engine. A recipe carries its engine, so favourites, history and
+ * links reproduce exactly.
+ */
+export type Engine = 1 | 2;
+export const ENGINES: Engine[] = [1, 2];
+export const CURRENT_ENGINE: Engine = 2;
 
 /** The user's generative parameters. All controls are 0..1 except bpm and bars. */
 export interface Recipe {
   style: Style;
   bpm: number;
   bars: Bars;
+  engine: Engine;
   /** how many hits overall */
   density: number;
   /** how far the generator strays from the plain backbeat (extra snares, odd kicks, drags) */
@@ -71,6 +85,18 @@ export interface Seeds {
   detail: number;
   feel: number;
   kit: number;
+  /**
+   * MUTATE (engine 2): a lineage of mutation seeds. Each one applies a few small variation
+   * operations to the groove cell, so the whole phrase changes with it but stays related.
+   */
+  mut?: Mutation[];
+}
+
+/** One MUTATE step: its seed, and which layers it may vary (frozen layers are left alone). */
+export interface Mutation {
+  seed: number;
+  beat: boolean;
+  detail: boolean;
 }
 export const LAYERS = ['beat', 'detail', 'feel', 'kit'] as const;
 export type Layer = (typeof LAYERS)[number];
@@ -90,7 +116,13 @@ export type Role =
   | 'lift'
   | 'crash'
   | 'perc'
-  | 'fill';
+  | 'fill'
+  /** a four-on-the-floor kick layered under the break (HARDCORE) */
+  | 'floor kick'
+  /** a hit copied from another place in the groove by a chop (event-level resequencing) */
+  | 'chop'
+  /** a fast retrigger of the same sound (a roll or stutter) */
+  | 'roll';
 
 /** A hit in the score, before performance. `level` is its nominal dynamic, 0..1. */
 export interface Hit {
@@ -116,10 +148,17 @@ export interface BreakEvent extends Hit {
   offsetMs: number;
   /** sample id, or null when no sample is available for the category */
   sample: string | null;
+  /** why that sample (sample-selection mode), for the pattern view */
+  sampleWhy?: string;
 }
 
-/** Role of each bar in the phrase. */
-export type BarRole = 'A' | 'A2' | 'T';
+/**
+ * Role of each bar in the phrase. A groove (the motif), A2 answer (the groove varied), B
+ * development (the motif developed further: more variation, chops in some recipes), F half-way
+ * fill (a short fill ending a four-bar section inside a longer phrase), T turnaround (variation
+ * and the main fill, pushing back into the top of the loop).
+ */
+export type BarRole = 'A' | 'A2' | 'B' | 'F' | 'T';
 
 /** The performer's consistent tendencies for one break (milliseconds). */
 export interface Feel {
@@ -128,6 +167,8 @@ export interface Feel {
   hats: number;
   /** per-step accent idiosyncrasy of the timekeeper, repeating every two bars */
   accent: number[];
+  /** engine 2: the hats' accent cycle (see performance.ts) */
+  cycle?: string;
 }
 
 export interface Break {

@@ -1,4 +1,5 @@
 import type { App } from '../app/app';
+import type { ImportEntry } from '../audio/ingredients';
 
 /** What every window needs from the application shell. */
 export interface UiContext {
@@ -6,7 +7,7 @@ export interface UiContext {
   screen: HTMLElement;
   alert(html: string): void;
   confirm(html: string, ok?: string): Promise<boolean>;
-  importFiles(files: File[]): Promise<void>;
+  importEntries(entries: ImportEntry[]): Promise<void>;
   takeaway(): void;
   togglePlay(): void;
 }

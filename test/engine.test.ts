@@ -137,10 +137,10 @@ describe('bake: musical structure', () => {
     expect(mean(near)).toBeGreaterThan(mean(chance) + 0.15);
   });
 
-  it('kicks never land on a backbeat in groove bars', () => {
+  it('kicks never land on a backbeat in groove bars (a layered four-on-the-floor kick aside)', () => {
     for (const style of STYLES) for (const b of all(style)) {
       const bb = b.events.filter((e) => e.bar === 0 && e.cat === 'snare' && (e.role === 'backbeat' || e.role === 'displaced backbeat'));
-      for (const s of bb) expect(b.events.some((e) => e.bar === 0 && e.cat === 'kick' && e.step === s.step)).toBe(false);
+      for (const s of bb) expect(b.events.some((e) => e.bar === 0 && e.cat === 'kick' && e.role !== 'floor kick' && e.step === s.step)).toBe(false);
     }
   });
 
@@ -213,11 +213,17 @@ describe('freeze and seeds', () => {
     expect(grid(bake(r, seedsFrom(9), kitWith()))).toEqual(grid(bake(r, seedsFrom(9))));
   });
   it('sanitises recipes', () => {
-    const r = sanitiseRecipe({ ...defaultRecipe('funk', 2), bpm: 9999, density: 7, bars: 3 as Bars, style: 'polka' as Recipe['style'] });
+    const r = sanitiseRecipe({ ...defaultRecipe('funk', 2), bpm: 9999, density: 7, bars: 9 as Bars, style: 'polka' as Recipe['style'] });
     expect(r.bpm).toBe(220);
     expect(r.density).toBe(1);
-    expect(r.bars).toBe(2);
+    expect(r.bars).toBe(8);
     expect(r.style).toBe('funk');
+    expect(sanitiseRecipe({ ...defaultRecipe('funk', 2), bars: 0 as Bars }).bars).toBe(2); // not a number of bars: the default
+    expect(sanitiseRecipe({ ...defaultRecipe('funk', 2), bars: 3.4 as Bars }).bars).toBe(3);
+    // a saved recipe from before engine 2 has no engine: it was engine 1
+    expect(sanitiseRecipe({ ...defaultRecipe('funk', 2), engine: undefined } as unknown as Recipe).engine).toBe(1);
+    // engine 1 only knows the original four recipes
+    expect(sanitiseRecipe({ ...defaultRecipe('garage', 2), engine: 1 }).engine).toBe(2);
   });
 });
 

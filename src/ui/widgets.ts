@@ -94,19 +94,88 @@ export class Button {
   }
 }
 
+// ---------------------------------------------------------------------------- direct entry (emmm)
+
+/** The control that currently owns typing (a number box, range bar or seed box being edited). */
+export const typing = { active: null as { cancel(): void } | null };
+
+/**
+ * Direct entry shared by number boxes, range bars and the seed box (emmm's TextEntry): the
+ * control keeps its look; the current value is shown selected (inverted) until the first key
+ * replaces it; typed characters show with a caret until Return commits or Escape cancels.
+ */
+class TextEntry {
+  text = '';
+  /** the first key replaces the shown value */
+  replace = true;
+  constructor(
+    private host: HTMLElement,
+    private accept: (ch: string) => boolean,
+    private maxLen = 12,
+  ) {}
+  start(initial: string, replace: boolean): void {
+    this.text = initial;
+    this.replace = replace;
+    this.host.classList.add('editing');
+  }
+  get on(): boolean {
+    return this.host.classList.contains('editing');
+  }
+  stop(): void {
+    this.host.classList.remove('editing');
+  }
+  /** a typed character; false if refused */
+  type(ch: string): boolean {
+    if (!this.accept(ch)) return false;
+    if (this.replace) this.text = '';
+    this.replace = false;
+    if (this.text.length < this.maxLen) this.text += ch;
+    return true;
+  }
+  backspace(): void {
+    this.text = this.replace ? '' : this.text.slice(0, -1);
+    this.replace = false;
+  }
+  /** what was typed ('' if nothing replaced the shown value) */
+  get typed(): string {
+    return this.replace ? '' : this.text.trim();
+  }
+}
+
+/** Brief "no" flash for invalid typing (the value stays as it was). */
+export function refuse(e: HTMLElement): void {
+  e.classList.remove('refused');
+  void e.offsetWidth;
+  e.classList.add('refused');
+  setTimeout(() => e.classList.remove('refused'), 300);
+}
+
+const NUMBER_TEXT = /^-?(\d+\.?\d*|\.\d+)$/;
+
 export interface RangeOpts {
   get: () => number;
   set: (v: number, final: boolean) => void;
   format: (v: number) => string;
   tip: string;
   label: string;
+  /** typed text (in the shown units) → value 0..1, or null if not valid (default: a percentage) */
+  parse?: (text: string) => number | null;
+  /** the text an edit starts from (default: the shown text without units) */
+  editText?: (v: number) => string;
 }
 
-/** A horizontal range bar, 0..1: click or drag to set; arrow keys and the wheel nudge it. */
+const pctParse = (t: string): number | null => (NUMBER_TEXT.test(t) ? Math.max(0, Math.min(1, Number(t) / 100)) : null);
+
+/**
+ * A horizontal range bar, 0..1: click or drag to set; arrow keys and the wheel nudge it. To type a
+ * value: double-click it (or select it and press Return or a digit), type, Return; Escape cancels.
+ */
 export class RangeBar {
   el: HTMLDivElement;
   private fill: HTMLDivElement;
   private val: HTMLDivElement;
+  private entry: TextEntry;
+  private entryEl: HTMLDivElement | null = null;
   constructor(parent: HTMLElement, rect: [number, number, number, number], private o: RangeOpts) {
     this.el = el('div', 'range', parent, rect);
     this.el.tabIndex = 0;
@@ -114,10 +183,11 @@ export class RangeBar {
     this.el.setAttribute('aria-label', o.label);
     this.el.setAttribute('aria-valuemin', '0');
     this.el.setAttribute('aria-valuemax', '100');
-    setTip(this.el, o.tip);
+    setTip(this.el, o.tip + ' Double-click (or Return) to type a value.');
     this.fill = el('div', 'fill fill-grey', this.el);
     this.fill.style.left = '0';
     this.val = el('div', 'val', this.el);
+    this.entry = new TextEntry(this.el, (ch) => /[0-9.\-]/.test(ch));
     const setFrom = (ev: PointerEvent, final: boolean) => {
       const p = localPoint(this.el, ev);
       o.set(Math.max(0, Math.min(1, (p.x - 1) / (p.w - 2))), final);
@@ -125,21 +195,17 @@ export class RangeBar {
     };
     this.el.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
+      if (this.entry.on) this.commit();
       this.el.focus();
+      if (ev.detail >= 2) {
+        this.beginEdit();
+        return;
+      }
       setFrom(ev, false);
       trackDrag(ev, this.el, ({ ev: e }) => setFrom(e, false), ({ ev: e }) => setFrom(e, true));
     });
-    this.el.addEventListener('keydown', (ev) => {
-      const step = ev.shiftKey ? 0.1 : 0.02;
-      let d = 0;
-      if (ev.key === 'ArrowRight' || ev.key === 'ArrowUp') d = step;
-      else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowDown') d = -step;
-      else return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      o.set(Math.max(0, Math.min(1, o.get() + d)), true);
-      this.update();
-    });
+    this.el.addEventListener('keydown', (ev) => this.key(ev));
+    this.el.addEventListener('blur', () => this.entry.on && this.commit());
     this.el.addEventListener(
       'wheel',
       (ev) => {
@@ -151,6 +217,83 @@ export class RangeBar {
     );
     this.update();
   }
+
+  get editing(): boolean {
+    return this.entry.on;
+  }
+
+  beginEdit(first?: string): void {
+    typing.active?.cancel();
+    const v = this.o.get();
+    this.entry.start(this.o.editText ? this.o.editText(v) : this.o.format(v).replace(/[^0-9.\-]/g, ''), true);
+    typing.active = { cancel: () => this.cancelEdit() };
+    if (first) this.entry.type(first);
+    this.render();
+  }
+
+  cancelEdit(): void {
+    if (!this.entry.on) return;
+    this.entry.stop();
+    if (typing.active) typing.active = null;
+    this.entryEl?.remove();
+    this.entryEl = null;
+  }
+
+  private commit(): void {
+    const t = this.entry.typed;
+    this.cancelEdit();
+    if (!t) return;
+    const v = (this.o.parse ?? pctParse)(t);
+    if (v === null || !Number.isFinite(v)) {
+      refuse(this.el);
+      return;
+    }
+    this.o.set(Math.max(0, Math.min(1, v)), true);
+    this.update();
+  }
+
+  private key(ev: KeyboardEvent): void {
+    if (ev.metaKey || ev.ctrlKey) return;
+    const k = ev.key;
+    if (this.entry.on) {
+      ev.stopPropagation();
+      ev.preventDefault();
+      if (k === 'Enter' || k === 'Tab') this.commit();
+      else if (k === 'Escape') this.cancelEdit();
+      else if (k === 'Backspace' || k === 'Delete') (this.entry.backspace(), this.render());
+      else if (k === 'ArrowUp' || k === 'ArrowDown') {
+        this.commit();
+        this.nudge(k === 'ArrowUp' ? 1 : -1, ev.shiftKey);
+        this.beginEdit();
+      } else if (k.length === 1 && !this.entry.type(k)) refuse(this.el);
+      else this.render();
+      return;
+    }
+    let handled = true;
+    if (k === 'ArrowRight' || k === 'ArrowUp') this.nudge(1, ev.shiftKey);
+    else if (k === 'ArrowLeft' || k === 'ArrowDown') this.nudge(-1, ev.shiftKey);
+    else if (k === 'Enter') this.beginEdit();
+    else if (k.length === 1 && /[0-9.]/.test(k)) this.beginEdit(k);
+    else if (k === 'Escape') this.el.blur();
+    else handled = false;
+    if (handled) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  }
+
+  private nudge(dir: number, big: boolean): void {
+    this.o.set(Math.max(0, Math.min(1, this.o.get() + dir * (big ? 0.1 : 0.01))), true);
+    this.update();
+  }
+
+  private render(): void {
+    if (!this.entry.on) return;
+    if (!this.entryEl) this.entryEl = el('div', 'entrytext rangeentry', this.el);
+    this.entryEl.textContent = this.entry.text;
+    this.entryEl.classList.toggle('whole', this.entry.replace);
+  }
+
   update(): void {
     const v = this.o.get();
     this.fill.style.width = `${Math.round(v * 100)}%`;
@@ -173,54 +316,195 @@ export interface NumOpts {
   label: string;
   /** pixels of vertical drag per unit */
   pxPerUnit?: number;
-  /** double-click: ask for a typed value */
-  ask?: () => void;
+  /** what the box shows (default: the number) */
+  format?: (v: number) => string;
+  /**
+   * Take typed text completely (the seed box: numbers or names). True = done, false = not valid.
+   * Without it, typing must be a number and is clamped to min..max.
+   */
+  entry?: (text: string) => boolean;
+  /** the text an edit starts from (default: the shown text) */
+  editText?: () => string;
+  /** accept any printable character while typing (with `entry`) */
+  anyText?: boolean;
+  /** longest typed text */
+  maxLength?: number;
 }
 
-/** A number box: drag up/down, wheel or arrow keys; double-click to type. */
+/**
+ * A number box (emmm's numerical field). Click it: the value is selected; type a replacement
+ * and press Return (Escape cancels, clicking elsewhere keeps what you typed). ↑ ↓ step it (Shift:
+ * by 10), also while selected; drag up/down or use the wheel to sweep it.
+ */
 export class NumBox {
   el: HTMLDivElement;
+  private entry: TextEntry;
+  private textEl: HTMLSpanElement | null = null;
   constructor(parent: HTMLElement, rect: [number, number, number, number], private o: NumOpts) {
     this.el = el('div', 'num', parent, rect);
     this.el.tabIndex = 0;
-    this.el.setAttribute('role', 'spinbutton');
+    this.el.setAttribute('role', o.entry ? 'textbox' : 'spinbutton');
     this.el.setAttribute('aria-label', o.label);
+    if (!o.entry) {
+      this.el.setAttribute('aria-valuemin', String(o.min));
+      this.el.setAttribute('aria-valuemax', String(o.max));
+    }
     setTip(this.el, o.tip);
-    const clampV = (v: number) => Math.max(o.min, Math.min(o.max, Math.round(v)));
+    this.entry = new TextEntry(this.el, (ch) => (o.anyText ? ch >= ' ' : /[0-9]/.test(ch) || (o.min < 0 && ch === '-')), o.maxLength ?? 12);
     this.el.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
+      if (this.entry.on) {
+        // a click into the box being edited keeps editing
+        return;
+      }
       this.el.focus();
       const v0 = o.get();
-      trackDrag(ev, this.el, ({ dy }) => {
-        o.set(clampV(v0 - dy / (o.pxPerUnit ?? 2)));
-        this.update();
-      });
+      let dragged = false;
+      trackDrag(
+        ev,
+        this.el,
+        ({ dy }) => {
+          if (!dragged && Math.abs(dy) < 4) return;
+          dragged = true;
+          this.el.classList.add('inv');
+          o.set(this.clampV(v0 - dy / (o.pxPerUnit ?? 2)));
+          this.update();
+        },
+        () => {
+          this.el.classList.remove('inv');
+          if (!dragged) this.beginEdit(); // a click: select the value, ready to type over it
+        },
+      );
     });
-    this.el.addEventListener('dblclick', () => o.ask?.());
-    this.el.addEventListener('keydown', (ev) => {
-      const step = ev.shiftKey ? 10 : 1;
-      if (ev.key === 'ArrowUp' || ev.key === 'ArrowRight') o.set(clampV(o.get() + step));
-      else if (ev.key === 'ArrowDown' || ev.key === 'ArrowLeft') o.set(clampV(o.get() - step));
-      else if (ev.key === 'Enter') o.ask?.();
-      else return;
-      ev.preventDefault();
-      ev.stopPropagation();
-      this.update();
-    });
+    this.el.addEventListener('keydown', (ev) => this.key(ev));
+    this.el.addEventListener('blur', () => this.entry.on && this.commit());
     this.el.addEventListener(
       'wheel',
       (ev) => {
         ev.preventDefault();
-        o.set(clampV(o.get() - Math.sign(ev.deltaY)));
+        if (this.entry.on) this.cancelEdit();
+        o.set(this.clampV(o.get() - Math.sign(ev.deltaY)));
         this.update();
       },
       { passive: false },
     );
     this.update();
   }
+
+  private clampV(v: number): number {
+    return Math.max(this.o.min, Math.min(this.o.max, Math.round(v)));
+  }
+
+  get editing(): boolean {
+    return this.entry.on;
+  }
+
+  beginEdit(first?: string): void {
+    typing.active?.cancel();
+    this.entry.start(this.o.editText ? this.o.editText() : this.shown(), true);
+    typing.active = { cancel: () => this.cancelEdit() };
+    if (first) this.entry.type(first);
+    this.render();
+  }
+
+  cancelEdit(): void {
+    if (!this.entry.on) return;
+    this.entry.stop();
+    if (typing.active) typing.active = null;
+    this.textEl = null;
+    this.el.textContent = '';
+    this.update();
+  }
+
+  private commit(): boolean {
+    const t = this.entry.typed;
+    this.cancelEdit();
+    if (!t) return true; // nothing typed: keep the value
+    if (this.o.entry) {
+      if (!this.o.entry(t)) {
+        refuse(this.el);
+        return false;
+      }
+      this.update();
+      return true;
+    }
+    if (!NUMBER_TEXT.test(t)) {
+      refuse(this.el);
+      return false;
+    }
+    const v = Number(t);
+    if (v < this.o.min || v > this.o.max) refuse(this.el); // out of range: clamped, and says so
+    this.o.set(this.clampV(v));
+    this.update();
+    return true;
+  }
+
+  private step(n: number): void {
+    this.o.set(this.clampV(this.o.get() + n));
+    this.update();
+  }
+
+  private key(ev: KeyboardEvent): void {
+    if (ev.metaKey || ev.ctrlKey) {
+      if (this.entry.on) ev.stopPropagation();
+      return;
+    }
+    const k = ev.key;
+    const big = ev.shiftKey ? 10 : 1;
+    if (this.entry.on) {
+      // while typing, every key belongs to the box (no shortcuts)
+      ev.stopPropagation();
+      ev.preventDefault();
+      if (k === 'Enter') this.commit();
+      else if (k === 'Escape') this.cancelEdit();
+      else if (k === 'Tab') this.commit();
+      else if (k === 'Backspace' || k === 'Delete') (this.entry.backspace(), this.render());
+      else if (k === 'ArrowUp' || k === 'ArrowDown') {
+        // step from what was typed (if anything), and stay selected
+        if (this.entry.typed && !this.commit()) return;
+        this.cancelEdit();
+        this.step((k === 'ArrowUp' ? 1 : -1) * big);
+        this.beginEdit();
+      } else if (k.length === 1 && !this.entry.type(k)) refuse(this.el);
+      else this.render();
+      return;
+    }
+    let handled = true;
+    if (k === 'ArrowUp' || k === 'ArrowRight') this.step(big);
+    else if (k === 'ArrowDown' || k === 'ArrowLeft') this.step(-big);
+    else if (k === 'PageUp' || k === 'PageDown') this.step(k === 'PageUp' ? 10 : -10);
+    else if (k === 'Home') (this.o.set(this.o.min), this.update());
+    else if (k === 'End' && !this.o.entry) (this.o.set(this.o.max), this.update());
+    else if (k === 'Enter') this.beginEdit();
+    else if (k.length === 1 && (/[0-9]/.test(k) || (this.o.anyText && k !== ' '))) this.beginEdit(k);
+    else if (k === 'Escape') this.el.blur();
+    else handled = false;
+    if (handled) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  }
+
+  private shown(): string {
+    return this.o.format ? this.o.format(this.o.get()) : String(this.o.get());
+  }
+
+  /** Show the typed text with a caret. */
+  private render(): void {
+    if (!this.entry.on) return;
+    if (!this.textEl) {
+      this.el.textContent = '';
+      this.textEl = el('span', 'entrytext', this.el);
+    }
+    this.textEl.textContent = this.entry.text;
+    this.textEl.classList.toggle('whole', this.entry.replace);
+  }
+
   update(): void {
-    const t = String(this.o.get());
+    if (this.entry.on) return; // the typed text stays until Return / Escape
+    const t = this.shown();
     if (this.el.textContent !== t) this.el.textContent = t;
-    this.el.setAttribute('aria-valuenow', t);
+    if (!this.o.entry) this.el.setAttribute('aria-valuenow', String(this.o.get()));
+    else this.el.setAttribute('aria-valuetext', t);
   }
 }

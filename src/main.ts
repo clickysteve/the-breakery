@@ -6,10 +6,13 @@
 import './ui/style.css';
 import { IndexedDbSampleStore } from '@slopfactory/core/storage';
 import { App, BATCH_SIZE } from './app/app';
-import { Ingredients } from './audio/ingredients';
+import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredients';
+import { audibleCategories, mixActive } from './app/mix';
+import { entryLabel } from './app/seeds';
+import { CATEGORIES, CATEGORY_LABEL } from './engine/types';
 import { Player } from './audio/player';
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
-import { el, setTip, view } from './ui/dom';
+import { el, esc, setTip, view } from './ui/dom';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { bakeWindow } from './ui/bakeWindow';
 import { batchWindow } from './ui/batchWindow';
@@ -51,23 +54,96 @@ const ingredients = new Ingredients(store);
 const player = new Player(ingredients);
 await ingredients.restore().catch(() => ingredients.loadDemo());
 const params = new URLSearchParams(location.search);
-const seedParam = params.has('seed') ? Number(params.get('seed')) : undefined;
-const app = new App(ingredients, player, seedParam !== undefined && !Number.isNaN(seedParam) ? seedParam : undefined);
-(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, takeaway }; // for debugging and automation
+const app = new App(ingredients, player, params.get('seed') ?? undefined);
 
 // ------------------------------------------------------------------ shell
 const alertBox = (html: string) => void alertDialog(screen, html);
 
-async function importFiles(files: File[]): Promise<void> {
-  const audio = files.filter((f) => /\.(wav|wave|aif|aiff|flac|mp3|ogg|m4a)$/i.test(f.name) || f.type.startsWith('audio/'));
-  if (!audio.length) {
-    alertBox('Those are not audio files. The Breakery takes WAV (and AIFF) one-shots.');
+const slotLabel = (c: Slot) => (c === 'unsorted' ? 'UNSORTED' : CATEGORY_LABEL[c]);
+
+/** Import files or folders, then show what was found and let the categories be corrected. */
+async function importEntries(entries: ImportEntry[]): Promise<void> {
+  if (!entries.length) return;
+  app.say(`Reading ${entries.length} file${entries.length > 1 ? 's' : ''}…`);
+  const r = await ingredients.importEntries(entries, (done, total) => app.say(`Loading samples… ${done} / ${total}`));
+  const fromFolder = entries.some((e) => e.path.includes('/'));
+  const parts = [`Added ${r.added.length} sample${r.added.length === 1 ? '' : 's'}.`];
+  if (r.duplicates) parts.push(`${r.duplicates} already loaded.`);
+  if (r.skipped.length) parts.push(`${r.skipped.length} not audio, skipped.`);
+  if (r.errors.length) parts.push(`${r.errors.length} could not be read.`);
+  app.say(parts.join(' ') + (r.added.length ? ' Check their categories in INGREDIENTS.' : ''));
+  if (!r.added.length && !r.errors.length && !fromFolder) {
+    if (r.skipped.length) alertBox('Those are not audio files. The Breakery takes WAV (and AIFF) one-shots.');
     return;
   }
-  app.say(`Loading ${audio.length} sample${audio.length > 1 ? 's' : ''}…`);
-  const { added, errors } = await ingredients.importFiles(audio);
-  app.say(`Added ${added} sample${added === 1 ? '' : 's'}.${errors.length ? ` ${errors.length} could not be added.` : ''} Check their categories in INGREDIENTS.`);
-  if (errors.length) alertBox(`Some files were not added:<br><br>${errors.map((e) => e.replace(/</g, '&lt;')).join('<br>')}`);
+  if (!fromFolder && r.added.length <= 3 && !r.errors.length && !r.skipped.length) return; // a few loose files: no review needed
+  const counts = new Map<Slot, number>();
+  for (const a of r.added) counts.set(a.cat, (counts.get(a.cat) ?? 0) + 1);
+  const summary = SLOTS.filter((c) => counts.get(c)).map((c) => `${slotLabel(c)} ${counts.get(c)}`).join(' · ');
+  const notes = [
+    r.duplicates ? `${r.duplicates} already loaded (skipped)` : '',
+    r.skipped.length ? `${r.skipped.length} not audio (skipped: ${esc(r.skipped.slice(0, 4).map((p) => p.split('/').pop()!).join(', '))}${r.skipped.length > 4 ? ' …' : ''})` : '',
+    r.hidden ? `${r.hidden} hidden or system file${r.hidden > 1 ? 's' : ''} ignored` : '',
+  ].filter(Boolean);
+  await openDialog<boolean>(
+    screen,
+    `<b>IMPORT</b>: ${r.added.length} sample${r.added.length === 1 ? '' : 's'} added${summary ? `: ${summary}` : ''}.<br><span style="font-size:9px">Categories are suggested from folder and file names. Correct any below (or later in INGREDIENTS). UNSORTED samples are kept but not played until you assign them.${notes.length ? '<br>' + notes.join(' · ') : ''}</span>`,
+    [{ label: 'Done', value: true, isDefault: true }],
+    true,
+    (box) => {
+      const list = el('div', 'samplelist importlist', box);
+      for (const a of [...r.added].sort((x, y) => (x.cat === 'unsorted' ? -1 : 0) - (y.cat === 'unsorted' ? -1 : 0) || x.path.localeCompare(y.path))) {
+        const row = el('div', 'srow', list);
+        const nm = el('span', 'sname', row, undefined, a.path || a.name);
+        setTip(nm, `${a.path || a.name}: ${a.reason}`);
+        const sel = el('select', 'mselect', row);
+        for (const c of SLOTS) {
+          const o = el('option', '', sel, undefined, slotLabel(c));
+          o.value = c;
+          o.selected = c === a.cat;
+        }
+        setTip(sel, a.reason);
+        sel.addEventListener('change', () => ingredients.setCategory(a.id, sel.value as Slot));
+      }
+      if (r.errors.length) {
+        const er = el('div', '', box);
+        er.style.cssText = 'font-size:9px;margin-top:6px;max-height:48px;overflow:auto';
+        er.innerHTML = `Not added:<br>${r.errors.map((e) => esc(e)).join('<br>')}`;
+      }
+    },
+    420,
+  );
+}
+
+/** Files and folders dropped on the screen (folders read recursively where the browser allows). */
+async function droppedEntries(dt: DataTransfer): Promise<ImportEntry[]> {
+  const items = [...dt.items].filter((i) => i.kind === 'file');
+  const roots = items.map((i) => (typeof i.webkitGetAsEntry === 'function' ? i.webkitGetAsEntry() : null));
+  if (!roots.some((e) => e?.isDirectory)) return [...dt.files].map((file) => ({ file, path: '' }));
+  const out: ImportEntry[] = [];
+  const fileOf = (e: FileSystemFileEntry) => new Promise<File>((res, rej) => e.file(res, rej));
+  const readAll = async (dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
+    const reader = dir.createReader();
+    const all: FileSystemEntry[] = [];
+    // readEntries returns at most ~100 entries per call: read until empty
+    for (;;) {
+      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+      if (!batch.length) return all;
+      all.push(...batch);
+    }
+  };
+  const walk = async (e: FileSystemEntry, depth: number): Promise<void> => {
+    if (out.length > 2000 || depth > 12) return;
+    if (e.isFile) {
+      try {
+        out.push({ file: await fileOf(e as FileSystemFileEntry), path: e.fullPath.replace(/^\//, '') });
+      } catch {
+        /* unreadable: skipped */
+      }
+    } else if (e.isDirectory) for (const c of await readAll(e as FileSystemDirectoryEntry)) await walk(c, depth + 1);
+  };
+  for (const r of roots) if (r) await walk(r, 0);
+  return out;
 }
 
 async function togglePlay(): Promise<void> {
@@ -77,7 +153,7 @@ async function togglePlay(): Promise<void> {
 }
 
 function doMidiTakeaway(): void {
-  const mid = midiTakeaway(app.current);
+  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined);
   download(mid.name, mid.bytes, mid.type);
   app.say(`Took away ${mid.name} (${mid.notes} note${mid.notes === 1 ? '' : 's'}, ${app.current.recipe.bpm} BPM, GM drums on channel 10).`);
 }
@@ -102,6 +178,24 @@ async function doTakeaway(): Promise<void> {
         i.name = 'tmode';
         i.checked = o.mode === v;
         i.addEventListener('change', () => (o.mode = v));
+        el('span', '', l, undefined, text);
+        setTip(l, tip);
+      }
+      const rowMix = el('div', 'row', box);
+      const silenced = CATEGORIES.filter((c) => !app.audible(c));
+      const active = mixActive(app.mix);
+      if (!active) o.mix = 'full';
+      for (const [v, text, tip] of [
+        ['full', 'FULL MIX', 'Every drum category, whatever SOLO and MUTE say'],
+        ['audible', 'AUDIBLE MIX', active ? `Only what you hear now: without ${silenced.map((c) => CATEGORY_LABEL[c]).join(', ')}. Stems and MIDI follow; files are named _audible.` : 'Only what you hear (nothing is soloed or muted now, so the same as FULL MIX)'],
+      ] as const) {
+        const l = el('label', '', rowMix);
+        const i = el('input', '', l);
+        i.type = 'radio';
+        i.name = 'tmix';
+        i.checked = o.mix === v;
+        i.disabled = v === 'audible' && !active;
+        i.addEventListener('change', () => (o.mix = v));
         el('span', '', l, undefined, text);
         setTip(l, tip);
       }
@@ -136,10 +230,11 @@ async function doTakeaway(): Promise<void> {
   app.save();
   app.say('Rendering…');
   try {
-    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`));
+    const only = o.mix === 'audible' ? audibleCategories(app.mix) : undefined;
+    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
-      const mid = midiTakeaway(app.current);
+      const mid = midiTakeaway(app.current, only);
       download(mid.name, mid.bytes, mid.type);
     }
     app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}).`);
@@ -149,12 +244,14 @@ async function doTakeaway(): Promise<void> {
   }
 }
 
+(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, takeaway, importEntries }; // for debugging and automation
+
 const ui: UiContext = {
   app,
   screen,
   alert: alertBox,
   confirm: (html, ok) => confirmDialog(screen, html, ok),
-  importFiles,
+  importEntries,
   takeaway: () => void doTakeaway(),
   togglePlay: () => void togglePlay(),
 };
@@ -178,12 +275,12 @@ interface MenuItem {
 }
 async function about(): Promise<void> {
   alertBox(
-    `<b>THE BREAKERY</b> · freshly baked breaks.<br><br>A generative breakbeat instrument from the Slop Factory. Bring one-shot samples (INGREDIENTS), set a RECIPE, BAKE: The Breakery composes an original two-bar (or one- or four-bar) drum performance with musically related kicks, snares, ghost notes and hats, a coherent feel, and a turnaround. TAKEAWAY renders it to WAV for your sampler, or to a MIDI file for your drum machine or DAW.<br><br>Everything runs in your browser. Samples never leave it. No accounts, no tracking.<br><br><a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · <a href="${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md" target="_blank" rel="noopener">research notes</a>`,
+    `<b>THE BREAKERY</b> · freshly baked breaks.<br><br>A generative breakbeat instrument from the Slop Factory. Bring one-shot samples (INGREDIENTS), set a RECIPE, BAKE: The Breakery composes an original drum performance of one to eight bars, built as a phrase (groove, answer, development, fills, turnaround) with musically related kicks, snares, ghost notes and hats, and a coherent feel. Eleven recipes, from FUNK to BREAKCORE. TAKEAWAY renders it to WAV for your sampler, or to a MIDI file for your drum machine or DAW.<br><br>Everything runs in your browser. Samples never leave it. No accounts, no tracking.<br><br><a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · <a href="${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md" target="_blank" rel="noopener">research notes</a>`,
   );
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE<br>N: BATCH (8 candidates)<br>1–8: audition a candidate<br>T: TAKEAWAY<br>M: MIDI file<br>L: loop on / off<br>F: freeze beat · G: detail · H: feel · K: kit<br>← →: previous / next seed<br><br>Drag number boxes up/down; drag or click range bars; arrow keys nudge the focused control.',
+    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN.',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -195,7 +292,8 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
   {
     title: 'File',
     items: () => [
-      { label: 'Load Samples…', action: () => (document.querySelector('input[type=file]') as HTMLInputElement | null)?.click() },
+      { label: 'Load Samples…', action: () => (document.querySelector('input[type=file]:not([webkitdirectory])') as HTMLInputElement | null)?.click() },
+      { label: 'Load Folder…', action: () => (document.querySelector('input[type=file][webkitdirectory]') as HTMLInputElement | null)?.click() },
       { label: 'Add Demo Kit', action: () => ingredients.loadDemo() },
       { label: 'Clear Ingredients…', action: () => void confirmDialog(screen, 'Remove all ingredients?', 'Remove').then((ok) => ok && ingredients.clear()) },
       { sep: true },
@@ -213,9 +311,65 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       { label: 'Loop', key: 'L', checked: () => player.loop, action: () => ((player.loop = !player.loop), app.changed()) },
       { sep: true },
       { label: 'Reset Recipe', action: () => app.resetRecipe() },
+      { label: `Engine ${app.recipe.engine === 1 ? 2 : 1}`, action: () => app.setEngine(app.recipe.engine === 1 ? 2 : 1) },
+      { sep: true },
+      { label: 'Clear Solo / Mute', action: () => app.clearMix() },
+    ],
+  },
+  {
+    title: 'Seeds',
+    items: () => [
+      { label: 'Dice', key: 'D', action: () => app.dice() },
+      { label: 'Mutate', key: 'U', action: () => app.mutate() },
+      { label: 'Back', key: '←', action: () => app.historyBack() },
+      { label: 'Forward', key: '→', action: () => app.historyForward() },
+      { label: app.isFavourite ? 'Remove from Favourites' : 'Add to Favourites', key: 'S', action: () => app.toggleFavourite() },
+      { sep: true },
+      ...(app.favourites.length
+        ? app.favourites.slice(0, 14).map((f) => ({ label: `★ ${entryLabel(f)}`, action: () => app.loadFavourite(f.id) }))
+        : [{ label: '(no favourites yet: FAV saves one)' }]),
+      ...(app.favourites.length > 14 ? [{ label: `… ${app.favourites.length - 14} more (Seeds ▸ Favourites…)` }] : []),
+      ...(app.favourites.length ? [{ label: 'Favourites…', action: () => void favouritesDialog() }] : []),
+      { sep: true },
+      ...app.history.entries
+        .map((e, i) => ({ e, i }))
+        .slice(-10)
+        .reverse()
+        .map(({ e, i }) => ({ label: `${i === app.history.index ? '› ' : '  '}${entryLabel(e)}`, action: () => app.historyGo(i) })),
     ],
   },
 ];
+
+/** All favourites, to load or remove. */
+async function favouritesDialog(): Promise<void> {
+  await openDialog<boolean>(
+    screen,
+    `<b>FAVOURITES</b> (${app.favourites.length}): saved in this browser with their recipe, seeds, mutations and sample settings. Click one to load it.`,
+    [{ label: 'Done', value: true, isDefault: true }],
+    true,
+    (box) => {
+      const list = el('div', 'samplelist importlist', box);
+      const draw = () => {
+        list.replaceChildren();
+        for (const f of app.favourites) {
+          const row = el('div', 'srow', list);
+          const nm = el('span', 'sname', row, undefined, entryLabel(f));
+          nm.style.cursor = 'pointer';
+          setTip(nm, `Load ${entryLabel(f)} (saved ${new Date(f.savedAt).toLocaleString()})`);
+          nm.addEventListener('click', () => app.loadFavourite(f.id));
+          const x = el('span', 'ibtn', row, undefined, '×');
+          setTip(x, 'Remove this favourite');
+          x.addEventListener('click', () => {
+            app.removeFavourite(f.id);
+            draw();
+          });
+        }
+      };
+      draw();
+    },
+    360,
+  );
+}
 const menubar = el('div', '', screen);
 menubar.id = 'menubar';
 let openMenu: { el: HTMLDivElement; drop: HTMLDivElement } | null = null;
@@ -284,8 +438,8 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'g') app.toggleFreeze('detail');
   else if (k === 'h') app.toggleFreeze('feel');
   else if (k === 'k') app.toggleFreeze('kit');
-  else if (e.key === 'ArrowRight' && t === document.body) app.setSeed(app.seeds.beat + 1);
-  else if (e.key === 'ArrowLeft' && t === document.body) app.setSeed(Math.max(0, app.seeds.beat - 1));
+  else if (e.key === 'ArrowRight' && (t === document.body || t.classList.contains('btn'))) app.historyForward();
+  else if (e.key === 'ArrowLeft' && (t === document.body || t.classList.contains('btn'))) app.historyBack();
   else if (n >= 1 && n <= BATCH_SIZE) app.pick(n - 1);
   else if (e.key === 'Escape') closeMenu();
   else return;
@@ -308,8 +462,8 @@ window.addEventListener('drop', (e) => {
   e.preventDefault();
   dragDepth = 0;
   screen.classList.remove('dropping');
-  const files = [...(e.dataTransfer?.files ?? [])];
-  if (files.length) void importFiles(files);
+  const dt = e.dataTransfer;
+  if (dt) void droppedEntries(dt).then((entries) => importEntries(entries));
 });
 
 // ------------------------------------------------------------------ redraw

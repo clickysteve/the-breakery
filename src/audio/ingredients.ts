@@ -7,11 +7,35 @@
 import { decodeSample, defaultZone, SampleInstrument, toAudioBuffer, type DecodedSample } from '@slopfactory/core/sampler';
 import { sampleFromBytes, type SampleStore } from '@slopfactory/core/storage';
 import { emptyKit, type KitIndex } from '../engine/kit';
-import { CATEGORIES, type Category } from '../engine/types';
+import { CATEGORIES } from '../engine/types';
+import { guessCategory, importable, suggestCategory, type Slot } from './categorise';
 import { demoKit, DEMO_RATE } from './demoKit';
 
-export type Slot = Category | 'unsorted';
+export { guessCategory, type Slot };
 export const SLOTS: Slot[] = [...CATEGORIES, 'unsorted'];
+
+/** A file to import, with its path inside a dropped or chosen folder ("" for a loose file). */
+export interface ImportEntry {
+  file: File;
+  path: string;
+}
+
+export interface ImportReport {
+  added: { id: string; name: string; path: string; cat: Slot; reason: string }[];
+  duplicates: number;
+  skipped: string[];
+  hidden: number;
+  errors: string[];
+}
+
+/** Loudness of a one-shot: RMS of its first 150 ms in dB (any monotonic measure would do). */
+export function loudnessDb(channels: Float32Array[], sampleRate: number): number {
+  const n = Math.min(channels[0]?.length ?? 0, Math.round(sampleRate * 0.15));
+  let sum = 0;
+  for (const ch of channels) for (let i = 0; i < n; i++) sum += ch[i]! * ch[i]!;
+  const rms = Math.sqrt(sum / Math.max(1, n * channels.length));
+  return rms > 0 ? 20 * Math.log10(rms) : -120;
+}
 
 export interface Ingredient {
   id: string;
@@ -22,6 +46,10 @@ export interface Ingredient {
   message: string;
   duration: number;
   instrument: SampleInstrument | null;
+  /** RMS loudness, dB (VELOCITY sample selection orders by it) */
+  loud: number;
+  /** folder path it was imported from, if any */
+  path?: string;
 }
 
 interface SavedItem {
@@ -29,24 +57,10 @@ interface SavedItem {
   name: string;
   cat: Slot;
   source: 'demo' | 'user';
+  path?: string;
 }
 
 const META_KEY = 'breakery.ingredients.v1';
-
-/** Category from a file name, or 'unsorted'. A convenience only: every sample can be reassigned. */
-export function guessCategory(name: string): Slot {
-  const n = name.toLowerCase().replace(/\.[a-z0-9]+$/, '');
-  const has = (re: RegExp) => re.test(n);
-  if (has(/ghost/)) return 'ghost';
-  if (has(/open|\boh\b|(^|[^a-z])oh([^a-z]|$)|ohh/)) return 'open';
-  if (has(/ride/)) return 'ride';
-  if (has(/crash|splash|china|cymbal|\bcym/)) return 'crash';
-  if (has(/kick|\bbd\b|(^|[^a-z])bd([^a-z]|$)|bass ?drum|\bkik/)) return 'kick';
-  if (has(/snare|\bsd\b|(^|[^a-z])sd([^a-z]|$)|\bsnr/)) return 'snare';
-  if (has(/hat|\bhh\b|(^|[^a-z])(ch|hh)([^a-z]|$)/)) return 'hat';
-  if (has(/perc|shak|tamb|conga|bongo|clap|rim|cowbell|block|clave|tom|cabasa|guiro|snap/)) return 'perc';
-  return 'unsorted';
-}
 
 function loadMeta(): SavedItem[] {
   try {
@@ -71,7 +85,7 @@ export class Ingredients {
 
   save(): void {
     try {
-      const meta: SavedItem[] = this.items.map(({ id, name, cat, source }) => ({ id, name, cat, source }));
+      const meta: SavedItem[] = this.items.map(({ id, name, cat, source, path }) => ({ id, name, cat, source, ...(path ? { path } : {}) }));
       localStorage.setItem(META_KEY, JSON.stringify(meta));
     } catch {
       /* storage unavailable: assignments last for this visit only */
@@ -90,7 +104,7 @@ export class Ingredients {
       return;
     }
     const demo = new Map(demoKit().map((d) => [d.id, d]));
-    this.items = meta.map((m) => ({ ...m, status: 'loading', message: '', duration: 0, instrument: null }));
+    this.items = meta.map((m) => ({ ...m, status: 'loading', message: '', duration: 0, instrument: null, loud: -120 }));
     for (const it of this.items) {
       if (it.source === 'demo') {
         const d = demo.get(it.id);
@@ -122,12 +136,14 @@ export class Ingredients {
   private readyDemo(it: Ingredient, data: Float32Array): void {
     it.instrument = this.makeInstrument({ sampleRate: DEMO_RATE, channels: [data] });
     it.duration = data.length / DEMO_RATE;
+    it.loud = loudnessDb([data], DEMO_RATE);
     it.status = 'ready';
   }
 
   private readyUser(it: Ingredient, d: DecodedSample): void {
     it.instrument = this.makeInstrument(d);
     it.duration = d.duration;
+    it.loud = loudnessDb(d.channels, d.sampleRate);
     it.status = 'ready';
     it.message = d.warnings.join(' ');
   }
@@ -137,7 +153,7 @@ export class Ingredients {
     const have = new Set(this.items.map((i) => i.id));
     for (const d of demoKit()) {
       if (have.has(d.id)) continue;
-      const it: Ingredient = { id: d.id, name: d.name, cat: d.cat, source: 'demo', status: 'loading', message: '', duration: 0, instrument: null };
+      const it: Ingredient = { id: d.id, name: d.name, cat: d.cat, source: 'demo', status: 'loading', message: '', duration: 0, instrument: null, loud: -120 };
       this.readyDemo(it, d.data);
       this.items.push(it);
     }
@@ -146,15 +162,34 @@ export class Ingredients {
 
   /** Decode, store and add user files. Returns messages for files that failed. */
   async importFiles(files: File[]): Promise<{ added: number; errors: string[] }> {
-    const errors: string[] = [];
-    let added = 0;
-    for (const f of files) {
+    const r = await this.importEntries(files.map((file) => ({ file, path: '' })));
+    return { added: r.added.length, errors: [...r.errors, ...(r.duplicates ? [`${r.duplicates} already in the ingredients.`] : [])] };
+  }
+
+  /**
+   * Import files (from a folder or loose): hidden files and non-audio are skipped and counted,
+   * duplicates (same bytes) are skipped, categories are suggested from file and folder names.
+   * Nothing is uploaded: decoding and storage happen in this browser.
+   */
+  async importEntries(entries: ImportEntry[], onProgress?: (done: number, total: number) => void): Promise<ImportReport> {
+    const report: ImportReport = { added: [], duplicates: 0, skipped: [], hidden: 0, errors: [] };
+    const audio: ImportEntry[] = [];
+    for (const e of entries) {
+      const kind = importable(e.path || e.file.name, e.file.type);
+      if (kind === 'hidden') report.hidden++;
+      else if (kind === 'other') report.skipped.push(e.path || e.file.name);
+      else audio.push(e);
+    }
+    let done = 0;
+    for (const { file: f, path } of audio) {
+      onProgress?.(done, audio.length);
       try {
         const bytes = await f.arrayBuffer();
         const decoded = await decodeSample(bytes, f.name);
         const stored = await sampleFromBytes(bytes, f.name, f.type);
-        if (this.items.some((i) => i.id === stored.id)) {
-          errors.push(`${f.name}: already in the ingredients.`);
+        if (this.items.some((i) => i.id === stored.id) || report.added.some((a) => a.id === stored.id)) {
+          report.duplicates++;
+          done++;
           continue;
         }
         let kept = true;
@@ -164,17 +199,22 @@ export class Ingredients {
         } catch {
           kept = false;
         }
-        const it: Ingredient = { id: stored.id, name: f.name, cat: guessCategory(f.name), source: 'user', status: 'loading', message: '', duration: 0, instrument: null };
+        const sug = suggestCategory(path || f.name);
+        const it: Ingredient = { id: stored.id, name: f.name, cat: sug.cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120, ...(path ? { path } : {}) };
         this.readyUser(it, decoded);
         if (!kept) it.message = (it.message ? it.message + ' ' : '') + 'Browser storage is unavailable: this sample lasts until the page is closed.';
         this.items.push(it);
-        added++;
-        this.changed();
+        report.added.push({ id: it.id, name: f.name, path, cat: sug.cat, reason: sug.reason });
+        // one redraw per few files keeps big folders quick
+        if (report.added.length % 8 === 1 || audio.length < 12) this.changed();
       } catch (e) {
-        errors.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+        report.errors.push(`${path || f.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
+      done++;
     }
-    return { added, errors };
+    onProgress?.(done, audio.length);
+    if (report.added.length) this.changed();
+    return report;
   }
 
   setCategory(id: string, cat: Slot): void {
@@ -213,6 +253,13 @@ export class Ingredients {
   instrument(id: string | undefined | null): SampleInstrument | null {
     if (!id) return null;
     return this.items.find((i) => i.id === id)?.instrument ?? null;
+  }
+
+  /** Loudness per ready sample (for VELOCITY selection). */
+  loudness(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const it of this.items) if (it.status === 'ready') out[it.id] = it.loud;
+    return out;
   }
 
   name(id: string | null): string {

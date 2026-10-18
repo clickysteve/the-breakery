@@ -9,13 +9,17 @@
  * Optionally one stem per drum category as well (a ZIP), all the same length and gain, and a
  * MIDI file of the break (midi/breakMidi.ts; inside the ZIP when there are stems).
  *
+ * Mix: FULL MIX renders every category whatever SOLO and MUTE say; AUDIBLE MIX renders only what
+ * you hear (the same precedence as playback, app/mix.ts) and names the files "_audible". Stems
+ * and the MIDI file follow the same choice, so a ZIP is always self-consistent.
+ *
  * Clipping: if the mix would exceed full scale, every file is turned down by the same amount
  * to -1 dBFS and the result says so. Otherwise nothing is normalised.
  */
 import { createZip, encodeWav16, fileName, levelStats } from '@slopfactory/core/export';
 import { EXPORT_SAMPLE_RATE, renderTimeline } from '@slopfactory/core/render';
 import { STYLE_DEFS } from '../engine/styles';
-import { CATEGORIES, type Break } from '../engine/types';
+import { CATEGORIES, type Break, type Category } from '../engine/types';
 import { breakMidi } from '../midi/breakMidi';
 import type { Ingredients } from './ingredients';
 import { breakTimeline, hatChoke, loopSeconds } from './timeline';
@@ -26,9 +30,11 @@ export interface TakeawayOptions {
   stems: boolean;
   /** also a Standard MIDI File of the break */
   midi: boolean;
+  /** every category, or only those SOLO / MUTE leave audible */
+  mix: 'full' | 'audible';
 }
 
-export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false, midi: false });
+export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false, midi: false, mix: 'full' });
 
 export interface TakeawayResult {
   name: string;
@@ -48,20 +54,23 @@ export function foldLoop(ch: Float32Array, frames: number): Float32Array {
   return out;
 }
 
-export function takeawayName(b: Break, opts: TakeawayOptions, ext: string): string {
+export function takeawayName(b: Break, opts: Pick<TakeawayOptions, 'mode'> & Partial<Pick<TakeawayOptions, 'mix'>>, ext: string): string {
   const r = b.recipe;
-  return fileName(['breakery', STYLE_DEFS[r.style].label.toLowerCase(), `${r.bpm}bpm`, `${r.bars}bar`, `seed${b.seeds.beat}`, opts.mode === 'loop' ? 'loop' : ''], ext);
+  const n = b.seeds.mut?.length ?? 0;
+  return fileName(['breakery', STYLE_DEFS[r.style].label.toLowerCase(), `${r.bpm}bpm`, `${r.bars}bar`, `seed${b.seeds.beat}${n ? `m${n}` : ''}`, r.engine === 1 ? 'e1' : '', opts.mode === 'loop' ? 'loop' : '', opts.mix === 'audible' ? 'audible' : ''], ext);
 }
 
 /** The break as a Standard MIDI File (always exactly the bars; there is no tail or loop fold in MIDI). */
-export function midiTakeaway(b: Break): { name: string; bytes: Uint8Array; type: string; notes: number } {
-  const { bytes, notes } = breakMidi(b);
-  return { name: takeawayName(b, { ...defaultTakeaway(), mode: 'tail' }, 'mid'), bytes, type: 'audio/midi', notes };
+export function midiTakeaway(b: Break, only?: readonly Category[]): { name: string; bytes: Uint8Array; type: string; notes: number } {
+  const { bytes, notes } = breakMidi(b, only);
+  return { name: takeawayName(b, { mode: 'tail', mix: only ? 'audible' : 'full' }, 'mid'), bytes, type: 'audio/midi', notes };
 }
 
-export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void): Promise<TakeawayResult> {
-  const timeline = breakTimeline(b);
-  if (!timeline.events.length) throw new Error('Nothing to render: no hit in this break has a sample. Load some INGREDIENTS first.');
+/** `audibleCats`: the categories SOLO / MUTE leave audible (used when opts.mix is 'audible'). */
+export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[]): Promise<TakeawayResult> {
+  const only = opts.mix === 'audible' ? audibleCats : undefined;
+  const timeline = breakTimeline(b, only);
+  if (!timeline.events.length) throw new Error(only ? 'Nothing to render: every category with a sample is muted (or not soloed). Choose FULL MIX, or change SOLO / MUTE.' : 'Nothing to render: no hit in this break has a sample. Load some INGREDIENTS first.');
   const used = CATEGORIES.filter((c) => timeline.events.some((e) => e.voice === c));
   const tail = opts.mode === 'loop' ? Math.max(1, opts.tailSeconds) : Math.max(0, Math.min(10, opts.tailSeconds));
   const res = await renderTimeline({
@@ -98,7 +107,7 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
   const entries = [{ name: masterName, data: masterBytes }];
   for (const o of outputs.slice(1)) entries.push({ name: takeawayName(b, opts, 'wav').replace(/\.wav$/, `_${o.voice}.wav`), data: await encodeWav16(o.channels, res.sampleRate) });
   if (opts.midi) {
-    const mid = midiTakeaway(b);
+    const mid = midiTakeaway(b, only);
     entries.push({ name: mid.name, data: mid.bytes });
   }
   return { name: takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length };

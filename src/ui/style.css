@@ -842,3 +842,45 @@ select.mselect {
   accent-color: var(--ink);
   margin: 0;
 }
+
+/* ------------------------------------------------------------ The Breakery 0.2 */
+/* SOLO / MUTE beside the pattern rows */
+.btn.sm {
+  font-size: 7px;
+  line-height: 7px;
+  padding: 0;
+}
+/* a MUTE that a SOLO elsewhere overrides (SOLO wins): shown, but crossed out */
+.btn.sm.on.overridden {
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: line-through;
+  border-style: dashed;
+}
+/* the sample-selection setting beside each sample (●, weight, layer, turn, hit count) */
+.srow .wslot {
+  flex: none;
+  position: relative;
+  width: 16px;
+  height: 11px;
+  font-size: 8px;
+  line-height: 11px;
+  text-align: center;
+  font-family: var(--font-tiny);
+}
+.srow .wslot.pickable {
+  cursor: pointer;
+  font-family: inherit;
+}
+.srow .wslot .num.wnum {
+  font-size: 8px;
+}
+/* import review and favourites lists inside a dialog */
+.samplelist.importlist {
+  position: relative;
+  max-height: 210px;
+  margin-top: 4px;
+}
+.importlist .srow select.mselect {
+  width: 72px;
+}

@@ -8,7 +8,7 @@
  */
 import { constantTempo, sortEvents, type NoteEvent, type Timeline } from '@slopfactory/core/events';
 import type { ResolveChoke } from '@slopfactory/core/audio';
-import { CATEGORIES, CATEGORY_LABEL, STEPS, TPS, type Break, type BreakEvent } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, STEPS, TPS, type Break, type BreakEvent, type Category } from '../engine/types';
 
 export const CORE_PPQ = 96000;
 /** The pitch at which samples play at their own speed. */
@@ -33,11 +33,11 @@ export function loopSeconds(b: Break): number {
   return b.recipe.bars * 4 * (60 / b.recipe.bpm);
 }
 
-/** Every playable event of the break as a Core timeline: one voice per drum category. */
-export function breakTimeline(b: Break): Timeline {
+/** Every playable event of the break as a Core timeline: one voice per drum category (optionally only some categories: AUDIBLE MIX). */
+export function breakTimeline(b: Break, only?: readonly Category[]): Timeline {
   const bpm = b.recipe.bpm;
   const events: NoteEvent[] = b.events
-    .filter((e) => e.sample)
+    .filter((e) => e.sample && (!only || only.includes(e.cat)))
     .map((e) => ({ type: 'note', tick: eventTick(e, bpm), duration: CORE_PPQ / 4, voice: e.cat, pitch: ROOT_PITCH, velocity: e.vel, instrument: e.sample! }));
   return {
     tempo: constantTempo(bpm, CORE_PPQ),
