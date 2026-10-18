@@ -14,6 +14,7 @@ import { audibleCategories, mixActive } from './app/mix';
 import { entryLabel } from './app/seeds';
 import { CATEGORY_LABEL } from './engine/types';
 import { Player } from './audio/player';
+import { loadNaming, saveNaming, buildFileName, type NamingPrefs } from './audio/exportName';
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
@@ -177,12 +178,13 @@ async function togglePlay(): Promise<void> {
 
 function doMidiTakeaway(): void {
   const map = midi.fileMapping();
-  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined, map);
+  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined, map, loadNaming());
   download(mid.name, mid.bytes, mid.type);
   app.say(`Took away ${mid.name} (${mid.notes} note${mid.notes === 1 ? '' : 's'}, ${app.current.recipe.bpm} BPM, ${isGmMapping(map) ? 'GM drums on channel 10' : 'channels and notes from the MIDI window'}).`);
 }
 
 async function doTakeaway(): Promise<void> {
+  const naming: NamingPrefs = loadNaming();
   const o: TakeawayOptions = { ...app.takeawayOpts, mix: 'audible' };
   const r = app.current.recipe;
   const ok = await openDialog<boolean>(
@@ -205,6 +207,30 @@ async function doTakeaway(): Promise<void> {
         el('span', '', l, undefined, text);
         setTip(l, tip);
       }
+      el('div', 'row', box, undefined, 'EXPORT NAME');
+      const nameIn = el('input', '', el('div', 'row', box));
+      nameIn.type = 'text';
+      nameIn.value = naming.name;
+      nameIn.maxLength = 80;
+      nameIn.style.width = '100%';
+      setTip(nameIn, 'The base name of every file. Spaces are fine; unsafe characters are removed. Remembered between visits.');
+      const rowN = el('div', 'row', box);
+      const preview = el('div', 'row', box);
+      const refresh = (): void => {
+        naming.name = nameIn.value;
+        preview.textContent = `FILENAME: ${buildFileName(naming, app.current, o.stems ? 'stems' : o.mode === 'loop' ? 'loop' : '', o.stems ? 'zip' : 'wav')}`;
+      };
+      for (const [k, text] of [['recipe', 'RECIPE'], ['bpm', 'BPM'], ['seed', 'SEED']] as const) {
+        const l = el('label', '', rowN);
+        const c = el('input', '', l);
+        c.type = 'checkbox';
+        c.checked = naming[k];
+        c.addEventListener('change', () => { naming[k] = c.checked; refresh(); });
+        el('span', '', l, undefined, text);
+        setTip(l, `Add the break's ${text} to the filenames`);
+      }
+      nameIn.addEventListener('input', refresh);
+      refresh();
       el('div', 'row', box, undefined, 'Mix and stems follow channel level, pan, MUTE and SOLO.');
       const row2 = el('div', 'row', box);
       el('span', '', row2, undefined, 'Tail');
@@ -221,6 +247,8 @@ async function doTakeaway(): Promise<void> {
       cb.checked = o.stems;
       cb.addEventListener('change', () => (o.stems = cb.checked));
       el('span', '', l, undefined, '+ STEMS (ZIP)');
+      cb.addEventListener('change', refresh);
+      for (const r of row1.querySelectorAll('input')) r.addEventListener('change', refresh);
       setTip(l, 'Also one aligned stereo WAV per drum category in a ZIP. DRY STEMS bypasses master gain.');
       const dryLabel = el('label', '', el('div', 'row', box));
       const dry = el('input', '', dryLabel); dry.type = 'checkbox'; dry.checked = o.dryStems ?? true;
@@ -238,7 +266,9 @@ async function doTakeaway(): Promise<void> {
     320,
   );
   if (!ok) return;
-  app.takeawayOpts = o;
+  saveNaming(naming);
+  o.naming = naming;
+  app.takeawayOpts = { ...o, naming: undefined };
   app.save();
   app.say('Rendering…');
   try {
@@ -247,7 +277,7 @@ async function doTakeaway(): Promise<void> {
     const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix, map);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
-      const mid = midiTakeaway(app.current, only, map);
+      const mid = midiTakeaway(app.current, only, map, naming);
       download(mid.name, mid.bytes, mid.type);
     }
     app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}).`);

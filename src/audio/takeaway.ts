@@ -22,6 +22,7 @@ import { audibleCategories, emptyMix, mixerStrips, safeGain, sanitiseMix, type M
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Break, type Category } from '../engine/types';
 import { breakMidi, type MidiMapping } from '../midi/breakMidi';
+import { buildFileName, stemFileNames, type NamingPrefs } from './exportName';
 import type { Ingredients } from './ingredients';
 import { breakTimeline, hatChoke, loopSeconds } from './timeline';
 
@@ -34,6 +35,8 @@ export interface TakeawayOptions {
   dryStems?: boolean;
   /** Legacy filename/MIDI selection; audio always follows mixer gates. */
   mix: 'full' | 'audible';
+  /** when set, files are named from the EXPORT NAME preferences instead of the legacy scheme */
+  naming?: NamingPrefs;
 }
 
 export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false, midi: false, dryStems: true, mix: 'full' });
@@ -63,9 +66,9 @@ export function takeawayName(b: Break, opts: Pick<TakeawayOptions, 'mode'> & Par
 }
 
 /** The break as a Standard MIDI File (always exactly the bars; there is no tail or loop fold in MIDI). `map`: each track's channel and note (MIDI window). */
-export function midiTakeaway(b: Break, only?: readonly Category[], map?: MidiMapping): { name: string; bytes: Uint8Array; type: string; notes: number } {
+export function midiTakeaway(b: Break, only?: readonly Category[], map?: MidiMapping, naming?: NamingPrefs): { name: string; bytes: Uint8Array; type: string; notes: number } {
   const { bytes, notes } = breakMidi(b, only, map);
-  return { name: takeawayName(b, { mode: 'tail', mix: only ? 'audible' : 'full' }, 'mid'), bytes, type: 'audio/midi', notes };
+  return { name: naming ? buildFileName(naming, b, '', 'mid') : takeawayName(b, { mode: 'tail', mix: only ? 'audible' : 'full' }, 'mid'), bytes, type: 'audio/midi', notes };
 }
 
 /** Optional category mask for legacy callers; channel gain/pan comes from the mixer snapshot. `map`: the MIDI file's channel and note per track. */
@@ -115,17 +118,19 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
   }
   const peakDb = levelStats(master.channels).peakDb;
   const frames = master.channels[0]!.length;
-  const masterName = takeawayName(b, opts, 'wav');
+  const nm = opts.naming;
+  const masterName = nm ? buildFileName(nm, b, opts.mode === 'loop' ? 'loop' : '', 'wav') : takeawayName(b, opts, 'wav');
   const masterBytes = await encodeWav16(master.channels, res.sampleRate);
   if (!opts.stems) return { name: masterName, bytes: masterBytes, type: 'audio/wav', seconds: frames / res.sampleRate, peakDb, reducedDb, files: 1 };
 
   const entries = [{ name: masterName, data: masterBytes }];
-  for (const o of outputs.slice(1)) entries.push({ name: takeawayName(b, opts, 'wav').replace(/\.wav$/, `_${o.voice}.wav`), data: await encodeWav16(o.channels, res.sampleRate) });
+  const stemNames = nm ? stemFileNames(nm, b, outputs.slice(1).map((o) => String(o.voice))) : [];
+  for (const [i, o] of outputs.slice(1).entries()) entries.push({ name: nm ? stemNames[i]! : takeawayName(b, opts, 'wav').replace(/\.wav$/, `_${o.voice}.wav`), data: await encodeWav16(o.channels, res.sampleRate) });
   if (opts.midi) {
-    const mid = midiTakeaway(b, only, map);
+    const mid = midiTakeaway(b, only, map, nm);
     entries.push({ name: mid.name, data: mid.bytes });
   }
-  return { name: takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length };
+  return { name: nm ? buildFileName(nm, b, 'stems', 'zip') : takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length };
 }
 
 /** Offer bytes as a download. */
