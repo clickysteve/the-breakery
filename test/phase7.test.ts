@@ -163,7 +163,7 @@ describe('RANDOM RECIPE', () => {
     const k = kit();
     const ingredients = { kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' };
     const sent: Break[] = [];
-    const player = { loop: true, level: 0.5, playing: true, setLevel() {}, setMix() {}, setBreak: (b: Break) => sent.push(b), update: (b: Break) => sent.push(b), audition: async () => {}, onSwap: () => {} };
+    const player = { loop: true, level: 0.5, playing: true, setLevel() {}, setMix() {}, setOutput() {}, setBreak: (b: Break) => sent.push(b), update: (b: Break) => sent.push(b), audition: async () => {}, onSwap: () => {} };
     const app = new App(ingredients as never, player as never, seed);
     return { app, sent, k };
   }
@@ -255,7 +255,7 @@ describe('ENGINE is a generator, not a recipe', () => {
   });
   it('switching it keeps the recipe, and ENGINE 1 refuses recipes it does not know', () => {
     const k = kit();
-    const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
+    const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setOutput() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
     const app = new App({ kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' } as never, player as never, '7');
     app.setStyle('jungle');
     app.setEngine(1);

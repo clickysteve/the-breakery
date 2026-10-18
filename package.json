@@ -28,6 +28,6 @@
   "dependencies": {
     "@fontsource/silkscreen": "^5.3.0",
     "@fontsource/tiny5": "^5.3.0",
-    "@slopfactory/core": "github:clickysteve/slopfactory-core#5d0eb782e23557661a3f401ba0b07e3cf3210bbc"
+    "@slopfactory/core": "github:clickysteve/slopfactory-core#3cda1c2694d124747efc81343e46a752bea82be8"
   }
 }

@@ -30,6 +30,7 @@ over: every hit can be added, moved, deleted or changed by hand.
 | **MUTATE** | (a tab beside RECIPE) MUTATE PATTERN with a style, depth, range and tracks; CREATE RELATED SECTION (verse, chorus, breakdown, build, fill, alternate). |
 | **PATTERN** | See every hit and why it is there; edit hits by hand (click to add or delete, shift+click to edit, drag to move; velocity, timing, sample) with undo; SOLO and MUTE each drum. Dense rolls show as one group (ROLL ×N): click to expand. |
 | **MIXER** | (a tab beside PATTERN) Level, pan, MUTE, SOLO and a meter for each drum, the master level with output meters and PEAK. |
+| **OUTPUT** | (a tab beside BATCH) A master output chain after the mixer and before the master level: up to eight engines in series (OUTPUT STAGE's ten characters, DRIVE, CRUNCH, TONE), each with ON, reorder and REMOVE, BYPASS ALL and presets. Heard at once and rendered into the TAKEAWAY mix; stems stay unprocessed. See [docs/MIXER.md](docs/MIXER.md#output). |
 | **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
 | **MIDI** | Play the break out to drum machines and DAWs (per-track device, channel and note), play the samples from pads or an external sequencer, follow an external MIDI clock or send one (MIDI ▸ MIDI Settings…). |
 | **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, or your own. |
@@ -107,7 +108,8 @@ from any folder of any static server). `npm run evaluate` regenerates
    Hover a hit to see why it is there ("ghost on 1a: anticipates the backbeat on 2") and why it
    plays its sample; shift+click it to hear it. **S** and **M** beside each row SOLO and MUTE that drum,
    at once, without changing the break (if any row is soloed, only soloed rows play: SOLO wins over
-   MUTE); the **MIXER** tab adds level, pan and meters. **VIEW** shows every bar, or 4, 2 or 1 bar
+   MUTE); the **MIXER** tab adds level, pan and meters, and **OUTPUT** a chain of master
+   processing (lo-fi character, saturation, bit and rate reduction, tone). **VIEW** shows every bar, or 4, 2 or 1 bar
    at a time (◀ ▶ to page). A roll too dense to see hit by hit is drawn as one outlined group
    (**ROLL ×N**): click it to expand it to its bar, where every hit of it is drawn (dithered, so
    the main hits stay strongest) and edited on its own; right-click it to delete the whole roll.
@@ -224,7 +226,7 @@ One-time setup: **Settings ▸ Pages ▸ Source: GitHub Actions**, and the custo
 
 Shared audio infrastructure and the palettes come from
 [Slop Factory Core](https://github.com/clickysteve/slopfactory-core) (sampler, mixer, offline
-renderer, WAV/ZIP export, sample storage, palettes and the palette editor), pinned to a commit
+renderer, output engines, WAV/ZIP export, sample storage, palettes and the palette editor), pinned to a commit
 in `package.json`; the interface follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit
 look, and the grid editing follows DOWNBEAT's conventions (click to add, right-click to delete,
 drag, ⌘Z).

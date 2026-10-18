@@ -36,7 +36,7 @@ function makeApp(seed = '4242') {
   const k = kit();
   const ingredients = { kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' };
   const sent: Break[] = [];
-  const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setBreak: (b: Break) => sent.push(b), update: (b: Break) => sent.push(b), audition: async () => {}, onSwap: () => {} };
+  const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setOutput() {}, setBreak: (b: Break) => sent.push(b), update: (b: Break) => sent.push(b), audition: async () => {}, onSwap: () => {} };
   const app = new App(ingredients as never, player as never, seed);
   return { app, sent };
 }
