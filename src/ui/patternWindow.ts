@@ -23,6 +23,7 @@ import { SNAP_LABEL, SNAPS } from '../app/app';
 import { esc, el, localPoint, setTip, svgEl, trackDrag } from './dom';
 import { rollGroups, type RollGroup } from '../engine/rolls';
 import { isDrag, pressAction, releaseDeletes, ROLL_GROUP_PX } from './gridEdit';
+import { batchPanel } from './batchWindow';
 import { mixerPanel } from './mixerPanel';
 import { Button, MWindow, NumBox } from './widgets';
 import type { UiContext } from './context';
@@ -36,8 +37,9 @@ const ZOOMS = [0, 4, 2, 1] as const;
 
 export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'PATTERN', tabs: ['PATTERN', 'MIXER'], ...rect, onTab: () => draw() });
-  const [b, mixerBody] = win.panes as [HTMLDivElement, HTMLDivElement];
+  const win = new MWindow(parent, { title: 'PATTERN', tabs: ['PATTERN', 'MIXER', 'BATCH'], ...rect, onTab: () => draw() });
+  const [b, mixerBody, batchBody] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement];
+  const batch = batchPanel(batchBody, ui, { w: rect.w - 2, h: rect.h - 18 });
   const mixer = mixerPanel(mixerBody, app, { w: rect.w - 2, h: rect.h - 18 });
   const W = rect.w - 2;
   const X0 = 70;
@@ -466,5 +468,5 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   }
 
   draw();
-  return { update: draw, tick, win };
+  return { update: () => { draw(); batch.update(); }, tick, win };
 }

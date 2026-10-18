@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER']];
+  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH']];
   const tabs = $$('.mtab');
-  check(tabs.length === 7, `7 tabs, got ${tabs.length}`);
+  check(tabs.length === 8, `8 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);
@@ -56,6 +56,18 @@ export async function run(): Promise<string> {
     check(Math.abs(rect(t).height - h0) < 0.5 && cs.fontFamily === font && cs.borderRadius === '0px', `tab ${t.textContent} geometry`);
   }
   check(!$$('.mbutton, .btn').some((b) => visible(b) && parseFloat(getComputedStyle(b).borderRadius) > 0), 'no rounded buttons');
+
+  // BATCH is a lower tab: PATTERN is the default, and tab switches keep the batch
+  check(win('PATTERN').querySelector('.mtab.active, .mtab[aria-selected="true"]')?.textContent === 'PATTERN', 'PATTERN is the default tab');
+  app.bakeBatch();
+  const seeds = JSON.stringify(app.batch.map((c) => c.seeds));
+  await chooseTab('BATCH');
+  const cands = $$('.candidate').filter(visible);
+  check(cands.length === 8, `8 candidates visible, got ${cands.length}`);
+  check(rect(cands[0]!).width > px(120), 'candidates are wide');
+  await chooseTab('MIXER');
+  await chooseTab('PATTERN');
+  check(JSON.stringify(app.batch.map((c) => c.seeds)) === seeds, 'batch kept across tabs');
 
   // tab switching keeps state and does not touch playback
   const before = JSON.stringify(app.current.events);
