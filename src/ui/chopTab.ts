@@ -80,7 +80,7 @@ export function chopTab(b: HTMLElement, ui: UiContext, W: number) {
     set: (v) => app.setChop({ retrigger: v }),
     format: pct,
     label: 'Chop retrigger',
-    tip: 'RETRIGGER: how often a fragment is doubled or retriggered (a drum restruck in a fast burst, as a roll: the ROLLS tab and the PATTERN show and edit it). 0 = no new retriggers (rolls already in the GROOVE are kept). Faster strokes are played softer; the recipe chooses the speeds.',
+    tip: 'RETRIGGER: how often a fragment is doubled or retriggered (a drum restruck in a fast burst, as a roll: the ROLLS tab and the PATTERN show and edit it). 0 = no new retriggers (rolls already in the GROOVE are kept). With ROLL GENERATION off (ROLLS tab) CHOP makes no new rolls: fragments are still doubled. Faster strokes are played softer; the recipe chooses the speeds.',
   });
   el('div', 'rule', b, [4, 80, W - 8]);
   const report = el('div', 'label', b, [5, 85, W - 10]);
@@ -113,6 +113,8 @@ export function chopTab(b: HTMLElement, ui: UiContext, W: number) {
       ? 'APPLIED: HAND EDITS ARE ON THE CHOPPED RESULT · ⌘Z THEM TO CHANGE CHOP'
       : app.legacy
         ? 'LEGACY BREAK: CHOP WORKS ON IT AS IT IS · RECIPE ▸ USE GROOVE TO RE-BAKE'
+        : c.on && !app.rollGeneration
+          ? 'PREVIEW · ROLL GENERATION OFF: RETRIGGER MAKES NO NEW ROLLS'
         : c.on
           ? 'PREVIEW: EVERY CHANGE IS RECALCULATED FROM THE GROOVE · ⌘Z UNDOES'
           : 'OFF: THE SETTINGS ARE KEPT · SWITCH ON TO CHOP THIS GROOVE';

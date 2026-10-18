@@ -57,7 +57,16 @@ describe('ROLL GENERATION', () => {
     expect(fromRolls(on).length).toBeGreaterThan(0);
     expect(fromRolls(off)).toEqual([]);
     expect(fromRolls(zero)).toEqual([]);
-    expect(strip(off)).toEqual(strip(zero));
+    // off holds back every roll: the fills' rolls play as plain fills (their sixteenths kept); PROBABILITY 0 only the ROLLS layer's
+    expect(off.events.some((e) => e.role === 'roll')).toBe(false);
+    const plain = off.events.filter((e) => e.why.includes('plain fill'));
+    const fillRolls = zero.events.filter((e) => e.role === 'roll');
+    expect(plain.map(pos)).toEqual(fillRolls.filter((e) => e.sub === 0).map(pos));
+    const rest = (b: Break) => strip({ ...b, events: b.events.filter((e) => e.role !== 'roll' && !e.why.includes('plain fill')) });
+    expect(rest(off)).toEqual(rest(zero));
+    // a recipe saved before revision 1 kept its fills' rolls with generation off
+    const old = bk({ ...jungle, rollsOn: false, revision: 0 }, seeds);
+    expect(strip(old)).toEqual(strip(bk({ ...jungle, rolls: 0, revision: 0 }, seeds)));
   });
 
   it('keeps its setting through sanitising, and recipes without it are on', () => {
@@ -73,6 +82,7 @@ describe('ROLL GENERATION', () => {
 
     it('turning it off keeps the rolls already there; CLEAR ROLLS deletes them; both undo', () => {
       const { app } = makeApp(String(seeds.beat));
+      app.setRollsOn(true);
       app.setRecipe(jungle);
       const rolls = app.current.events.filter((e) => e.role === 'roll').map(pos).sort();
       expect(rolls.length).toBeGreaterThan(0);
@@ -100,6 +110,7 @@ describe('ROLL GENERATION', () => {
 
     it('turning it on again does not double the kept rolls', () => {
       const { app } = makeApp(String(seeds.beat));
+      app.setRollsOn(true);
       app.setRecipe(jungle);
       const n = app.current.events.length;
       app.setRollsOn(false);
@@ -109,6 +120,153 @@ describe('ROLL GENERATION', () => {
       app.undo();
       expect(app.recipe.rollsOn).toBe(false);
     });
+  });
+});
+
+describe('ROLL GENERATION is the user’s preference', () => {
+  const rollsIn = (b: Break) => b.events.filter((e) => e.role === 'roll' && e.manual !== 'added');
+  beforeEach(() => {
+    (globalThis as { localStorage?: Storage }).localStorage = memoryStorage();
+  });
+
+  it('is off for a new user, and their first break has no rolls at all', () => {
+    for (const seed of ['1', '4242', '777']) {
+      const { app } = makeApp(seed);
+      expect(app.rollGeneration).toBe(false);
+      expect(app.recipe.rollsOn).toBe(false);
+      expect(rollsIn(app.current)).toEqual([]);
+    }
+  });
+
+  it('no recipe turns it back on: style changes, RESET, RANDOM RECIPE, BAKE, BATCH, seeds, MUTATE, sections and CHOP keep it', () => {
+    for (const on of [false, true]) {
+      (globalThis as { localStorage?: Storage }).localStorage = memoryStorage();
+      const { app } = makeApp('4242');
+      app.setRollsOn(on);
+      const check = (what: string) => {
+        expect(app.rollGeneration, what).toBe(on);
+        expect(app.recipe.rollsOn !== false, what).toBe(on);
+        if (!on) expect(rollsIn(app.current), what).toEqual([]);
+      };
+      check('switched');
+      for (const [a, b] of [['funk', 'hiphop'], ['electro', 'broken'], ['jungle', 'breakcore'], ['dnb', 'funk']] as const) {
+        app.setStyle(a);
+        check(a);
+        app.setStyle(b);
+        check(b);
+      }
+      app.resetRecipe();
+      check('reset');
+      for (let i = 0; i < 6; i++) {
+        app.randomRecipe(i / 6);
+        check(`random ${app.recipe.style}`);
+      }
+      app.setStyle('jungle');
+      app.setRecipe({ rolls: 1, rollPlace: 'anywhere' });
+      check('roll settings');
+      for (let i = 0; i < 4; i++) {
+        app.bake();
+        check('bake');
+      }
+      app.bakeBatch(4);
+      for (const c of app.batch) {
+        expect(c.recipe.rollsOn !== false).toBe(on);
+        if (!on) expect(rollsIn(c)).toEqual([]);
+      }
+      check('batch');
+      app.setSeed(99);
+      check('seed');
+      app.dice();
+      check('dice');
+      app.mutate();
+      check('mutate');
+      app.createSection(SECTIONS[0]!);
+      check('section');
+      app.setChop({ on: true, amount: 1, retrigger: 1 });
+      check('chop');
+      app.reChop();
+      check('re-chop');
+    }
+  });
+
+  it('is saved, and a reload keeps it whichever way it was set', () => {
+    for (const on of [true, false]) {
+      (globalThis as { localStorage?: Storage }).localStorage = memoryStorage();
+      const first = makeApp('4242').app;
+      first.setRollsOn(on);
+      first.setStyle('funk');
+      first.bake();
+      const again = new App(first.ingredients, first.player);
+      expect(again.rollGeneration).toBe(on);
+      expect(again.recipe.rollsOn !== false).toBe(on);
+      again.setStyle('jungle');
+      expect(again.recipe.rollsOn !== false).toBe(on);
+    }
+  });
+
+  it('a state saved before the preference existed keeps what its break had; new users get it off', () => {
+    const { app } = makeApp('4242');
+    app.save();
+    const ls = (globalThis as { localStorage: Storage }).localStorage;
+    const saved = JSON.parse(ls.getItem('breakery.state.v1')!);
+    delete saved.rollGeneration;
+    for (const [rollsOn, want] of [[undefined, true], [false, false]] as const) {
+      const r = { ...saved.recipe };
+      if (rollsOn === undefined) delete r.rollsOn;
+      else r.rollsOn = rollsOn;
+      ls.setItem('breakery.state.v1', JSON.stringify({ ...saved, recipe: r }));
+      expect(new App(app.ingredients, app.player).rollGeneration).toBe(want);
+    }
+  });
+
+  it('off: no rolls from the ROLLS layer, the fills or CHOP’s RETRIGGER; on: CHOP retriggers as before', () => {
+    const { app } = makeApp('4242');
+    const chopRolls = (b: Break) => b.events.filter((e) => e.role === 'roll' && !e.why.endsWith('(ROLLS)'));
+    let onRolls = 0;
+    for (const style of ['jungle', 'breakcore', 'hardcore', 'funk'] as const)
+      for (const seed of [3, 11, 29, 57]) {
+        app.setRollsOn(false);
+        app.setStyle(style);
+        app.setRecipe({ rolls: 1, rollPlace: 'anywhere' });
+        app.setSeed(seed);
+        app.setChop({ on: true, amount: 1, retrigger: 1 });
+        expect(rollsIn(app.current), style).toEqual([]);
+        expect(app.current.chop?.ops.retrigger ?? 0, style).toBe(0);
+        app.setRollsOn(true);
+        onRolls += chopRolls(app.current).length;
+        app.setChop({ on: false });
+      }
+    expect(onRolls).toBeGreaterThan(0);
+  });
+
+  it('a break restored from the history or the favourites follows it; undo brings the setting back with the break', () => {
+    const { app } = makeApp('4242');
+    app.setRollsOn(true);
+    app.setStyle('jungle');
+    app.setRecipe({ rolls: 1, rollPlace: 'anywhere' });
+    for (let s = 1; s < 60 && fromRolls(app.current).length < 3; s++) app.setSeed(s);
+    expect(fromRolls(app.current).length).toBeGreaterThan(0);
+    app.toggleFavourite();
+    const fav = app.favourites[0]!.id;
+    app.bake();
+    app.setRollsOn(false);
+    expect(app.recipe.rollsOn).toBe(false);
+    app.historyBack();
+    expect(app.rollGeneration).toBe(false);
+    expect(app.recipe.rollsOn).toBe(false);
+    // its rolls are kept as hits, nothing new is generated
+    expect(rollsIn(app.current)).toEqual([]);
+    expect(app.rollCount.hits).toBeGreaterThan(0);
+    app.loadFavourite(fav);
+    expect(app.recipe.rollsOn).toBe(false);
+    expect(rollsIn(app.current)).toEqual([]);
+    app.setStyle('funk');
+    app.setRollsOn(true);
+    app.undo();
+    expect(app.rollGeneration).toBe(false);
+    expect(app.recipe.rollsOn).toBe(false);
+    app.redo();
+    expect(app.rollGeneration).toBe(true);
   });
 });
 
@@ -139,7 +297,8 @@ describe('roll targets and tom activity', () => {
 });
 
 describe('MUTATE options', () => {
-  const r = R('funk', 4, { variation: 0.6 });
+  // (no toms: TOM ACTIVITY is its own layer, and these compare hit counts)
+  const r = R('funk', 4, { variation: 0.6, toms: 0 });
   const s0 = seedsFrom(777);
   const base = bk(r, s0);
   const withMut = (o: Parameters<typeof mutate>[3], seed = 99) => bk(r, mutate(s0, {}, seed, o)!);

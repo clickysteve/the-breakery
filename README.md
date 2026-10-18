@@ -93,13 +93,13 @@ from any folder of any static server). `npm run evaluate` regenerates
    ("funky chicken"): the same seed and recipe always bake the same break. **DICE** rolls a
    named seed; **◀ ▶** (or ← →) move through the history; **FAV** saves the break (recipe, seeds,
    mutations and sample settings; favourites are in the **Seeds** menu). **TOM ACTIVITY** sets how
-   much the toms join the fills. The **MUTATE** tab (U) makes a related variation by changing the
+   much the toms play: from an occasional fill at the end of the phrase to tom phrases through
+   it. The **MUTATE** tab (U) makes a related variation by changing the
    groove itself, so every bar follows: a **STYLE** (MUSICAL, SUBTLE, RHYTHMIC, FILLS, SPARSE,
    DENSE, WILD), a **DEPTH**, a **RANGE** (the last part of the phrase) and ALL or chosen
    **TRACKS**; **CREATE RELATED SECTION** makes a verse, chorus, breakdown, build, fill or
    alternate section from the current break. Each is a new break in the history (◀ returns).
-   **GENERATE** shows what makes the pattern: the **GROOVE** (the generator), then **CHOP** (the
-   transformation; the button opens its tab). A break saved by the first release opens as
+   Under the dice, **CHOP** and **ROLLS** show whether each is on and open its tab. A break saved by the first release opens as
    **LEGACY** and plays exactly as it did; **USE GROOVE** re-bakes it with today's generator.
    The **CHOP** tab re-arranges the GROOVE's phrase as a producer would chop a break: **AMOUNT**
    (0 is the GROOVE exactly; low keeps it recognisable, high fragments it), **SLICE SIZE** and
@@ -136,16 +136,21 @@ from any folder of any static server). `npm run evaluate` regenerates
    BATCH, a seed, DICE, MUTATE, the history) starts unedited, and your edits stay with the old
    break in the history (◀ returns to it) and in a favourite; **FREEZE EDITS** (E) carries them
    onto new breaks instead.
-6. **Rolls and toms.** The **ROLLS** tab: **ROLL GENERATION** (ENABLED / DISABLED: off, new
-   breaks get no rolls, and the rolls already in the pattern are kept until **CLEAR ROLLS**
-   deletes them), **PROBABILITY** (0 = no new rolls), **LENGTH** (hits per roll), **SPEED** (1/16,
+6. **Rolls and toms.** The **ROLLS** tab: **ROLL GENERATION** (ENABLED / DISABLED: your
+   setting, off to begin with and kept through recipe changes, BAKE, BATCH, seeds, MUTATE and
+   reloads; off, new breaks get no rolls (a fill's roll plays as a plain fill, CHOP's RETRIGGER
+   makes none), and the rolls already in the pattern are kept until **CLEAR ROLLS** deletes them), **PROBABILITY** (0 = no new rolls), **LENGTH** (hits per roll), **SPEED** (1/16,
    1/16T, 1/32, 1/32T, 1/64), **DYNAMICS** (EVEN, CRESCENDO, DECRESCENDO, ALTERNATING, HUMAN),
    **PLACEMENT** (BEFORE ACCENT, PHRASE END, FILLS, ANYWHERE) and the **TARGET TRACKS** that may
    roll (SNARE, HATS, PERC, TOMS, KICK), with the number of rolls in the pattern. Every roll leads
    into something (a backbeat, the loop point, a tom fill, a beat) and its strokes are real hits
-   you can edit one by one. **TOM ACTIVITY** (RECIPE) sets how much the toms join the fills:
-   descending and rising runs, snare/tom combinations, linear fills, answers to the backbeat.
-   Without tom samples, tom hits are silent (the demo kit has toms).
+   you can edit one by one. **TOM ACTIVITY** (RECIPE) is independent of ROLLS and sets how much
+   the toms play: how many phrases, how long, on how many toms and where. 0% is none; 20% an
+   occasional short fill at a phrase end; 50% noticeable fills and the odd answer; 75% frequent
+   multi-tom phrases; 100% very active (descending and rising runs, snare into toms, linear fills,
+   dotted-eighth groupings, answers to the backbeat, accents inside the bar) without taking over.
+   The phrases use the toms the kit has (three, two or one); without tom samples the tom hits
+   still go to MIDI and are silent here.
 7. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
    bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
    renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
@@ -210,9 +215,10 @@ A layered generator, deterministic from seeds (engine 2):
 5. **Performance**: velocity by role and accent cycle; Linn-style swing (subtle by default, as
    measured in classic breaks); consistent per-drum tendencies (the snare laid back more on 2 than
    on 4, never early; hats ahead; accents a touch late) with small *correlated* drifts, not jitter.
-6. **Toms**: tom fills in the turnaround and half-way fill (re-voicing a snare run, or their
-   own figure), sometimes in development and answer bars; after the performance and from their
-   own streams, so they change no other hit.
+6. **Toms**: tom phrases at phrase ends first (the turnaround, the half-way fill, the end of
+   each four bars), then inside bars, more and longer as TOM ACTIVITY rises, never in the first
+   bar; re-voicing a snare run or playing their own figure, never on a backbeat; after the
+   performance and from their own streams, so they change no other hit.
 7. **Rolls**: runs of strokes at their own subdivision, each leading into an anchor, at most one
    a bar, never in the first groove bar; also after the performance, so they change no other hit.
 8. **Sample selection** per category (PICK), then your **hand edits**.

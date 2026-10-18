@@ -82,14 +82,15 @@ export async function run(): Promise<string> {
   check(JSON.stringify(app.current.events) === before && JSON.stringify(app.recipe) === recipe, 'tab switching changes nothing');
   check(!$$('.mwin .btn').some((b) => /^MUT$/.test(b.textContent ?? '')), 'no MUT button left in RECIPE');
 
-  // RECIPE tab: GENERATE is its own labelled row (GROOVE ▸ CHOP, not recipes); no ENGINE selector; RANDOM RECIPE sits with the recipes
+  // RECIPE tab: no GROOVE selector (GROOVE is the only generator); CHOP and ROLL GENERATION have their own row; no ENGINE selector; RANDOM RECIPE sits with the recipes
   await chooseTab('RECIPE');
   const recipeWin = win('RECIPE');
   const rbtn = (t: string) => $$('.btn', recipeWin).find((b) => b.textContent === t)!;
-  check(rbtn('GROOVE') && rbtn('CHOP OFF') && rbtn('RANDOM'), 'GROOVE, CHOP and RANDOM buttons in RECIPE');
-  check($$('.label.head', recipeWin).some((l) => l.textContent === 'GENERATE'), 'a GENERATE heading');
-  check(rect(rbtn('GROOVE')).top > rect(rbtn('RANDOM')).bottom && rect(rbtn('GROOVE')).top > rect($$('.btn', recipeWin).find((b) => b.textContent === 'DICE')!).bottom, 'GENERATE sits in its own row below the recipes and the BPM row');
-  check(rbtn('GROOVE').classList.contains('on'), 'GROOVE shown as the generator');
+  const wr0 = () => rect(recipeWin);
+  check(!$$('.btn', recipeWin).some((b) => b.textContent === 'GROOVE') && !$$('.label.head', recipeWin).some((l) => l.textContent === 'GENERATE'), 'no GROOVE selector and no GENERATE heading');
+  check(rbtn('CHOP OFF') && rbtn('ROLLS OFF') && rbtn('RANDOM'), 'CHOP, ROLLS and RANDOM buttons in RECIPE');
+  check(!app.rollGeneration && app.recipe.rollsOn === false && !app.current.events.some((e) => e.role === 'roll'), 'a new user: ROLL GENERATION off, and the break has no rolls');
+  check(rect(rbtn('CHOP OFF')).top > rect(rbtn('RANDOM')).bottom && rect(rbtn('CHOP OFF')).top > rect($$('.btn', recipeWin).find((b) => b.textContent === 'DICE')!).bottom && Math.abs(rect(rbtn('CHOP OFF')).top - rect(rbtn('ROLLS OFF')).top) < 1, 'CHOP and ROLLS sit in their own row below the recipes and the BPM row');
   check(!$$('.btn').some((b) => /^ENGINE \d/.test(b.textContent ?? '')), 'no ENGINE 1 / ENGINE 2 selector anywhere');
   check(!visible(rbtn('USE GROOVE')), 'USE GROOVE only for LEGACY breaks');
   const wr = rect(recipeWin);
@@ -108,7 +109,7 @@ export async function run(): Promise<string> {
   await tick();
   check(app.recipe.style === styleBefore, 'RANDOM RECIPE undone');
 
-  // CHOP tab: the GENERATE row opens it; ENABLED, AMOUNT, SLICE SIZE and RETRIGGER chop the same GROOVE; one undo step each
+  // CHOP tab: the CHOP button opens it; ENABLED, AMOUNT, SLICE SIZE and RETRIGGER chop the same GROOVE; one undo step each
   const groove = JSON.stringify(app.current.events);
   const grooveSeeds = JSON.stringify(app.seeds);
   await press(rbtn('CHOP OFF'), 3, 3);
@@ -133,6 +134,29 @@ export async function run(): Promise<string> {
   await tick();
   check(!app.chopped && JSON.stringify(app.current.events) === groove, 'CHOP undone back to the GROOVE');
   await chooseTab('RECIPE');
+
+  // ROLL GENERATION: the ROLLS button opens its tab; the switch is the user's, kept through recipe changes
+  await press(rbtn('ROLLS OFF'), 3, 3);
+  check(recipeWin.querySelector('.mtab.on')?.textContent === 'ROLLS', 'the ROLLS button opens the ROLLS tab');
+  const lbtn = (t: string) => $$('.btn', recipeWin).filter(visible).find((b) => b.textContent === t)!;
+  check(lbtn('DISABLED') && !lbtn('DISABLED').classList.contains('on'), 'ROLLS tab: generation shown off');
+  await press(lbtn('DISABLED'), 3, 3);
+  check(app.rollGeneration && app.recipe.rollsOn !== false && lbtn('ENABLED')?.classList.contains('on'), 'ROLL GENERATION switched on');
+  await chooseTab('RECIPE');
+  for (const s of ['HIP-HOP', 'ELECTRO', 'BROKEN', 'FUNK']) {
+    await press(rbtn(s), 3, 3);
+    check(app.rollGeneration && app.recipe.rollsOn !== false && rbtn('ROLLS ON')?.classList.contains('on'), `${s}: roll generation still on`);
+  }
+  await press(rbtn('ROLLS ON'), 3, 3);
+  await press(lbtn('ENABLED'), 3, 3);
+  await chooseTab('RECIPE');
+  for (const s of ['HIP-HOP', 'ELECTRO', 'BROKEN', 'FUNK']) {
+    await press(rbtn(s), 3, 3);
+    check(!app.rollGeneration && app.recipe.rollsOn === false && !!rbtn('ROLLS OFF') && !app.current.events.some((e) => e.role === 'roll' && !e.manual), `${s}: roll generation still off, no new rolls`);
+  }
+  for (const b of $$('.btn, .label, .range', recipeWin).filter(visible)) check(rect(b).right <= wr0().right + 1 && rect(b).left >= wr0().left - 1, `${b.textContent} inside the RECIPE window (after the roll checks)`);
+  if (app.hasEdits) app.revertAll();
+  await tick();
 
   // ---------------------------------------------------------------- mixer layout and controls
   await chooseTab('MIXER');
@@ -208,6 +232,7 @@ export async function run(): Promise<string> {
   check($('.patternsvg')!.closest('.pane')!.textContent!.includes('CLICK: TOGGLE'), 'instructions near the grid');
 
   // ---------------------------------------------------------------- rolls: grouped, expanded, edited one by one
+  app.setRollsOn(true);
   app.setStyle('breakcore');
   app.setRecipe({ bars: 8, rolls: 1, rollSpeed: '64', rollPlace: 'anywhere', rollTargets: ['snare', 'hat', 'kick'] });
   await tick();

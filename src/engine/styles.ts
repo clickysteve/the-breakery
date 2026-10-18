@@ -16,7 +16,7 @@
  * Engine 1 keeps its own frozen copy of the original four (v1/styles.ts).
  */
 import { STYLE_DEFS as V1_DEFS, type V1Style } from './v1/styles';
-import { CURRENT_ENGINE, type Bars, type Engine, type FlourishKey, type Recipe, type RollTarget, type Style } from './types';
+import { CURRENT_ENGINE, CURRENT_REVISION, type Bars, type Engine, type FlourishKey, type Recipe, type RollTarget, type Style } from './types';
 
 export type FillKind = 'run' | 'displace' | 'drop' | 'stutter' | 'chop' | 'roll';
 /** Ghost-note figures around a backbeat b (see support.ts). */
@@ -286,17 +286,40 @@ export function defaultRecipe(style: Style = 'funk', bars: Bars = 2, engine: Eng
   const d = STYLE_DEFS[style];
   const old = engine === 1 ? v1Defaults(style) : null;
   const fl = FLOURISH[style].defaults;
-  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl }), ...(!old && style === 'jungle' ? { jungleCuts: true as const } : {}) };
+  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl, revision: CURRENT_REVISION }), ...(!old && style === 'jungle' ? { jungleCuts: true as const } : {}) };
 }
 
 // ------------------------------------------------------------------ TOMS and ROLLS (engine 2)
 
-/** Tom figures (toms.ts). */
+/** Tom figures (toms.ts, revision 0). */
 export type TomFigure = 'descend' | 'ascend' | 'alternate' | 'answer' | 'linear';
 
 /**
+ * Tom phrase figures (toms.ts, revision 1). At the end of a bar: descend (high → mid → low),
+ * ascend, snare (snare into a descending run), alternate (snare and toms in turn), linear (toms
+ * between kicks on the beats), grouped (dotted-eighth groupings, 3 + 3 + 2), response (a short
+ * answer to the backbeat). Inside the bar: response (toms answering the backbeat) and accent
+ * (single strokes on the off-beats between the kick and snare).
+ */
+export type PhraseFigure = 'descend' | 'ascend' | 'snare' | 'alternate' | 'linear' | 'grouped' | 'response' | 'accent';
+
+/** How a recipe uses TOM ACTIVITY (revision 1): the same generator, weighted per recipe. */
+export interface TomPhrasing {
+  /** tom phrases per bar at TOM ACTIVITY 100% */
+  rate: number;
+  /** how readily phrases go inside the bar (accents, answers) rather than only at its end, 0..1 */
+  mid: number;
+  /** how readily short and sparse phrases play eighths rather than sixteenths (space), 0..1 */
+  space: number;
+  /** strokes in the longest fill (at 100%, with strong FILLS) */
+  reach: number;
+  figures: Record<PhraseFigure, number>;
+}
+
+/**
  * Each recipe's toms and rolls: the defaults of the TOMS and ROLLS controls, how readily the toms
- * join fills (tomP) and which figures they play, how readily rolls appear (rollP) and which drums
+ * join fills (tomP) and which figures they play (revision 0), how TOM ACTIVITY's phrases are
+ * spread and shaped (phrasing, revision 1), how readily rolls appear (rollP) and which drums
  * tend to roll. Design hypotheses like the rest of the recipes: funk and half-time drummers go
  * round the toms; hip-hop, boom bap and garage barely touch them (an answer at most); jungle, D&B
  * and breakcore roll the snare at 32nds and faster; garage and hip-hop roll the hats.
@@ -307,30 +330,43 @@ export interface Flourish {
   tomFigures: Record<TomFigure, number>;
   rollP: number;
   rollWeights: Record<RollTarget, number>;
+  /** TOM ACTIVITY's phrases (revision 1) */
+  phrasing: TomPhrasing;
 }
 
 // prettier-ignore
 export const FLOURISH: Record<Style, Flourish> = {
   funk:      { defaults: { toms: 0.35, rolls: 0.15, rollLength: 4, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'accent', rollTargets: ['snare', 'tom'] },
-               tomP: 1, tomFigures: { descend: 1, ascend: 0.3, alternate: 0.6, answer: 0.5, linear: 0.4 }, rollP: 0.5, rollWeights: { snare: 1, hat: 0.4, perc: 0.3, tom: 0.6, kick: 0.1 } },
+               tomP: 1, tomFigures: { descend: 1, ascend: 0.3, alternate: 0.6, answer: 0.5, linear: 0.4 }, rollP: 0.5, rollWeights: { snare: 1, hat: 0.4, perc: 0.3, tom: 0.6, kick: 0.1 },
+               phrasing: { rate: 1, mid: 0.6, space: 0.2, reach: 8, figures: { descend: 1, ascend: 0.3, snare: 0.8, alternate: 0.6, linear: 0.4, grouped: 0.2, response: 0.7, accent: 0.9 } } },
   hiphop:    { defaults: { toms: 0.2, rolls: 0.2, rollLength: 3, rollSpeed: '32', rollDynamics: 'even', rollPlace: 'accent', rollTargets: ['hat', 'snare'] },
-               tomP: 0.6, tomFigures: { descend: 0.6, ascend: 0.2, alternate: 0.3, answer: 1, linear: 0.2 }, rollP: 0.5, rollWeights: { snare: 0.6, hat: 1, perc: 0.3, tom: 0.3, kick: 0.2 } },
+               tomP: 0.6, tomFigures: { descend: 0.6, ascend: 0.2, alternate: 0.3, answer: 1, linear: 0.2 }, rollP: 0.5, rollWeights: { snare: 0.6, hat: 1, perc: 0.3, tom: 0.3, kick: 0.2 },
+               phrasing: { rate: 0.7, mid: 0.5, space: 0.6, reach: 5, figures: { descend: 0.6, ascend: 0.2, snare: 0.5, alternate: 0.2, linear: 0.1, grouped: 0.1, response: 1, accent: 0.7 } } },
   jungle:    { defaults: { toms: 0.3, rolls: 0.45, rollLength: 6, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'accent', rollTargets: ['snare', 'hat', 'tom'] },
-               tomP: 0.7, tomFigures: { descend: 0.8, ascend: 0.3, alternate: 0.6, answer: 0.4, linear: 0.6 }, rollP: 1, rollWeights: { snare: 1, hat: 0.5, perc: 0.3, tom: 0.5, kick: 0.2 } },
+               tomP: 0.7, tomFigures: { descend: 0.8, ascend: 0.3, alternate: 0.6, answer: 0.4, linear: 0.6 }, rollP: 1, rollWeights: { snare: 1, hat: 0.5, perc: 0.3, tom: 0.5, kick: 0.2 },
+               phrasing: { rate: 1.1, mid: 0.6, space: 0, reach: 8, figures: { descend: 0.8, ascend: 0.4, snare: 0.7, alternate: 0.6, linear: 0.7, grouped: 0.5, response: 0.5, accent: 0.8 } } },
   broken:    { defaults: { toms: 0.35, rolls: 0.3, rollLength: 4, rollSpeed: '32', rollDynamics: 'human', rollPlace: 'anywhere', rollTargets: ['snare', 'perc', 'tom'] },
-               tomP: 0.9, tomFigures: { descend: 0.5, ascend: 0.5, alternate: 0.7, answer: 0.6, linear: 0.8 }, rollP: 0.7, rollWeights: { snare: 0.8, hat: 0.5, perc: 0.8, tom: 0.6, kick: 0.3 } },
+               tomP: 0.9, tomFigures: { descend: 0.5, ascend: 0.5, alternate: 0.7, answer: 0.6, linear: 0.8 }, rollP: 0.7, rollWeights: { snare: 0.8, hat: 0.5, perc: 0.8, tom: 0.6, kick: 0.3 },
+               phrasing: { rate: 1.1, mid: 0.9, space: 0.1, reach: 7, figures: { descend: 0.4, ascend: 0.5, snare: 0.5, alternate: 0.6, linear: 0.7, grouped: 1, response: 1, accent: 0.8 } } },
   boombap:   { defaults: { toms: 0.15, rolls: 0.1, rollLength: 3, rollSpeed: '32', rollDynamics: 'even', rollPlace: 'phrase', rollTargets: ['snare'] },
-               tomP: 0.5, tomFigures: { descend: 0.5, ascend: 0.1, alternate: 0.3, answer: 1, linear: 0.1 }, rollP: 0.35, rollWeights: { snare: 1, hat: 0.5, perc: 0.2, tom: 0.3, kick: 0.1 } },
+               tomP: 0.5, tomFigures: { descend: 0.5, ascend: 0.1, alternate: 0.3, answer: 1, linear: 0.1 }, rollP: 0.35, rollWeights: { snare: 1, hat: 0.5, perc: 0.2, tom: 0.3, kick: 0.1 },
+               phrasing: { rate: 0.75, mid: 0.5, space: 0.5, reach: 6, figures: { descend: 0.7, ascend: 0.1, snare: 0.6, alternate: 0.3, linear: 0.1, grouped: 0.1, response: 0.8, accent: 1 } } },
   hardcore:  { defaults: { toms: 0.25, rolls: 0.4, rollLength: 8, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'phrase', rollTargets: ['snare', 'kick'] },
-               tomP: 0.6, tomFigures: { descend: 1, ascend: 0.2, alternate: 0.4, answer: 0.2, linear: 0.5 }, rollP: 0.9, rollWeights: { snare: 1, hat: 0.3, perc: 0.1, tom: 0.4, kick: 0.6 } },
+               tomP: 0.6, tomFigures: { descend: 1, ascend: 0.2, alternate: 0.4, answer: 0.2, linear: 0.5 }, rollP: 0.9, rollWeights: { snare: 1, hat: 0.3, perc: 0.1, tom: 0.4, kick: 0.6 },
+               phrasing: { rate: 1.25, mid: 0.6, space: 0, reach: 8, figures: { descend: 1, ascend: 0.3, snare: 0.8, alternate: 0.5, linear: 0.6, grouped: 0.3, response: 0.4, accent: 0.7 } } },
   dnb:       { defaults: { toms: 0.3, rolls: 0.4, rollLength: 4, rollSpeed: '32', rollDynamics: 'crescendo', rollPlace: 'accent', rollTargets: ['snare', 'hat', 'tom'] },
-               tomP: 0.7, tomFigures: { descend: 0.8, ascend: 0.3, alternate: 0.5, answer: 0.3, linear: 0.7 }, rollP: 0.9, rollWeights: { snare: 1, hat: 0.6, perc: 0.3, tom: 0.5, kick: 0.2 } },
+               tomP: 0.7, tomFigures: { descend: 0.8, ascend: 0.3, alternate: 0.5, answer: 0.3, linear: 0.7 }, rollP: 0.9, rollWeights: { snare: 1, hat: 0.6, perc: 0.3, tom: 0.5, kick: 0.2 },
+               phrasing: { rate: 0.85, mid: 0.4, space: 0.1, reach: 6, figures: { descend: 0.9, ascend: 0.3, snare: 0.7, alternate: 0.4, linear: 0.7, grouped: 0.3, response: 0.4, accent: 0.5 } } },
   halftime:  { defaults: { toms: 0.4, rolls: 0.3, rollLength: 6, rollSpeed: '32t', rollDynamics: 'crescendo', rollPlace: 'phrase', rollTargets: ['snare', 'hat', 'tom'] },
-               tomP: 1, tomFigures: { descend: 1, ascend: 0.4, alternate: 0.5, answer: 0.5, linear: 0.6 }, rollP: 0.8, rollWeights: { snare: 1, hat: 0.7, perc: 0.3, tom: 0.6, kick: 0.2 } },
+               tomP: 1, tomFigures: { descend: 1, ascend: 0.4, alternate: 0.5, answer: 0.5, linear: 0.6 }, rollP: 0.8, rollWeights: { snare: 1, hat: 0.7, perc: 0.3, tom: 0.6, kick: 0.2 },
+               phrasing: { rate: 0.9, mid: 0.6, space: 0.5, reach: 7, figures: { descend: 1, ascend: 0.4, snare: 0.6, alternate: 0.4, linear: 0.5, grouped: 0.3, response: 0.8, accent: 0.7 } } },
   garage:    { defaults: { toms: 0.1, rolls: 0.25, rollLength: 3, rollSpeed: '16t', rollDynamics: 'alternating', rollPlace: 'accent', rollTargets: ['hat', 'perc'] },
-               tomP: 0.4, tomFigures: { descend: 0.3, ascend: 0.2, alternate: 0.3, answer: 1, linear: 0.2 }, rollP: 0.7, rollWeights: { snare: 0.5, hat: 1, perc: 0.8, tom: 0.2, kick: 0.1 } },
+               tomP: 0.4, tomFigures: { descend: 0.3, ascend: 0.2, alternate: 0.3, answer: 1, linear: 0.2 }, rollP: 0.7, rollWeights: { snare: 0.5, hat: 1, perc: 0.8, tom: 0.2, kick: 0.1 },
+               phrasing: { rate: 0.75, mid: 0.7, space: 0.3, reach: 5, figures: { descend: 0.3, ascend: 0.2, snare: 0.3, alternate: 0.2, linear: 0.2, grouped: 0.7, response: 0.7, accent: 1 } } },
   electro:   { defaults: { toms: 0.3, rolls: 0.2, rollLength: 4, rollSpeed: '16', rollDynamics: 'even', rollPlace: 'phrase', rollTargets: ['snare', 'tom'] },
-               tomP: 0.8, tomFigures: { descend: 1, ascend: 0.5, alternate: 0.3, answer: 0.4, linear: 0.3 }, rollP: 0.6, rollWeights: { snare: 1, hat: 0.6, perc: 0.3, tom: 0.7, kick: 0.3 } },
+               tomP: 0.8, tomFigures: { descend: 1, ascend: 0.5, alternate: 0.3, answer: 0.4, linear: 0.3 }, rollP: 0.6, rollWeights: { snare: 1, hat: 0.6, perc: 0.3, tom: 0.7, kick: 0.3 },
+               phrasing: { rate: 0.95, mid: 0.5, space: 0.2, reach: 8, figures: { descend: 0.9, ascend: 0.7, snare: 0.4, alternate: 0.3, linear: 0.5, grouped: 0.6, response: 0.6, accent: 0.7 } } },
   breakcore: { defaults: { toms: 0.3, rolls: 0.7, rollLength: 8, rollSpeed: '64', rollDynamics: 'crescendo', rollPlace: 'anywhere', rollTargets: ['snare', 'kick', 'hat', 'tom'] },
-               tomP: 0.7, tomFigures: { descend: 0.7, ascend: 0.5, alternate: 0.6, answer: 0.3, linear: 0.8 }, rollP: 1.3, rollWeights: { snare: 1, hat: 0.5, perc: 0.4, tom: 0.5, kick: 0.7 } },
+               tomP: 0.7, tomFigures: { descend: 0.7, ascend: 0.5, alternate: 0.6, answer: 0.3, linear: 0.8 }, rollP: 1.3, rollWeights: { snare: 1, hat: 0.5, perc: 0.4, tom: 0.5, kick: 0.7 },
+               phrasing: { rate: 1.4, mid: 0.7, space: 0, reach: 8, figures: { descend: 0.7, ascend: 0.6, snare: 0.6, alternate: 0.7, linear: 0.8, grouped: 0.8, response: 0.5, accent: 0.9 } } },
 };

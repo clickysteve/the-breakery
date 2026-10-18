@@ -32,7 +32,8 @@
  *                 a crescendo), so the ROLLS tab and the editor see an ordinary roll.
  *      GAP        silence (sometimes keeping its kick): a deliberate drop-out.
  *    DOUBLE and RETRIGGER are the retriggers: RETRIGGER 0 never makes one, and each bar has a
- *    ceiling, so a hard chop never becomes one long snare roll.
+ *    ceiling, so a hard chop never becomes one long snare roll. With ROLL GENERATION off (revision
+ *    1) RETRIGGER makes no rolls: DOUBLE, a fragment repeated, is all the retriggering CHOP does.
  * 4. CONTINUITY. Every copied hit keeps its drum, velocity (a ghost stays a ghost), microtiming and
  *    sample; swing follows its new place on the grid. Recipes that protect the backbeat get it
  *    back in any bar the edits left without one. Duplicates are merged (the louder wins).
@@ -146,7 +147,7 @@ interface Slice {
 }
 
 export interface ChopContext {
-  recipe: Pick<Recipe, 'style' | 'swing' | 'bars'>;
+  recipe: Pick<Recipe, 'style' | 'swing' | 'bars'> & Partial<Pick<Recipe, 'rollsOn' | 'revision'>>;
   /** the bar roles of the phrase (groove, answer, development, fill, turnaround) */
   plan: BarRole[];
   /** the BEAT seed (FREEZE BEAT keeps the chop) */
@@ -203,6 +204,8 @@ export function chop(source: readonly BreakEvent[], settings: ChopSettings, ctx:
   const rng = stream(ctx.seed, `chop${tag}`);
   const amount = settings.amount;
   const retrig = settings.retrigger;
+  // ROLL GENERATION off (revision 1): RETRIGGER makes no new rolls; DOUBLE (fragments repeated) still plays
+  const noRolls = ctx.recipe.rollsOn === false && (ctx.recipe.revision ?? 0) >= 1;
   const swing = ctx.recipe.swing;
 
   const anchors = source.filter(isAnchor).map((e) => ({ ...e }));
@@ -344,7 +347,7 @@ export function chop(source: readonly BreakEvent[], settings: ChopSettings, ctx:
       // (never a retrigger again: that would only lengthen it past the ceiling)
       repeat: i > 0 && decided[i - 1] !== 'retrigger' && (decided[i - 1] !== 'double' || roomRetrig) ? cs.repeat * (1 + 0.3 * short) * (decided[i - 1] === 'repeat' ? 0.35 : 1) * (sl.start === 0 ? 0.3 : 1) * (phraseEnd ? 1 + 2 * cs.tail : 1) : 0,
       double: roomRetrig && sl.len >= 2 ? cs.double * retrig * 2 : 0,
-      retrigger: roomRetrig ? cs.retrigger * retrig * 2 * (1 + 0.2 * short) * (phraseEnd ? 1 + 2 * cs.tail : 1) : 0,
+      retrigger: roomRetrig && !noRolls ? cs.retrigger * retrig * 2 * (1 + 0.2 * short) * (phraseEnd ? 1 + 2 * cs.tail : 1) : 0,
       gap: (gapsInBar.get(sl.bar) ?? 0) === 0 && decided[i - 1] !== 'gap' && sl.len <= (cs.gap >= 0.5 ? 8 : 4) && !phraseEnd ? cs.gap * (sl.start === 0 ? 0.2 : 1) * (bbSlice ? 1 - bbProtect : 1) : 0,
     };
     const names = Object.keys(w) as ChopOp[];
