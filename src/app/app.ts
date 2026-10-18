@@ -14,7 +14,7 @@ import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, TPS, type Break, ty
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
-import { audible, emptyMix, sanitiseMix, type MixState } from './mix';
+import { audible, safeGain, safePan, sanitiseMix, type MixState } from './mix';
 import { diceName, entryKey, entryLabel, FAVOURITES_MAX, sanitiseFavourite, SeedHistory, type Favourite, type SeedEntry } from './seeds';
 
 export const BATCH_SIZE = 8;
@@ -639,6 +639,10 @@ export class App {
 
   // ---------------------------------------------------------------- solo / mute
 
+  setChannel(cat: Category, gain: number, pan: number): void {
+    this.mix[cat].gain = safeGain(gain); this.mix[cat].pan = safePan(pan);
+    this.player.setMix(this.mix); this.changed();
+  }
   toggleSolo(cat: Category): void {
     this.mix[cat].solo = !this.mix[cat].solo;
     this.player.setMix(this.mix);
@@ -650,7 +654,7 @@ export class App {
     this.changed();
   }
   clearMix(): void {
-    this.mix = emptyMix();
+    for (const c of Object.values(this.mix)) { c.mute = false; c.solo = false; }
     this.player.setMix(this.mix);
     this.changed();
   }

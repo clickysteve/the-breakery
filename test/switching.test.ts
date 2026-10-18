@@ -1,3 +1,4 @@
+import { emptyMix } from '../src/app/mix';
 import { expect, it, vi } from 'vitest';
 import { Player, type SwitchMode } from '../src/audio/player';
 import { App } from '../src/app/app';
@@ -34,6 +35,9 @@ for (const [mode, boundary] of [['bar', 2], ['loop', 4]] as const) {
     advance(.4);
     const b = pattern(2);
     p.setBreak(b);
+    expect(internal.switchAt).toBe(boundary);
+    const mix = emptyMix(); mix.kick.gain = .6; mix.hat.pan = -.5;
+    p.setMix(mix); p.setLevel(.7);
     expect(internal.switchAt).toBe(boundary);
     expect(p.break!.seeds.beat).toBe(1);
     for (let t = .45; t <= boundary + .05; t += .025) advance(t);
