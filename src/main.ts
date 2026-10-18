@@ -320,7 +320,7 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
   {
     title: 'Edit',
     items: () => [
-      { label: app.canUndo ? 'Undo Hand Edit' : 'Undo', key: '⌘Z', action: () => app.undo() },
+      { label: 'Undo', key: '⌘Z', action: () => app.undo() },
       { label: 'Redo', key: '⇧⌘Z', action: () => app.redo() },
       { sep: true },
       { label: 'Delete Hit', key: 'Del', action: () => app.deleteHit() },
@@ -447,6 +447,12 @@ window.addEventListener('pointerdown', () => closeMenu());
 installTooltips(screen, () => view.scale);
 
 // ------------------------------------------------------------------ keyboard
+// Group pointer sweeps of existing number/range controls and grid edits into one action.
+window.addEventListener('pointerdown', () => app.beginGesture(), true);
+for (const event of ['pointerup', 'pointercancel']) {
+  // Finish after target handlers have applied the final pointer value, even if propagation stops.
+  window.addEventListener(event, () => setTimeout(() => app.endGesture(), 0), true);
+}
 window.addEventListener('keydown', (e) => {
   if (dialogOpen()) {
     if (e.key === 'Escape') closeDialog();
@@ -456,7 +462,8 @@ window.addEventListener('keydown', (e) => {
   if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   const k = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'z' || k === 'y')) {
-    // undo / redo of hand edits (a number box being typed into keeps its own keys)
+    if (t.closest?.('.num, .range, [role="slider"], [role="spinbutton"], [role="textbox"]')) return;
+    // undo / redo of pattern actions (a number box being typed into keeps its own keys)
     e.preventDefault();
     if (k === 'y' || e.shiftKey) app.redo();
     else app.undo();

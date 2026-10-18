@@ -21,7 +21,7 @@ export const BATCH_SIZE = 8;
 /** Grid for placing and moving hits by hand, in grid ticks (12 per sixteenth). */
 export const SNAPS = [12, 6, 3, 8, 4] as const;
 export const SNAP_LABEL: Record<number, string> = { 12: '1/16', 6: '1/32', 3: '1/64', 8: '1/16T', 4: '1/32T' };
-const UNDO_LIMIT = 200;
+const UNDO_LIMIT = 50;
 const STATE_KEY = 'breakery.state.v1';
 const HISTORY_KEY = 'breakery.history.v1';
 const FAVOURITES_KEY = 'breakery.favourites.v1';
@@ -89,7 +89,8 @@ export class App {
   snap = 12;
   private undoStack: string[] = [];
   private redoStack: string[] = [];
-  private lastEdit: { key: string; at: number } | null = null;
+  private baseline = '';
+  private gesture = false;
   private listeners: (() => void)[] = [];
 
   constructor(public ingredients: Ingredients, public player: Player, initialSeed?: string) {
@@ -116,6 +117,7 @@ export class App {
     player.setBreak(this.current);
     player.onSwap = () => this.changed(false);
     this.remember();
+    this.baseline = this.snapshot();
     if (s?.recipe && this.recipe.engine === 1) this.status = 'Restored with ENGINE 1, so this break sounds as it did. Switch RECIPE ▸ ENGINE to 2 to hear the new generator on the same seed.';
   }
 
@@ -124,6 +126,7 @@ export class App {
   }
 
   changed(save = true): void {
+    this.recordChange();
     if (save) this.save();
     for (const f of this.listeners) f();
   }
@@ -184,8 +187,6 @@ export class App {
     const n = editCount(this.edits);
     this.edits = noEdits();
     this.selected = null;
-    this.undoStack = [];
-    this.redoStack = [];
     return ` Your ${n} hand edit${n === 1 ? '' : 's'} stay with the previous break: ◀ goes back to it (FREEZE EDITS carries edits onto new breaks).`;
   }
 
@@ -317,8 +318,6 @@ export class App {
     if (samples) this.samples = sanitiseSampleSettings(samples);
     this.edits = sanitiseEdits(e.edits, CATEGORIES);
     this.selected = null;
-    this.undoStack = [];
-    this.redoStack = [];
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
   }
@@ -427,7 +426,9 @@ export class App {
   }
 
   private snapshot(): string {
-    return JSON.stringify({ edits: this.edits, selected: this.selected });
+    return JSON.stringify({ current: this.current, recipe: this.recipe, seeds: this.seeds,
+      seedName: this.seedName, samples: this.samples, edits: this.edits,
+      selected: this.selected, batch: this.batch, picked: this.picked });
   }
 
   /** Re-apply the edit layer to the current seeds: playback follows at once (not at the loop point). */
@@ -446,26 +447,37 @@ export class App {
    * Operations inside it pass `gesture`.
    */
   beginGesture(): void {
-    this.undoStack.push(this.snapshot());
-    if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
-    this.redoStack = [];
-    this.lastEdit = null;
+    if (this.gesture) return;
+    this.gesture = true;
   }
 
-  /** Commit a new edit layer. `coalesce`: quick repeats with the same key (a number being dragged) make one undo step. */
-  private commit(r: EditResult, select: boolean, opts: { gesture?: boolean; coalesce?: string; say?: string } = {}): boolean {
+  endGesture(): void {
+    this.gesture = false;
+    this.recordChange();
+    this.changed(false);
+  }
+
+  /** Compare complete lightweight states; selection alone is not a pattern action. */
+  private recordChange(): void {
+    if (!this.baseline || this.gesture) return;
+    const next = this.snapshot();
+    const pattern = (s: string) => {
+      const { selected: _selected, ...state } = JSON.parse(s);
+      return JSON.stringify(state);
+    };
+    if (pattern(next) !== pattern(this.baseline)) {
+      this.undoStack.push(this.baseline);
+      if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+    }
+    this.baseline = next;
+  }
+
+  /** Commit a new edit layer; pointer gestures group intermediate changes. */
+  private commit(r: EditResult, select: boolean, opts: { gesture?: boolean; say?: string } = {}): boolean {
     if (r.edits === this.edits) {
       if (select && r.ref) this.select(r.ref);
       return false;
-    }
-    if (!opts.gesture) {
-      const now = Date.now();
-      if (!opts.coalesce || this.lastEdit?.key !== opts.coalesce || now - this.lastEdit.at > 1500) {
-        this.undoStack.push(this.snapshot());
-        if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
-      }
-      this.lastEdit = opts.coalesce ? { key: opts.coalesce, at: now } : null;
-      this.redoStack = [];
     }
     this.edits = r.edits;
     if (select) this.selected = r.ref;
@@ -523,12 +535,12 @@ export class App {
 
   setHitVelocity(v: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setVelocity(this.edits, this.current.events, ref, v), false, { coalesce: `vel:${ref}` });
+    this.commit(setVelocity(this.edits, this.current.events, ref, v), false);
   }
 
   setHitTiming(ms: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setTiming(this.edits, this.current.events, ref, ms), false, { coalesce: `time:${ref}` });
+    this.commit(setTiming(this.edits, this.current.events, ref, ms), false);
   }
 
   setHitSample(sample: string | null, ref: string | null = this.selected): void {
@@ -561,6 +573,7 @@ export class App {
   }
 
   undo(): void {
+    this.endGesture();
     const s = this.undoStack.pop();
     if (!s) return this.say('Nothing to undo.');
     this.redoStack.push(this.snapshot());
@@ -569,6 +582,7 @@ export class App {
   }
 
   redo(): void {
+    this.endGesture();
     const s = this.redoStack.pop();
     if (!s) return this.say('Nothing to redo.');
     this.undoStack.push(this.snapshot());
@@ -577,11 +591,14 @@ export class App {
   }
 
   private restoreSnapshot(s: string): void {
-    const o = JSON.parse(s) as { edits: Edits; selected: string | null };
-    this.edits = o.edits;
-    this.selected = o.selected;
-    this.lastEdit = null;
-    this.applyEdits();
+    const o = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked'>;
+    Object.assign(this, o);
+    // Existing update preserves the scheduling horizon, or replaces the queued break.
+    this.player.update(this.current);
+    if (this.selected && !findRef(this.current.events, this.selected)) this.selected = null;
+    this.history.replaceCurrent(this.entry);
+    this.baseline = this.snapshot();
+    this.changed();
   }
 
   setSnap(ticks: number): void {
