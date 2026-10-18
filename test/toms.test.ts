@@ -22,7 +22,8 @@ const fullKit = (): KitIndex => {
   return k;
 };
 const noTomKit = (): KitIndex => ({ ...fullKit(), htom: [], mtom: [], ltom: [] });
-const r = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), ...patch });
+/** a recipe with ROLLS off unless asked for (tom rolls are ROLLS' business, tested with the rolls) */
+const r = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), rolls: 0, ...patch });
 const toms = (b: Break) => b.events.filter((e) => isTom(e.cat));
 const same = (a: BreakEvent, b: BreakEvent) => a.cat === b.cat && a.bar === b.bar && a.step === b.step && a.sub === b.sub && a.vel === b.vel && a.offsetMs === b.offsetMs && a.swing === b.swing && a.sample === b.sample;
 const posKey = (e: BreakEvent) => `${e.cat}|${e.bar}|${e.step}|${e.sub}`;

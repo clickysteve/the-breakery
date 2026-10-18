@@ -24,6 +24,7 @@ import { applyEdits, hasEdits, type Edits } from './edits';
 import { autoSamples, finishSamples, type SampleContext } from './samples';
 import { FLOURISH, STYLE_DEFS } from './styles';
 import { generateSupport, planSupport } from './support';
+import { addRolls } from './rolls';
 import { addToms } from './toms';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
@@ -84,7 +85,8 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
  */
 function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: Seeds): BreakEvent[] {
   const ctx = { def: STYLE_DEFS[recipe.style], fl: FLOURISH[recipe.style], recipe, feel: core.feel, roles: core.plan };
-  return addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
+  const withToms = addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
+  return addRolls(withToms, { ...ctx, timekeeper: core.timekeeper }, stream(seeds.beat, 'rolls'), stream(seeds.feel, 'rolls'));
 }
 
 /**

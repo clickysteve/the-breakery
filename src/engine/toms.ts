@@ -36,9 +36,9 @@ const HANDS: Category[] = ['hat', 'open', 'ride', 'ghost', 'perc'];
 
 const TOM_NAME: Record<string, string> = { htom: 'high', mtom: 'mid', ltom: 'low' };
 
-/** The tom for the k-th of n strokes of a run: high to low (or low to high). */
-function contour(k: number, n: number, down: boolean): Category {
-  const i = n <= 1 ? 2 : Math.min(2, Math.floor((k * 3) / n));
+/** The tom for the k-th of n strokes of a run, spread evenly from high to low (or low to high), so a run always reaches the last tom. */
+export function contour(k: number, n: number, down: boolean): Category {
+  const i = n <= 1 ? 2 : Math.round((k * 2) / (n - 1));
   return TOMS[down ? i : 2 - i]!;
 }
 
@@ -60,7 +60,7 @@ export function addToms(events: BreakEvent[], ctx: TomContext, rng: Rng, frng: R
   const make = (bar: number, cat: Category, step: number, sub: number, level: number, why: string, like?: BreakEvent): BreakEvent => {
     const drift = def.programmed ? 0 : frng.gauss() * 3 * h;
     const vel = like ? like.vel + (def.programmed ? 0 : Math.round(frng.gauss() * 2 * h)) : level * 127 + drift;
-    let off = like ? like.offsetMs : clamp(feel.snare * 0.4 + (def.programmed ? 0 : frng.gauss() * 1.6 * h), -6, 12);
+    let off = like ? like.offsetMs : clamp(feel.snare * 0.4 + (def.programmed ? 0 : frng.gauss() * 1.6 * h), cat === 'snare' ? -1 : -6, 12);
     if (bar === 0 && step === 0 && sub === 0) off = Math.max(0, off);
     return {
       cat,
