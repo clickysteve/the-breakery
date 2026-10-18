@@ -1,9 +1,12 @@
 # Test, build and deploy The Breakery to GitHub Pages (static site; no server).
-# Runs for main or by hand. A failing type check, test or build stops the deploy.
+# Runs for main or by hand, and checks pull requests into main. A failing type check, test or
+# build stops the deploy. Pull requests are only type-checked, tested and built: never deployed.
 name: Deploy to GitHub Pages
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -12,9 +15,10 @@ permissions:
   pages: write
   id-token: write
 
+# Deploys queue one after another; a pull request's checks only replace its own older run.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -32,12 +36,15 @@ jobs:
       - run: npx vite build
       # The custom domain (breakery.allmyfriendsaresynths.com) travels with the site.
       - run: cp CNAME dist/CNAME
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
