@@ -244,7 +244,7 @@ export function outputPanel(parent: HTMLElement, app: App, rect: { w: number; h:
   }
 
   function render(force = false): void {
-    if (selected && !chain.stage(selected)) selected = chain.stages[0]?.id ?? null;
+    if (!selected || !chain.stage(selected)) selected = chain.stages[0]?.id ?? null;
     const key = JSON.stringify([chain.stages.map((s) => [s.id, s.engine]), selected]);
     if (key === shape && !force) return;
     shape = key;
