@@ -23,7 +23,7 @@
  * resolved first; the mode of the HIT's category then picks from that pool. A missing FIXED
  * sample falls back to the pool's first sample, and says so.
  */
-import { assignSamples, sourceOf, type KitChoice, type KitIndex } from './kit';
+import { assignSamples, chooseMain, sourceOf, type KitChoice, type KitIndex } from './kit';
 import { hashString, stream } from './rng';
 import { CATEGORIES, CATEGORY_LABEL, type BreakEvent, type Category } from './types';
 
@@ -249,3 +249,84 @@ export function sanitiseSampleSettings(s: unknown): SampleSettings {
 /** A stable short fingerprint of settings (for tests and favourites). */
 export const settingsKey = (s: SampleSettings): string => hashString(JSON.stringify(sanitiseSampleSettings(s))).toString(16);
 
+
+/**
+ * Sample choice for hits played LIVE (MIDI input): the same PICK modes, applied hit after hit as
+ * notes arrive. AUTO plays the break's main sample (the KIT seed); FIXED the chosen one; ROUND
+ * ROBIN and ALTERNATE keep their turn per category; RANDOM and WEIGHTED draw afresh; VELOCITY
+ * picks the layer from the incoming velocity; PER BAR plays the sample the break uses in the bar
+ * now playing (or the main sample when stopped). Fallbacks (GHOST plays SNARE samples, HAT and
+ * RIDE stand in for each other) are the same as in the break.
+ */
+export class LiveSamplePicker {
+  private turn = new Map<Category, number>();
+  private last = new Map<Category, number>();
+
+  /** `random`: [0, 1) source (Math.random in the app, a seeded stream in tests). */
+  constructor(private random: () => number = Math.random) {}
+
+  /** Start the turns again (a new break or new samples). */
+  reset(): void {
+    this.turn.clear();
+    this.last.clear();
+  }
+
+  /**
+   * The sample a live hit of `cat` at `vel` plays, or null (no samples for it). `bar`: the bar
+   * now playing (PER BAR), or null when stopped; `events`: the current break's (PER BAR).
+   */
+  pick(cat: Category, vel: number, kit: KitIndex, kitSeed: number, ctx: SampleContext, bar: number | null = null, events: readonly BreakEvent[] = []): string | null {
+    const src = sourceOf(kit, cat);
+    if (!src) return null;
+    const pool = kit[src];
+    const cs = ctx.settings?.[cat] ?? { mode: 'auto' as SampleMode };
+    const mode = modeOf(ctx.settings, cat);
+    const main = chooseMain(kit, kitSeed)[src]!;
+    if (pool.length === 1) return pool[0]!;
+    const choose = (i: number) => {
+      this.last.set(cat, i);
+      return pool[i]!;
+    };
+    switch (mode) {
+      case 'auto':
+        return main;
+      case 'fixed':
+        return cs.fixed && pool.includes(cs.fixed) ? cs.fixed : pool[0]!;
+      case 'random':
+        return choose(Math.floor(this.random() * pool.length) % pool.length);
+      case 'weighted': {
+        const w = pool.map((id) => Math.max(0, cs.weights?.[id] ?? 1));
+        const total = w.reduce((a, b) => a + b, 0);
+        if (total <= 0) return choose(Math.floor(this.random() * pool.length) % pool.length);
+        let r = this.random() * total;
+        let i = 0;
+        for (; i < pool.length - 1; i++) {
+          r -= w[i]!;
+          if (r < 0) break;
+        }
+        return choose(i);
+      }
+      case 'roundrobin': {
+        const k = this.turn.get(cat) ?? 0;
+        this.turn.set(cat, k + 1);
+        return choose(k % pool.length);
+      }
+      case 'alternate': {
+        const prev = this.last.get(cat) ?? -1;
+        let i = Math.floor(this.random() * pool.length) % pool.length;
+        if (i === prev) i = (i + 1 + Math.floor(this.random() * (pool.length - 1))) % pool.length;
+        return choose(i);
+      }
+      case 'velocity': {
+        const loud = ctx.loudness ?? {};
+        const order = pool.map((id, i) => ({ id, i, l: loud[id] ?? i })).sort((a, b) => a.l - b.l || a.i - b.i).map((x) => x.id);
+        const v = Math.max(1, Math.min(127, Math.round(vel)));
+        return order[Math.min(order.length - 1, Math.floor(((v - 1) / 127) * order.length))]!;
+      }
+      case 'perbar': {
+        const inBar = bar === null ? undefined : events.find((e) => e.bar === bar && e.cat === cat && !e.pinned && e.sample);
+        return inBar?.sample ?? main;
+      }
+    }
+  }
+}

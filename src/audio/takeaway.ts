@@ -20,7 +20,7 @@ import { createZip, encodeWav16, fileName, levelStats } from '@slopfactory/core/
 import { EXPORT_SAMPLE_RATE, renderTimeline } from '@slopfactory/core/render';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Break, type Category } from '../engine/types';
-import { breakMidi } from '../midi/breakMidi';
+import { breakMidi, type MidiMapping } from '../midi/breakMidi';
 import type { Ingredients } from './ingredients';
 import { breakTimeline, hatChoke, loopSeconds } from './timeline';
 
@@ -60,14 +60,14 @@ export function takeawayName(b: Break, opts: Pick<TakeawayOptions, 'mode'> & Par
   return fileName(['breakery', STYLE_DEFS[r.style].label.toLowerCase(), `${r.bpm}bpm`, `${r.bars}bar`, `seed${b.seeds.beat}${n ? `m${n}` : ''}`, r.engine === 1 ? 'e1' : '', opts.mode === 'loop' ? 'loop' : '', opts.mix === 'audible' ? 'audible' : ''], ext);
 }
 
-/** The break as a Standard MIDI File (always exactly the bars; there is no tail or loop fold in MIDI). */
-export function midiTakeaway(b: Break, only?: readonly Category[]): { name: string; bytes: Uint8Array; type: string; notes: number } {
-  const { bytes, notes } = breakMidi(b, only);
+/** The break as a Standard MIDI File (always exactly the bars; there is no tail or loop fold in MIDI). `map`: each track's channel and note (MIDI window). */
+export function midiTakeaway(b: Break, only?: readonly Category[], map?: MidiMapping): { name: string; bytes: Uint8Array; type: string; notes: number } {
+  const { bytes, notes } = breakMidi(b, only, map);
   return { name: takeawayName(b, { mode: 'tail', mix: only ? 'audible' : 'full' }, 'mid'), bytes, type: 'audio/midi', notes };
 }
 
-/** `audibleCats`: the categories SOLO / MUTE leave audible (used when opts.mix is 'audible'). */
-export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[]): Promise<TakeawayResult> {
+/** `audibleCats`: the categories SOLO / MUTE leave audible (used when opts.mix is 'audible'). `map`: the MIDI file's channel and note per track. */
+export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[], map?: MidiMapping): Promise<TakeawayResult> {
   const only = opts.mix === 'audible' ? audibleCats : undefined;
   const timeline = breakTimeline(b, only);
   if (!timeline.events.length) throw new Error(only ? 'Nothing to render: every category with a sample is muted (or not soloed). Choose FULL MIX, or change SOLO / MUTE.' : 'Nothing to render: no hit in this break has a sample. Load some INGREDIENTS first.');
@@ -107,7 +107,7 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
   const entries = [{ name: masterName, data: masterBytes }];
   for (const o of outputs.slice(1)) entries.push({ name: takeawayName(b, opts, 'wav').replace(/\.wav$/, `_${o.voice}.wav`), data: await encodeWav16(o.channels, res.sampleRate) });
   if (opts.midi) {
-    const mid = midiTakeaway(b, only);
+    const mid = midiTakeaway(b, only, map);
     entries.push({ name: mid.name, data: mid.bytes });
   }
   return { name: takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length };

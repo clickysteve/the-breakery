@@ -29,6 +29,7 @@ over: every hit can be added, moved, deleted or changed by hand.
 | **ROLLS · TOMS** | Rolls (amount, length, speed 1/16–1/64 and triplets, shape, where, which drums) and the toms' part in fills. |
 | **PATTERN** | See every hit and why it is there; edit hits by hand (add, select, move, delete, velocity, timing, sample) with undo; SOLO and MUTE each drum. |
 | **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
+| **MIDI** | Play the break out to drum machines and DAWs (per-track device, channel and note), play the samples from pads or an external sequencer, follow an external MIDI clock or send one (MIDI ▸ MIDI Settings…). |
 | **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, or your own. |
 
 OVERBAKE (destructive mutation) and BREED are planned; see *Next steps*.
@@ -135,7 +136,7 @@ from any folder of any static server). `npm run evaluate` regenerates
 8. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
    (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
    38, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride 51, perc
-   39), one named track per drum, with
+   39) or each track's channel and note from the MIDI window, one named track per drum, with
    the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
@@ -144,6 +145,27 @@ from any folder of any static server). `npm run evaluate` regenerates
    palette is copied first), rename, duplicate, delete, import and export palette files (emmm and
    DOWNBEAT palettes import too), or go back to Atari, the original black and white. Remembered
    in this browser; never part of a break.
+10. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
+    once). Everything is remembered in this browser, devices included (found again by name if
+    the browser renumbers them).
+    * **Out**: choose the default OUT device; the break plays out to it while it plays here, every
+      hit (sampled or not) with its velocity, swing, microtiming, rolls and hand edits, as a
+      64th-note Note On / Note Off. Each track (row) has OUT on/off, its own device (or DEFAULT),
+      channel 1–16 and note 0–127; GM drums on channel 10 by default (**GM** resets). OUT follows
+      SOLO and MUTE. Stopping, a new routing, a device unplugged or **PANIC** never leave a note
+      hanging.
+    * **In**: notes from the default IN device (or ALL INPUTS, or each track's own device) on the
+      track's channel (or OMNI) and note play that track's samples, at the incoming velocity and
+      with the track's PICK mode (ROUND ROBIN takes turns, VELOCITY picks the layer, PER BAR
+      uses the bar playing, …), whether or not the break is playing: The Breakery is also a drum
+      module for a hardware sequencer. **LEARN** sets a track's note from the next note played.
+      GHOST's input is off by default, so a snare note plays SNARE once; give GHOST its own note
+      to play ghost samples. A track's name lights when MIDI plays it.
+    * **Clock**: INT plays at the break's BPM and can SEND MIDI Clock, Start and Stop to an output.
+      EXT follows MIDI Clock FROM an input: Start plays from the top, Stop stops (keeping the
+      position), Continue plays on, Song Position moves; the break plays at the sequencer's tempo,
+      locked pulse by pulse (swing and microtiming placed between pulses). Space rejoins a running
+      clock. A clock that stops arriving (CLOCK LOST) releases every note.
 
 `?seed=12345` or `?seed=funky%20chicken` in the address sets the seed. Keys: **BREAKERY ▸ Keys…**.
 
@@ -216,9 +238,20 @@ drag, ⌘Z).
   the research notes, §7).
 * Typed numbers need a hardware keyboard.
 * The demo kit is synthetic and plain. Use real one-shots for real results.
-* MIDI is file export only: no MIDI output, clock or input. Note lengths are fixed (a 64th),
-  and SNARE and GHOST share GM note 38 (on separate tracks); hits on the same note at the same
-  tick are written once.
+* MIDI note lengths are fixed (a 64th). With the GM mapping SNARE and GHOST share note 38 (on
+  separate tracks in the file); hits on the same device, channel and note at the same moment are
+  sent (and written) once, at the louder velocity.
+* Web MIDI needs Chrome, Edge, Opera or Firefox (not Safari), a secure page (https or
+  localhost) and the user's permission. Browsers start audio only after a click or key on the
+  page: until then, incoming notes and an external Start are ignored (the status line says so).
+* Live MIDI out is stamped to be heard with the audio, through the audio output's reported
+  latency (`getOutputTimestamp`); hardware with its own latency may need its own offset.
+* EXTERNAL clock: the downbeat after Start is known only when its pulse arrives, so it can play
+  a few milliseconds late (the audio output latency); the rest of the loop is scheduled ahead.
+  MIDI clock is not passed through, and clock out is off while following. Two inputs sending
+  clock at once (FROM: ANY INPUT) would double the tempo: choose the device.
+* Most browsers cannot drop MIDI already queued: on stop, hits in the 150 ms look-ahead still
+  go out, each with its Note Off.
 * No OVERBAKE, BREED, slicing, pitch or effects.
 * Desktop-first: the fixed screen (now 880 × 470, for the ROLLS · TOMS and BATCH column)
   scales to fit; phones work best in landscape (in portrait it is small).
@@ -232,8 +265,9 @@ drag, ⌘Z).
 3. BREED two favourites; a MUTATE strength measured by rhythmic edit distance.
 4. Audio slicing (OVERBAKE): play chopped events as slices of the rendered break, at its known
    hit times, with tails, pitch and time-stretch.
-5. MIDI: live MIDI output and clock in/out (the file export's note mapping and timing carry
-   over); a choice of note map for drum machines that are not General MIDI.
+5. MIDI: per-device latency offsets, note maps for common drum machines, Program Change, MIDI
+   Learn for the recipe controls (Core's planned `ParameterRegistry`), and moving the MIDI code
+   into Slop Factory Core when its shared MIDI modules land.
 
 ## Research references
 
