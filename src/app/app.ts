@@ -593,7 +593,7 @@ export class App {
   private restoreSnapshot(s: string): void {
     const o = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked'>;
     Object.assign(this, o);
-    // Existing update preserves the scheduling horizon, or replaces the queued break.
+    // The player applies the selected live transition policy to restored snapshots.
     this.player.update(this.current);
     if (this.selected && !findRef(this.current.events, this.selected)) this.selected = null;
     this.history.replaceCurrent(this.entry);

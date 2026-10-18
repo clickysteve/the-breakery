@@ -337,7 +337,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const def = STYLE_DEFS[r.style];
     const mut = br.seeds.mut?.length ? ` +${br.seeds.mut.length}` : '';
     const edited = app.hasEdits ? ' · EDITED' : '';
-    card.textContent = `${def.label} · ${r.bpm} BPM · ${bars} BAR${bars > 1 ? 'S' : ''} · SWING ${Math.round(swingPercent(r.swing))}% · SEED ${app.seedText}${mut} · ${st.hits} HITS${edited} · E${r.engine}`;
+    card.textContent = `${app.player.queued ? 'PATTERN CHANGE PENDING — ' + ({ bar: 'NEXT BAR', loop: 'NEXT LOOP', immediate: 'IMMEDIATE' }[app.player.switchMode]) : 'PATTERN ACTIVE'} · ${def.label} · ${r.bpm} BPM · ${bars} BAR${bars > 1 ? 'S' : ''} · SWING ${Math.round(swingPercent(r.swing))}% · SEED ${app.seedText}${mut} · ${st.hits} HITS${edited} · E${r.engine}`;
     setTip(
       card,
       `The recipe card. SYNC ${st.sync.toFixed(1)}: the kick/snare syncopation per bar (Longuet-Higgins & Lee style). Phrase: ${br.plan.join(' ')}. Seeds: beat ${br.seeds.beat}, detail ${br.seeds.detail}, feel ${br.seeds.feel}, kit ${br.seeds.kit}${mut ? `, ${br.seeds.mut!.length} mutation(s)` : ''}. ${br.timekeeper === 'ride' ? 'Ride' : 'Hats'} keep time${br.feel.cycle ? `, ${CYCLE[br.feel.cycle]?.toLowerCase()}` : ''}. Feel: snare ${br.feel.snare >= 0 ? '+' : ''}${br.feel.snare.toFixed(1)} ms (on 2; less on 4), hats ${br.feel.hats >= 0 ? '+' : ''}${br.feel.hats.toFixed(1)} ms, kick ${br.feel.kick >= 0 ? '+' : ''}${br.feel.kick.toFixed(1)} ms. Engine ${r.engine}. ${describeEdits(app.edits, br.editReport)}`,
