@@ -49,7 +49,7 @@ export class MWindow {
         tab.addEventListener('pointerdown', () => this.setTab(i));
         tab.addEventListener('keydown', (ev) => {
           const k = ev.key;
-          if (k === 'Enter' || k === ' ') this.setTab(i);
+          if (k === 'Enter') this.setTab(i);
           else if (k === 'ArrowRight' || k === 'ArrowLeft') {
             const j = (i + (k === 'ArrowRight' ? 1 : -1) + o.tabs!.length) % o.tabs!.length;
             this.setTab(j);
@@ -160,7 +160,7 @@ export class Button {
       o.onPress(ev);
     });
     this.el.addEventListener('keydown', (ev) => {
-      if ((ev.key === 'Enter' || ev.key === ' ') && !this.el.classList.contains('disabled')) {
+      if (ev.key === 'Enter' && !this.el.classList.contains('disabled')) {
         ev.preventDefault();
         ev.stopPropagation();
         o.onPress(new PointerEvent('pointerdown'));
