@@ -7,15 +7,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const chrome = process.env.CHROME_BIN ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+async function waitForClose(closed: Promise<void>, timeoutMs = 5000): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      closed.then(() => true),
+      new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 it.skipIf(!existsSync(chrome))('renders mixer and export audio in real Chromium Web Audio', async () => {
   const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
   const profile = await mkdtemp(join(tmpdir(), 'breakery-audio-'));
   let browser: ReturnType<typeof spawn> | undefined;
+  let browserClosed: Promise<void> | undefined;
   let socket: WebSocket | undefined;
   try {
     await server.listen();
     const address = server.httpServer!.address() as { port: number };
-    browser = spawn(chrome, ['--headless=new', '--no-first-run', '--disable-extensions', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    browser = spawn(chrome, ['--headless=new', '--no-first-run', '--disable-extensions', '--no-default-browser-check', '--autoplay-policy=no-user-gesture-required', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32' });
+    // Register immediately: close can precede finally, and follows exit and stdio closure.
+    browserClosed = new Promise(resolve => browser!.once('close', () => resolve()));
     const endpoint = await new Promise<string>((resolve, reject) => {
       let output = '';
       const timer = setTimeout(() => reject(new Error('Chrome CDP startup timeout: ' + output)), 15000);
@@ -39,8 +55,29 @@ it.skipIf(!existsSync(chrome))('renders mixer and export audio in real Chromium 
     expect(result.exceptionDetails, JSON.stringify(result.exceptionDetails)).toBeUndefined();
     expect(result.result.value).toContain('passed');
   } finally {
-    socket?.close(); browser?.kill(); await server.close();
-    if (browser && browser.exitCode === null) await new Promise(resolve => browser!.once('exit', resolve));
-    await rm(profile, { recursive: true, force: true });
+    try {
+      // Let Chromium shut down its children and flush the profile before removing it.
+      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ id: 0, method: 'Browser.close' }));
+      if (browser && browserClosed) {
+        const signal = (sig: NodeJS.Signals) => {
+          if (process.platform === 'win32' || !browser!.pid) { browser!.kill(sig); return; }
+          try { process.kill(-browser!.pid, sig); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
+        };
+        if (!await waitForClose(browserClosed)) {
+          // A separate process group lets fallback termination reach Chromium's children too.
+          signal('SIGTERM');
+          if (!await waitForClose(browserClosed)) {
+            signal('SIGKILL');
+            if (!await waitForClose(browserClosed)) throw new Error('Chromium did not close after SIGKILL');
+          }
+        }
+      }
+      // Late filesystem activity can still race recursive removal. Exhausted retries reject.
+      await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } finally {
+      socket?.close();
+      await server.close();
+    }
   }
 }, 60000);
