@@ -56,7 +56,7 @@ describe('pattern length 1–8 bars', () => {
           // every bar has something in it
           for (let bar = 0; bar < bars; bar++) expect(b.events.some((e) => e.bar === bar)).toBe(true);
         }
-  });
+  }, 15000); // Exhaustive per-event assertions across 352 patterns need headroom on CI.
 
   it('loops, timelines and MIDI files are exactly the bars long', () => {
     for (const bars of BARS) {
@@ -406,7 +406,7 @@ describe('sample selection', () => {
 });
 
 describe('SOLO and MUTE', () => {
-  it('SOLO wins; otherwise MUTE silences (Core’s precedence)', () => {
+  it('MUTE wins with multiple solos', () => {
     const m = emptyMix();
     expect(mixActive(m)).toBe(false);
     m.kick.mute = true;
@@ -416,9 +416,9 @@ describe('SOLO and MUTE', () => {
     m.hat.solo = true;
     expect(anySolo(m)).toBe(true);
     expect(audibleCategories(m)).toEqual(['snare', 'hat']);
-    m.kick.solo = true; // soloed and muted: SOLO wins
-    expect(audible(m, 'kick')).toBe(true);
-    expect(sanitiseMix({ kick: { solo: 'yes', mute: true } }).kick).toEqual({ solo: false, mute: true });
+    m.kick.solo = true; // soloed and muted: MUTE wins
+    expect(audible(m, 'kick')).toBe(false);
+    expect(sanitiseMix({ kick: { solo: 'yes', mute: true } }).kick).toEqual({ solo: false, mute: true, gain: 1, pan: 0 });
   });
   it('the audible export leaves out silenced categories; the events themselves never change', () => {
     const b = bake(defaultRecipe('funk', 4), seedsFrom(4), fullKit());

@@ -172,18 +172,18 @@ MIX filters the timeline and MIDI by the same rule. Previews use a second, ungat
   code the roadmap names as the starting points: DOWNBEAT's message builders, note-safe
   `MidiOutput`, Web MIDI wrapper (grown for several devices) and pulse estimator, behind Core's
   `MidiOutputPort`, `MidiInputPort`, `MidiPortInfo` and `ClockFollower`, ready to move into Core.
-  The `Player` keeps musical time in quarter notes mapped to audio time through an anchor; every
-  hit it schedules also goes to `MidiRouter` stamped in `performance.now()` time through
+  The `Player` schedules on *song time*: the audio clock itself with the internal clock, or a
+  mapping that each external clock pulse re-anchors; every hit it schedules also goes to `MidiRouter` stamped in `performance.now()` time through
   `getOutputTimestamp()` (smoothed), so MIDI is heard with the audio. Note-offs wait in a queue
   until everything before them is scheduled; each device's `MidiOutput` releases a key only when
   every note holding it has ended, retriggers held keys, and on stop drops queued messages
   (`clear()`, where the browser has it) or stamps its note-offs after everything queued.
 * **External clock.** `ExternalClock` is pulse-locked (DOWNBEAT's and ANVIL's choice): pulse n
-  is quarter n/24 from the start of the song and becomes the player's anchor, with the measured
+  is quarter n/24 from the start of the song and anchors the player's song time, with the measured
   pulse period placing what lies between pulses; the look-ahead is capped at 12 pulses past the
   last one, so a clock that stops stops the music. Start, Stop, Continue and Song Position drive
   the transport; a silent clock is LOST after 500 ms. With the internal clock the player can send
-  F8 at 24 per quarter (tempo changes at the loop point included), Start and Stop.
+  F8 at 24 per quarter at the playing tempo, Start and Stop.
 * **MIDI in.** Every connected input is heard; `inputTargets` maps device, channel (or OMNI) and
   note to tracks, and `LiveSamplePicker` (engine/samples.ts) applies the track's PICK mode hit by
   hit. Live hits go through the main mixer at once (SOLO and MUTE apply).

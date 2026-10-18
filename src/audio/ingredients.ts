@@ -5,7 +5,8 @@
  * its assignments are stored.
  */
 import { decodeSample, defaultZone, SampleInstrument, toAudioBuffer, type DecodedSample } from '@slopfactory/core/sampler';
-import { sampleFromBytes, type SampleStore } from '@slopfactory/core/storage';
+import { encodeWav16 } from '@slopfactory/core/export';
+import { sampleFromBytes, type StoredSample, type SampleStore } from '@slopfactory/core/storage';
 import { emptyKit, type KitIndex } from '../engine/kit';
 import { CATEGORIES } from '../engine/types';
 import { guessCategory, importable, suggestCategory, type Slot } from './categorise';
@@ -86,6 +87,8 @@ function loadMeta(): SavedItem[] {
 export class Ingredients {
   items: Ingredient[] = [];
   onChange: () => void = () => {};
+  private bytes = new Map<string, StoredSample>();
+  private retired = new Map<string, SampleInstrument>();
 
   constructor(private store: SampleStore | null) {}
 
@@ -143,6 +146,7 @@ export class Ingredients {
           try {
             const s = await this.store?.get(it.id);
             if (!s) throw new Error('missing');
+            this.bytes.set(it.id, s);
             this.readyUser(it, await decodeSample(s.bytes, s.name || it.name));
           } catch (e) {
             it.status = e instanceof Error && e.message === 'missing' ? 'missing' : 'error';
@@ -213,6 +217,7 @@ export class Ingredients {
           done++;
           continue;
         }
+        this.bytes.set(stored.id, stored);
         let kept = true;
         try {
           if (this.store) await this.store.put(stored);
@@ -249,16 +254,56 @@ export class Ingredients {
     const it = this.items.find((i) => i.id === id);
     if (!it) return;
     this.items = this.items.filter((i) => i !== it);
-    // the bytes stay in storage only while something refers to them
+    // Saved kits contain their own audio; removing an ingredient cannot damage them.
+    this.bytes.delete(id);
     if (it.source === 'user') void this.store?.delete(id).catch(() => {});
     this.changed();
   }
 
   clear(): void {
     for (const it of this.items) if (it.source === 'user') void this.store?.delete(it.id).catch(() => {});
+    this.bytes.clear();
     this.items = [];
     this.changed();
   }
+
+  /** Capture original user bytes; demo sounds become portable WAVs. */
+  async audioFiles(): Promise<StoredSample[]> {
+    return Promise.all(this.items.map(async (it) => {
+      if (it.status !== 'ready') throw new Error(`Sample “${it.name}” is not playable. Reload or remove it before saving.`);
+      let audio = this.bytes.get(it.id);
+      if (!audio && it.source === 'demo') {
+        const d = demoKit().find(d => d.id === it.id);
+        if (d) {
+          const wav = await encodeWav16([d.data], DEMO_RATE);
+          audio = await sampleFromBytes(wav.slice().buffer, it.name + '.wav', 'audio/wav');
+        }
+      }
+      if (!audio) audio = await this.store?.get(it.id) ?? undefined;
+      if (!audio) throw new Error(`Audio for “${it.name}” is unavailable.`);
+      return audio;
+    }));
+  }
+
+  async prepareKit(items: { id: string; name: string; cat: Slot; audio: string }[], files: StoredSample[]): Promise<Ingredient[]> {
+    return Promise.all(items.map(async (m) => {
+      const file = files.find(f => f.id === m.audio);
+      if (!file) throw new Error(`Missing audio for “${m.name}”.`);
+      const d = await decodeSample(file.bytes, file.name);
+      const it: Ingredient = { id: m.id, name: m.name, cat: m.cat, source: 'user', status: 'loading', message: '', duration: 0, loud: -120, instrument: null };
+      this.readyUser(it, d);
+      return it;
+    }));
+  }
+
+  replaceKit(items: Ingredient[], files: StoredSample[], assignments: { id: string; audio: string }[]): void {
+    for (const it of this.items) if (it.instrument) this.retired.set(it.id, it.instrument);
+    this.items = items;
+    this.bytes = new Map(assignments.map(m => [m.id, files.find(f => f.id === m.audio)!]));
+    // The kit manager persists this complete collection; do not notify the rebake listener.
+  }
+
+  releaseRetired(): void { this.retired.clear(); }
 
   inSlot(cat: Slot): Ingredient[] {
     return this.items.filter((i) => i.cat === cat);
@@ -273,7 +318,7 @@ export class Ingredients {
 
   instrument(id: string | undefined | null): SampleInstrument | null {
     if (!id) return null;
-    return this.items.find((i) => i.id === id)?.instrument ?? null;
+    return this.items.find((i) => i.id === id)?.instrument ?? this.retired.get(id) ?? null;
   }
 
   /** Loudness per ready sample (for VELOCITY selection). */

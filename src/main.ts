@@ -6,12 +6,13 @@
  */
 import './ui/style.css';
 import { IndexedDbSampleStore } from '@slopfactory/core/storage';
+import { KitManager } from './app/kits';
 import { App, BATCH_SIZE } from './app/app';
 import { MidiRig } from './app/midi';
 import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredients';
 import { audibleCategories, mixActive } from './app/mix';
 import { entryLabel } from './app/seeds';
-import { CATEGORIES, CATEGORY_LABEL } from './engine/types';
+import { CATEGORY_LABEL } from './engine/types';
 import { Player } from './audio/player';
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
@@ -68,6 +69,15 @@ await ingredients.restore().catch(() => ingredients.loadDemo());
 const params = new URLSearchParams(location.search);
 const app = new App(ingredients, player, params.get('seed') ?? undefined);
 const midi = new MidiRig(app);
+
+let kits: KitManager | null = null;
+try {
+  kits = new KitManager(app, typeof indexedDB !== 'undefined' ? new IndexedDbSampleStore('the-breakery-kits') : null);
+  await kits.restore();
+} catch (e) {
+  app.status = `Kit restore failed: ${e instanceof Error ? e.message : String(e)}`;
+}
+window.addEventListener('beforeunload', e => { if (kits?.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
 // ------------------------------------------------------------------ shell
 const alertBox = (html: string) => void alertDialog(screen, html);
@@ -174,7 +184,7 @@ function doMidiTakeaway(): void {
 }
 
 async function doTakeaway(): Promise<void> {
-  const o: TakeawayOptions = { ...app.takeawayOpts };
+  const o: TakeawayOptions = { ...app.takeawayOpts, mix: 'audible' };
   const r = app.current.recipe;
   const ok = await openDialog<boolean>(
     screen,
@@ -196,24 +206,7 @@ async function doTakeaway(): Promise<void> {
         el('span', '', l, undefined, text);
         setTip(l, tip);
       }
-      const rowMix = el('div', 'row', box);
-      const silenced = CATEGORIES.filter((c) => !app.audible(c));
-      const active = mixActive(app.mix);
-      if (!active) o.mix = 'full';
-      for (const [v, text, tip] of [
-        ['full', 'FULL MIX', 'Every drum category, whatever SOLO and MUTE say'],
-        ['audible', 'AUDIBLE MIX', active ? `Only what you hear now: without ${silenced.map((c) => CATEGORY_LABEL[c]).join(', ')}. Stems and MIDI follow; files are named _audible.` : 'Only what you hear (nothing is soloed or muted now, so the same as FULL MIX)'],
-      ] as const) {
-        const l = el('label', '', rowMix);
-        const i = el('input', '', l);
-        i.type = 'radio';
-        i.name = 'tmix';
-        i.checked = o.mix === v;
-        i.disabled = v === 'audible' && !active;
-        i.addEventListener('change', () => (o.mix = v));
-        el('span', '', l, undefined, text);
-        setTip(l, tip);
-      }
+      el('div', 'row', box, undefined, 'Mix and stems follow channel level, pan, MUTE and SOLO.');
       const row2 = el('div', 'row', box);
       el('span', '', row2, undefined, 'Tail');
       const sel = el('select', 'mselect', row2);
@@ -229,7 +222,12 @@ async function doTakeaway(): Promise<void> {
       cb.checked = o.stems;
       cb.addEventListener('change', () => (o.stems = cb.checked));
       el('span', '', l, undefined, '+ STEMS (ZIP)');
-      setTip(l, 'Also one WAV per drum category, the same length and gain as the mix, in a ZIP');
+      setTip(l, 'Also one aligned stereo WAV per drum category in a ZIP. DRY STEMS bypasses master gain.');
+      const dryLabel = el('label', '', el('div', 'row', box));
+      const dry = el('input', '', dryLabel); dry.type = 'checkbox'; dry.checked = o.dryStems ?? true;
+      dry.addEventListener('change', () => o.dryStems = dry.checked);
+      el('span', '', dryLabel, undefined, 'DRY STEMS (bypass master gain)');
+      setTip(dryLabel, 'Channel gain, pan and mute/solo are preserved. All category stems have identical lengths, including silent channels.');
       const lm = el('label', '', row2);
       const cm = el('input', '', lm);
       cm.type = 'checkbox';
@@ -247,7 +245,7 @@ async function doTakeaway(): Promise<void> {
   try {
     const only = o.mix === 'audible' ? audibleCategories(app.mix) : undefined;
     const map = midi.fileMapping();
-    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, map);
+    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix, map);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
       const mid = midiTakeaway(app.current, only, map);
@@ -264,6 +262,7 @@ async function doTakeaway(): Promise<void> {
 
 const ui: UiContext = {
   app,
+  kits,
   screen,
   alert: alertBox,
   confirm: (html, ok) => confirmDialog(screen, html, ok),
@@ -329,7 +328,7 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
   {
     title: 'Edit',
     items: () => [
-      { label: app.canUndo ? 'Undo Hand Edit' : 'Undo', key: '⌘Z', action: () => app.undo() },
+      { label: 'Undo', key: '⌘Z', action: () => app.undo() },
       { label: 'Redo', key: '⇧⌘Z', action: () => app.redo() },
       { sep: true },
       { label: 'Delete Hit', key: 'Del', action: () => app.deleteHit() },
@@ -469,6 +468,12 @@ window.addEventListener('pointerdown', () => closeMenu());
 installTooltips(screen, () => view.scale);
 
 // ------------------------------------------------------------------ keyboard
+// Group pointer sweeps of existing number/range controls and grid edits into one action.
+window.addEventListener('pointerdown', () => app.beginGesture(), true);
+for (const event of ['pointerup', 'pointercancel']) {
+  // Finish after target handlers have applied the final pointer value, even if propagation stops.
+  window.addEventListener(event, () => setTimeout(() => app.endGesture(), 0), true);
+}
 window.addEventListener('keydown', (e) => {
   if (dialogOpen()) {
     if (e.key === 'Escape') closeDialog();
@@ -478,7 +483,8 @@ window.addEventListener('keydown', (e) => {
   if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   const k = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'z' || k === 'y')) {
-    // undo / redo of hand edits (a number box being typed into keeps its own keys)
+    if (t.closest?.('.num, .range, [role="slider"], [role="spinbutton"], [role="textbox"]')) return;
+    // undo / redo of pattern actions (a number box being typed into keeps its own keys)
     e.preventDefault();
     if (k === 'y' || e.shiftKey) app.redo();
     else app.undo();

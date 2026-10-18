@@ -35,7 +35,15 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
   const pos = el('div', 'num', b, [104, 52, W - 108, 18]);
   setTip(pos, 'Position: bar . beat . sixteenth');
 
-  label(b, 6, 76, 'FREEZE');
+  const modes = ['bar', 'loop', 'immediate'] as const;
+  const modeNames = ['NEXT BAR', 'NEXT LOOP', 'IMMEDIATE'];
+  const mode = new Button(b, [4, 70, W - 8, 13], 'NEXT BAR', {
+    cls: 'small', tip: 'Pattern switch boundary. Click to cycle NEXT BAR, NEXT LOOP, IMMEDIATE.',
+    onPress: () => {
+      app.player.switchMode = modes[(modes.indexOf(app.player.switchMode) + 1) % modes.length]!;
+      app.changed(false);
+    },
+  });
   const hw = Math.floor((W - 11) / 2);
   const rhythm = new Button(b, [4, 86, hw, 13], 'RHYTHM', {
     cls: 'small',
@@ -53,15 +61,15 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
 
   label(b, 6, 120, 'LEVEL');
   const level = new RangeBar(b, [40, 117, W - 44, 13], {
-    get: () => app.player.level,
+    get: () => app.player.level / 1.5,
     set: (v) => {
-      app.player.setLevel(v);
-      app.save();
+      app.player.setLevel(v * 1.5);
+      app.changed();
     },
-    format: (v) => `${v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-∞'} dB`,
-    parse: (t) => (/^-?\d+(\.\d+)?$/.test(t) ? Math.min(1, Math.pow(10, Math.min(0, Number(t)) / 20)) : null),
-    editText: (v) => (v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-60'),
-    tip: 'Output level, for playback and TAKEAWAY alike. Type a value in dB (0 = full scale).',
+    format: (v) => `${v > 0 ? (20 * Math.log10(v * 1.5)).toFixed(1) : '-∞'} dB`,
+    parse: (t) => (/^-?\d+(\.\d+)?$/.test(t) ? Math.min(1, Math.pow(10, Number(t) / 20) / 1.5) : null),
+    editText: (v) => (v > 0 ? (20 * Math.log10(v * 1.5)).toFixed(1) : '-60'),
+    tip: 'Output level, for playback and TAKEAWAY alike. Type a value in dB (0 = unity gain).',
     label: 'Level',
   });
 
@@ -82,6 +90,7 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
   }
 
   function update(): void {
+    mode.text = modeNames[modes.indexOf(app.player.switchMode)]!;
     play.text = app.player.playing ? '■ STOP' : '▶ PLAY';
     play.on = app.player.playing;
     loop.on = app.player.loop;

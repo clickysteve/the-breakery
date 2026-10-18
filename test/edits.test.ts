@@ -275,9 +275,9 @@ function makeApp(): App {
   const k = kit();
   const ingredients = { kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' };
   const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
-  const app = new App(ingredients as never, player as never);
+  const app = new App(ingredients as never, player as never, localStorage.getItem('breakery.state.v1') ? undefined : '4242');
   // a known break (the App starts from a random seed): hats keep time, and there is room to edit
-  if (!localStorage.getItem('breakery.state.v1')?.includes('"edits"')) app.setSeed(4242);
+
   return app;
 }
 
@@ -314,7 +314,9 @@ describe('App: hand editing, undo and redo', () => {
     const app = makeApp();
     const hat = gen(app.current, 'hat')[0]!;
     app.select(hat.ref!);
+    app.beginGesture();
     for (const v of [90, 80, 70, 60]) app.setHitVelocity(v);
+    app.endGesture();
     app.undo();
     expect(findRef(app.current.events, hat.ref)!.vel).toBe(hat.vel);
     const sn = gen(app.current, 'snare')[0]!;
@@ -358,7 +360,7 @@ describe('App: hand editing, undo and redo', () => {
     app.bake();
     expect(app.hasEdits).toBe(false);
     expect(app.status).toContain('stay with the previous break');
-    expect(app.canUndo).toBe(false);
+    expect(app.canUndo).toBe(true);
     app.historyBack();
     expect(app.hasEdits).toBe(true);
     expect(flat(app.current)).toEqual(edited);
@@ -414,5 +416,111 @@ describe('App: hand editing, undo and redo', () => {
     expect(tickOf(findRef(app.current.events, app.selected)!)).toBe(6);
     expect(app.status).toContain('out of the pattern');
     expect(ref).toBe(app.selected);
+  });
+});
+
+
+describe('complete pattern snapshots', () => {
+  beforeEach(() => { (globalThis as { localStorage?: Storage }).localStorage = memoryStorage(); });
+  const state = (app: App) => JSON.parse(JSON.stringify({ current: app.current, recipe: app.recipe, seeds: app.seeds, samples: app.samples, edits: app.edits, seedName: app.seedName }));
+
+  it('BAKE, BAKE, MUTATE, undo twice and redo twice restore exact states', () => {
+    const app = makeApp();
+    app.bake();
+    const first = state(app);
+    app.bake();
+    const second = state(app);
+    app.mutate();
+    const latest = state(app);
+    app.undo(); expect(state(app)).toEqual(second);
+    app.undo(); expect(state(app)).toEqual(first);
+    app.redo(); expect(state(app)).toEqual(second);
+    app.redo(); expect(state(app)).toEqual(latest);
+    for (let i = 0; i < 4; i++) {
+      app.undo(); expect(state(app)).toEqual(second);
+      app.redo(); expect(state(app)).toEqual(latest);
+    }
+  });
+
+  it('preserves rolls, sample references, manual edits and selected hit without regenerating', () => {
+    const app = makeApp();
+    app.setStyle('jungle');
+    app.setRecipe({ bars: 4, rolls: 1, rollLength: 8, rollPlace: 'anywhere' });
+    for (let seed = 13; seed < 100 && !app.current.events.some(e => e.role === 'roll'); seed++) app.setSeed(seed);
+    expect(app.current.events.some(e => e.role === 'roll')).toBe(true);
+    const e = app.current.events[0]!;
+    app.select(e.ref!);
+    app.setHitSample('hat-c');
+    app.setHitTiming(13);
+    const before = state(app);
+    const selected = app.selected;
+    app.bake();
+    // Exact restoration cannot depend on the currently available kit.
+    app.ingredients.kit = () => emptyKit();
+    app.undo();
+    expect(state(app)).toEqual(before);
+    expect(app.selected).toBe(selected);
+    expect(app.selectedEvent?.pinned).toBe('hat-c');
+  });
+
+  it('restores recipe/roll and sample settings, and respects FREEZE EDITS', () => {
+    const app = makeApp();
+    const before = state(app);
+    app.setRecipe({ rolls: 1 });
+    app.undo(); expect(state(app)).toEqual(before);
+    app.redo();
+    const rolled = state(app);
+    app.setSampleSettings('hat', { mode: 'roundrobin' });
+    app.undo(); expect(state(app)).toEqual(rolled);
+    app.addHit('crash', TPB + 3);
+    app.toggleKeepEdits();
+    const edits = JSON.stringify(app.edits);
+    app.bake(); expect(JSON.stringify(app.edits)).toBe(edits);
+    app.undo(); expect(app.keepEdits).toBe(true);
+    expect(JSON.stringify(app.edits)).toBe(edits);
+  });
+
+  it('groups recipe sweeps and ignores empty or net-zero gestures without losing redo', () => {
+    const app = makeApp();
+    const before = state(app);
+    app.beginGesture();
+    app.setRecipe({ rolls: 0.2 }); app.setRecipe({ rolls: 0.7 });
+    app.endGesture();
+    app.undo(); expect(state(app)).toEqual(before);
+    app.beginGesture(); app.endGesture();
+    app.setRecipe({ ...app.recipe });
+    expect(app.canRedo).toBe(true);
+    app.beginGesture();
+    app.setRecipe({ bpm: app.recipe.bpm + 1 });
+    app.setRecipe({ bpm: before.recipe.bpm });
+    app.endGesture();
+    expect(app.canRedo).toBe(true);
+    app.setRecipe({ bpm: app.recipe.bpm + 2 });
+    expect(app.canRedo).toBe(false);
+  });
+
+  it('bounds history to 50 actions and ignores frozen mutation and unchanged edits', () => {
+    const app = makeApp();
+    app.toggleRhythm(); app.mutate();
+    expect(app.canUndo).toBe(false);
+    app.beginGesture(); app.endGesture();
+    const e = app.current.events[0]!;
+    app.setHitVelocity(e.vel, e.ref);
+    expect(app.canUndo).toBe(false);
+    for (let i = 0; i < 60; i++) app.setRecipe({ bpm: 100 + i });
+    let count = 0;
+    while (app.canUndo) { app.undo(); count++; }
+    expect(count).toBe(50);
+  });
+
+  it('sends exact restored snapshots through the existing playback update method', () => {
+    const app = makeApp();
+    const updates: Break[] = [];
+    app.player.update = b => { updates.push(b); };
+    app.player.playing = true;
+    const before = state(app);
+    app.bake(); app.undo();
+    expect(updates.at(-1)).toEqual(before.current);
+    app.redo(); expect(updates.at(-1)).toEqual(app.current);
   });
 });

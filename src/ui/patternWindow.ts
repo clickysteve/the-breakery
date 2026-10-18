@@ -1,3 +1,4 @@
+import { mixerPanel } from './mixerPanel';
 /**
  * PATTERN: the break, and where it is edited by hand. One row per drum category, with SOLO (S)
  * and MUTE (M); each hit is drawn at its PERFORMED position (grid + swing + microtiming) with its
@@ -34,7 +35,21 @@ const ZOOMS = [0, 4, 2, 1] as const;
 export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
   const win = new MWindow(parent, { title: 'PATTERN', ...rect });
-  const b = win.body;
+  const b = el('div', '', win.body, [0, 0, rect.w - 2, rect.h - 18]);
+  const mixerBody = el('div', '', win.body, [0, 0, rect.w - 2, rect.h - 18]);
+  mixerBody.style.display = 'none';
+  const mixer = mixerPanel(mixerBody, app, rect.w - 2);
+  let showingMixer = false;
+  const tabs = el('div', '', win.el, [95, 0, 130, 15]);
+  tabs.addEventListener('pointerdown', e => e.stopPropagation());
+  const patternTab = new Button(tabs, [0, 0, 64, 14], 'PATTERN', { cls: 'small', onPress: () => showMixer(false) });
+  const mixerTab = new Button(tabs, [66, 0, 60, 14], 'MIXER', { cls: 'small', onPress: () => showMixer(true) });
+  function showMixer(value: boolean) {
+    showingMixer = value; b.style.display = value ? 'none' : '';
+    mixerBody.style.display = value ? '' : 'none'; patternTab.on = !value; mixerTab.on = value;
+    mixer.update();
+  }
+  showMixer(false);
   const W = rect.w - 2;
   const X0 = 70;
   const Y0 = 22;
@@ -74,8 +89,8 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const l = el('div', 'label small', b, [6, Y0 + i * RH + 4], SHORT[c]);
     l.style.fontSize = '8px';
     setTip(l, CATEGORY_LABEL[c]);
-    const s = new Button(b, [42, Y0 + i * RH + 2, 12, 12], 'S', { cls: 'small sm', tip: `SOLO ${CATEGORY_LABEL[c]}: hear only the soloed rows (several can be soloed; SOLO wins over MUTE). Playback changes at once; the break itself does not change.`, onPress: () => app.toggleSolo(c) });
-    const m = new Button(b, [55, Y0 + i * RH + 2, 12, 12], 'M', { cls: 'small sm', tip: `MUTE ${CATEGORY_LABEL[c]}: silence this row (unless a row is soloed). Playback changes at once; the break itself does not change.`, onPress: () => app.toggleMute(c) });
+    const s = new Button(b, [42, Y0 + i * RH + 2, 12, 12], 'S', { cls: 'small sm', tip: `SOLO ${CATEGORY_LABEL[c]}: hear only the soloed rows (several can be soloed; MUTE remains silent). Playback changes at once; the break itself does not change.`, onPress: () => app.toggleSolo(c) });
+    const m = new Button(b, [55, Y0 + i * RH + 2, 12, 12], 'M', { cls: 'small sm', tip: `MUTE ${CATEGORY_LABEL[c]}: silence this row, including when soloed. Playback changes at once; the break itself does not change.`, onPress: () => app.toggleMute(c) });
     return { l, s, m };
   });
   const svg = svgEl(GW + 2, GH + 22, '', 'patternsvg');
@@ -131,7 +146,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   const r3 = r2 + 17;
   el('div', 'label small', b, [6, r3 + 3], 'SNAP');
   const snapBtns = SNAPS.map((t, i) => new Button(b, [30 + i * 31, r3, 30, 12], SNAP_LABEL[t]!, { cls: 'small', tip: `SNAP ${SNAP_LABEL[t]}: where new hits land, and the step for moving hits (moves keep a hit's offset from the grid, so rolls keep their subdivision)`, onPress: () => app.setSnap(t) }));
-  const undo = new Button(b, [W - 168, r3, 34, 12], 'UNDO', { cls: 'small', tip: 'Undo the last hand edit (⌘Z)', onPress: () => app.undo() });
+  const undo = new Button(b, [W - 168, r3, 34, 12], 'UNDO', { cls: 'small', tip: 'Undo the last pattern action (Cmd/Ctrl+Z)', onPress: () => app.undo() });
   const redo = new Button(b, [W - 132, r3, 34, 12], 'REDO', { cls: 'small', tip: 'Redo (⇧⌘Z)', onPress: () => app.redo() });
   const clear = new Button(b, [W - 96, r3, 90, 12], 'CLEAR EDITS', { cls: 'small', tip: 'Remove every hand edit of this break: back to the break as generated (⌘Z undoes it)', onPress: () => app.revertAll() });
   const foot = el('div', 'label tiny', b, [6, r3 + 17, W - 12]);
@@ -248,6 +263,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   }
 
   function draw(): void {
+    mixer.update();
     const br = app.current;
     const r = br.recipe;
     const bars = r.bars;
@@ -337,7 +353,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const def = STYLE_DEFS[r.style];
     const mut = br.seeds.mut?.length ? ` +${br.seeds.mut.length}` : '';
     const edited = app.hasEdits ? ' · EDITED' : '';
-    card.textContent = `${def.label} · ${r.bpm} BPM · ${bars} BAR${bars > 1 ? 'S' : ''} · SWING ${Math.round(swingPercent(r.swing))}% · SEED ${app.seedText}${mut} · ${st.hits} HITS${edited} · E${r.engine}`;
+    card.textContent = `${app.player.queued ? 'PATTERN CHANGE PENDING — ' + ({ bar: 'NEXT BAR', loop: 'NEXT LOOP', immediate: 'IMMEDIATE' }[app.player.switchMode]) : 'PATTERN ACTIVE'} · ${def.label} · ${r.bpm} BPM · ${bars} BAR${bars > 1 ? 'S' : ''} · SWING ${Math.round(swingPercent(r.swing))}% · SEED ${app.seedText}${mut} · ${st.hits} HITS${edited} · E${r.engine}`;
     setTip(
       card,
       `The recipe card. SYNC ${st.sync.toFixed(1)}: the kick/snare syncopation per bar (Longuet-Higgins & Lee style). Phrase: ${br.plan.join(' ')}. Seeds: beat ${br.seeds.beat}, detail ${br.seeds.detail}, feel ${br.seeds.feel}, kit ${br.seeds.kit}${mut ? `, ${br.seeds.mut!.length} mutation(s)` : ''}. ${br.timekeeper === 'ride' ? 'Ride' : 'Hats'} keep time${br.feel.cycle ? `, ${CYCLE[br.feel.cycle]?.toLowerCase()}` : ''}. Feel: snare ${br.feel.snare >= 0 ? '+' : ''}${br.feel.snare.toFixed(1)} ms (on 2; less on 4), hats ${br.feel.hats >= 0 ? '+' : ''}${br.feel.hats.toFixed(1)} ms, kick ${br.feel.kick >= 0 ? '+' : ''}${br.feel.kick.toFixed(1)} ms. Engine ${r.engine}. ${describeEdits(app.edits, br.editReport)}`,
@@ -354,7 +370,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       rc.s.on = app.mix[c].solo;
       rc.m.on = app.mix[c].mute;
       rc.l.style.opacity = app.audible(c) ? '1' : '0.45';
-      rc.m.el.classList.toggle('overridden', solo && app.mix[c].mute);
+      rc.m.el.classList.remove('overridden');
     });
 
     // ---- the selected hit
@@ -386,13 +402,14 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     foot.textContent = silent.length
       ? `NO SAMPLE FOR: ${silent.map((c) => CATEGORY_LABEL[c]).join(', ')} (DOTTED HITS ARE SILENT)`
       : muted.length
-        ? `SILENCED BY ${solo ? 'SOLO' : 'MUTE'}: ${muted.map((c) => CATEGORY_LABEL[c]).join(', ')} · TAKEAWAY: FULL OR AUDIBLE MIX`
+        ? `SILENCED BY ${solo ? 'SOLO' : 'MUTE'}: ${muted.map((c) => CATEGORY_LABEL[c]).join(', ')} · TAKEAWAY FOLLOWS MIXER`
         : app.hasEdits
           ? `${describeEdits(app.edits, br.editReport).toUpperCase()} ■ ADDED/MOVED □ CHANGED`
           : 'HEIGHT = VELOCITY · OFFSET = SWING + FEEL · HOVER A HIT: WHY IT IS THERE · ⌘Z UNDO';
   }
 
   function tick(): void {
+    if (showingMixer) mixer.tick();
     const p = app.player.position();
     const pb = app.player.break;
     if (!p) {

@@ -238,6 +238,9 @@ export function moveHit(edits: Edits, events: BreakEvent[], ref: string, to: { b
 function patchHit(edits: Edits, events: BreakEvent[], ref: string, p: HitPatch): EditResult {
   const e = findRef(events, ref);
   if (!e) return { edits, ref: null };
+  if ((p.vel === undefined || p.vel === e.vel)
+    && (p.offsetMs === undefined || p.offsetMs === e.offsetMs)
+    && (!('sample' in p) || (p.sample ?? null) === (e.pinned ?? null))) return { edits, ref };
   const out = clone(edits);
   if (isManualRef(ref)) {
     const m = out.added.find((x) => manualRef(x.id) === ref)!;
