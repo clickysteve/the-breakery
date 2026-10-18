@@ -4,16 +4,16 @@
  * Playback goes through Slop Factory Core's Mixer and NotePlayer: the same instruments, voices
  * and choke groups the offline renderer uses for TAKEAWAY.
  *
- * A new break (BAKE, or choosing a BATCH candidate) waits for the loop point while playing, so
- * the music never jumps mid-bar. SOLO and MUTE use Core's mixer gates, so they act at once, also
+ * Pattern requests use a safe bar, loop or immediate boundary beyond scheduled audio. SOLO and MUTE use Core's mixer gates, so they act at once, also
  * on sounds already ringing, and never change the break's events.
  */
 import { Mixer, NotePlayer } from '@slopfactory/core/audio';
 import { CATEGORIES, type Break } from '../engine/types';
 import { emptyMix, type MixState } from '../app/mix';
 import type { Ingredients } from './ingredients';
-import { eventSeconds, hatChoke, loopSeconds, ROOT_PITCH } from './timeline';
+import { eventSeconds, hatChoke, ROOT_PITCH } from './timeline';
 
+export type SwitchMode = 'bar' | 'loop' | 'immediate';
 const LOOKAHEAD = 0.15;
 const TICK_MS = 25;
 export const LIVE_SAMPLE_RATE = 44100;
@@ -49,6 +49,12 @@ export class Player {
   private ticker: { stop(): void } | null = null;
   private current: Break | null = null;
   private pending: Break | null = null;
+  private switchAt = Infinity;
+  private audible: Break | null = null;
+  private audibleStart = 0;
+  private activations: { b: Break; time: number; start: number }[] = [];
+  switchMode: SwitchMode = 'bar';
+  private tempo = 120;
   private list: Scheduled[] = [];
   private idx = 0;
   private loopStart = 0;
@@ -60,7 +66,7 @@ export class Player {
   level = DEFAULT_LEVEL;
   private mix: MixState = emptyMix();
   onState: () => void = () => {};
-  /** a pending break became current (at the loop point) */
+  /** A scheduled replacement has reached the audio clock. */
   onSwap: (b: Break) => void = () => {};
 
   constructor(private ingredients: Ingredients) {}
@@ -111,7 +117,7 @@ export class Player {
 
   private build(b: Break): void {
     this.current = b;
-    const bpm = b.recipe.bpm;
+    const bpm = this.playing ? this.tempo : b.recipe.bpm;
     this.list = b.events
       .filter((e) => e.sample)
       .map((e) => ({ sec: eventSeconds(e, bpm), e }))
@@ -122,9 +128,13 @@ export class Player {
   async play(b: Break): Promise<boolean> {
     if (!(await this.ensure())) return false;
     this.stop();
+    this.tempo = b.recipe.bpm;
     this.build(b);
+    this.audible = b;
     this.pending = null;
     this.loopStart = this.ctx!.currentTime + 0.06;
+    this.audibleStart = this.loopStart;
+    this.scheduledUntil = this.ctx!.currentTime;
     this.playing = true;
     this.ticker = makeTicker(() => this.pump());
     this.pump();
@@ -132,48 +142,45 @@ export class Player {
     return true;
   }
 
-  /** Change the break: at the loop point while playing, else at once. */
+  /** Never replace audio already handed to Web Audio. Quantise beyond that frontier. */
   setBreak(b: Break): void {
-    if (this.playing) this.pending = b;
-    else this.current = b;
+    if (!this.playing || !this.ctx || !this.current) {
+      this.current = this.audible = b;
+      return;
+    }
+    this.pending = b;
+    if (this.switchAt !== Infinity) return; // newest request wins at the same boundary
+    const safe = Math.max(this.ctx.currentTime + 0.005, this.scheduledUntil + 0.000001);
+    const unit = this.switchMode === 'loop' ? this.duration(this.current) : 240 / this.tempo;
+    this.switchAt = this.switchMode === 'immediate' ? safe
+      : this.loopStart + Math.max(1, Math.ceil((safe - this.loopStart) / unit)) * unit;
   }
 
-  /**
-   * The same break, edited by hand: heard from the next unscheduled hit, not at the loop point
-   * (hits already scheduled, at most the look-ahead of 150 ms, still play). A change of length
-   * waits for the loop point like a new break.
-   */
-  update(b: Break): void {
-    if (!this.playing || !this.ctx || !this.current) {
-      this.current = b;
-      this.pending = null;
-      return;
-    }
-    if (b.recipe.bars !== this.current.recipe.bars || b.recipe.bpm !== this.current.recipe.bpm || this.pending) {
-      this.pending = b;
-      return;
-    }
-    const done = this.idx >= this.list.length;
-    this.build(b);
-    if (done) this.idx = this.list.length;
-    else {
-      const until = this.scheduledUntil - this.loopStart;
-      this.idx = this.list.findIndex((x) => x.sec > until + 1e-9);
-      if (this.idx < 0) this.idx = this.list.length;
+  private duration(b: Break): number { return b.recipe.bars * 240 / this.tempo; }
+
+  private announce(): void {
+    while (this.activations.length && this.activations[0]!.time <= this.ctx!.currentTime) {
+      const a = this.activations.shift()!;
+      this.audible = a.b;
+      this.audibleStart = a.start;
+      this.onSwap(a.b);
     }
   }
+
+  /** Hand edits use the selected transition policy too. */
+  update(b: Break): void { this.setBreak(b); }
 
   stop(): void {
     this.ticker?.stop();
     this.ticker = null;
     if (this.ctx && this.notes) this.notes.stopAll(this.ctx.currentTime);
+    const selected = this.pending ?? this.activations.at(-1)?.b ?? this.current;
+    this.pending = null;
+    this.switchAt = Infinity;
+    this.activations = [];
+    this.current = this.audible = selected;
     if (this.playing) {
       this.playing = false;
-      if (this.pending) {
-        this.current = this.pending;
-        this.onSwap(this.pending);
-        this.pending = null;
-      }
       this.onState();
     }
   }
@@ -182,28 +189,38 @@ export class Player {
     const ctx = this.ctx;
     const b = this.current;
     if (!ctx || !b || !this.playing) return;
+    this.announce();
     const horizon = ctx.currentTime + LOOKAHEAD;
     for (let guard = 0; guard < 2000; guard++) {
+      const next = this.list[this.idx];
+      if (this.pending && this.switchAt <= horizon &&
+          (!next || this.loopStart + next.sec >= this.switchAt)) {
+        const time = this.switchAt;
+        const p = this.pending;
+        this.pending = null;
+        this.switchAt = Infinity;
+        // Keep bar/loop phase; immediate changes skip the already scheduled part.
+        const phase = (time - this.loopStart) % this.duration(p);
+        this.loopStart = time - phase;
+        this.build(p);
+        this.idx = this.list.findIndex(x => this.loopStart + x.sec >= time - 1e-9);
+        if (this.idx < 0) this.idx = this.list.length;
+        this.activations.push({ b: p, time, start: this.loopStart });
+        continue;
+      }
       if (this.idx >= this.list.length) {
-        const end = this.loopStart + loopSeconds(this.current!);
+        const end = this.loopStart + this.duration(this.current!);
         if (end > horizon) return;
         if (!this.loop) {
           // let the last hits ring, then stop
           if (ctx.currentTime > end + 0.05) {
-            this.ticker?.stop();
-            this.ticker = null;
-            this.playing = false;
-            this.onState();
+            this.stop();
           }
           return;
         }
         this.loopStart = end;
-        if (this.pending) {
-          const p = this.pending;
-          this.pending = null;
-          this.build(p);
-          this.onSwap(p);
-        } else this.idx = 0;
+        this.idx = 0;
+
         continue;
       }
       const s = this.list[this.idx]!;
@@ -229,18 +246,18 @@ export class Player {
   /** Current position: bar index and fractional sixteenth, or null when stopped. */
   position(): { loop: number; frac: number } | null {
     if (!this.playing || !this.ctx || !this.current) return null;
-    const len = loopSeconds(this.current);
-    const t = this.ctx.currentTime - (this.ctx.outputLatency || 0) - this.loopStart;
-    const frac = t < 0 ? (t + len) / len : t / len;
+    const len = this.duration(this.audible ?? this.current);
+    const t = this.ctx.currentTime - (this.ctx.outputLatency || 0) - this.audibleStart;
+    const frac = t < 0 ? 0 : (t % len) / len;
     return { loop: 0, frac: Math.max(0, Math.min(0.99999, frac)) };
   }
 
-  /** a new break is waiting for the loop point */
+  /** A selected break is waiting to be heard. */
   get queued(): boolean {
-    return !!this.pending;
+    return !!this.pending || this.activations.length > 0;
   }
 
   get break(): Break | null {
-    return this.current;
+    return this.audible;
   }
 }
