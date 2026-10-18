@@ -5,6 +5,7 @@
  */
 import './ui/style.css';
 import { IndexedDbSampleStore } from '@slopfactory/core/storage';
+import { KitManager } from './app/kits';
 import { App, BATCH_SIZE } from './app/app';
 import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredients';
 import { audibleCategories, mixActive } from './app/mix';
@@ -63,6 +64,15 @@ const player = new Player(ingredients);
 await ingredients.restore().catch(() => ingredients.loadDemo());
 const params = new URLSearchParams(location.search);
 const app = new App(ingredients, player, params.get('seed') ?? undefined);
+
+let kits: KitManager | null = null;
+try {
+  kits = new KitManager(app, typeof indexedDB !== 'undefined' ? new IndexedDbSampleStore('the-breakery-kits') : null);
+  await kits.restore();
+} catch (e) {
+  app.status = `Kit restore failed: ${e instanceof Error ? e.message : String(e)}`;
+}
+window.addEventListener('beforeunload', e => { if (kits?.dirty) { e.preventDefault(); e.returnValue = ''; } });
 
 // ------------------------------------------------------------------ shell
 const alertBox = (html: string) => void alertDialog(screen, html);
@@ -256,6 +266,7 @@ async function doTakeaway(): Promise<void> {
 
 const ui: UiContext = {
   app,
+  kits,
   screen,
   alert: alertBox,
   confirm: (html, ok) => confirmDialog(screen, html, ok),

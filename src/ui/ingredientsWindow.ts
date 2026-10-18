@@ -4,6 +4,7 @@
  * them (sample-selection mode, with its settings beside each sample), and loading files or
  * whole folders.
  */
+import { kitsPanel } from './kitsPanel';
 import { SLOTS, type ImportEntry, type Slot } from '../audio/ingredients';
 import { sourceOf } from '../engine/kit';
 import { modeOf, SAMPLE_MODE_LABEL, SAMPLE_MODE_TIP, SAMPLE_MODES, sampleUsage, type SampleMode } from '../engine/samples';
@@ -19,7 +20,23 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
   const { app } = ui;
   const ing = app.ingredients;
   const win = new MWindow(parent, { title: 'INGREDIENTS', ...rect });
-  const b = win.body;
+  const tabs = el('div', 'row', win.body, [3, 0, 198, 18]);
+  const ingredientsTab = el('button', 'mbutton', tabs, undefined, 'INGREDIENTS');
+  const kitsTab = el('button', 'mbutton', tabs, undefined, 'KITS');
+  const b = el('div', '', win.body, [0, 22, rect.w - 2, rect.h - 40]);
+  const kitBody = el('div', '', win.body, [0, 22, rect.w - 2, rect.h - 40]);
+  for (const node of [tabs, b, kitBody]) node.style.position = 'absolute';
+  tabs.style.display = 'flex';
+  tabs.setAttribute('role', 'tablist');
+  for (const tab of [ingredientsTab, kitsTab]) tab.setAttribute('role', 'tab');
+  ingredientsTab.setAttribute('aria-selected', 'true');
+  kitsTab.setAttribute('aria-selected', 'false');
+  kitBody.hidden = true;
+  const kp = ui.kits ? kitsPanel(kitBody, ui, ui.kits) : null;
+  if (!kp) el('div', 'empty-note', kitBody, undefined, 'Kit storage unavailable. Reload to retry.');
+  ingredientsTab.addEventListener('click', () => { b.hidden = false; kitBody.hidden = true; ingredientsTab.setAttribute('aria-selected', 'true'); kitsTab.setAttribute('aria-selected', 'false'); });
+  kitsTab.addEventListener('click', () => { b.hidden = true; kitBody.hidden = false; ingredientsTab.setAttribute('aria-selected', 'false'); kitsTab.setAttribute('aria-selected', 'true'); kp?.update(); });
+  rect = { ...rect, h: rect.h - 22 };
   const W = rect.w - 2;
   let selected: Slot = 'kick';
 
@@ -121,6 +138,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
 
   let lastSig = '';
   function update(): void {
+    kp?.update();
     for (const [slot, r] of rows) {
       r.row.classList.toggle('sel', slot === selected);
       const n = ing.inSlot(slot).length;
@@ -196,7 +214,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
       sel.addEventListener('change', () => ing.setCategory(it.id, sel.value as Slot));
       const x = el('span', 'ibtn', row, undefined, '×');
       setTip(x, 'Remove this sample');
-      x.addEventListener('pointerdown', () => ing.remove(it.id));
+      x.addEventListener('pointerdown', () => void ui.confirm('Remove this sample from the current kit?', 'Remove').then(ok => ok && ing.remove(it.id)));
     }
   }
   update();

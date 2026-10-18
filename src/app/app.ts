@@ -8,7 +8,7 @@
 import { addHit, deleteHit, describeEdits, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
 import { bake, mutate, parseSeed, reseed, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
 import { freshSeed } from '../engine/rng';
-import { sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
+import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, TPS, type Break, type Category, type Engine, type Layer, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
@@ -115,7 +115,7 @@ export class App {
     player.setMix(this.mix);
     this.current = this.bakeWith(this.seeds);
     player.setBreak(this.current);
-    player.onSwap = () => this.changed(false);
+    player.onSwap = () => { this.ingredients.releaseRetired?.(); this.changed(false); };
     this.remember();
     this.baseline = this.snapshot();
     if (s?.recipe && this.recipe.engine === 1) this.status = 'Restored with ENGINE 1, so this break sounds as it did. Switch RECIPE ▸ ENGINE to 2 to hear the new generator on the same seed.';
@@ -599,6 +599,28 @@ export class App {
     this.history.replaceCurrent(this.entry);
     this.baseline = this.snapshot();
     this.changed();
+  }
+
+  /** Replace only sound selection, preserving every hit and the undo/redo stacks. */
+  kitLoaded(settings: SampleSettings): void {
+    this.samples = sanitiseSampleSettings(settings);
+    const reassign = (b: Break): Break => {
+      const events: Break['events'] = b.events.map(e => ({ ...e, sample: null, sampleWhy: undefined, pinned: undefined }));
+      selectSamples(events, this.ingredients.kit(), b.seeds.kit, { settings: this.samples, loudness: this.ingredients.loudness() }, id => this.ingredients.name(id));
+      events.forEach((e, i) => {
+        const pinned = b.events[i]!.pinned;
+        if (pinned && this.ingredients.items.some(it => it.id === pinned && it.status === 'ready')) { e.sample = pinned; e.sampleWhy = 'Sample chosen by hand'; }
+        if (pinned) Object.assign(e, { pinned });
+        else delete (e as { pinned?: string }).pinned;
+      });
+      return { ...b, events };
+    };
+    this.current = reassign(this.current);
+    this.batch = this.batch.map(reassign);
+    this.player.update(this.current);
+    this.baseline = this.snapshot();
+    this.save();
+    for (const f of this.listeners) f();
   }
 
   setSnap(ticks: number): void {

@@ -1,0 +1,11 @@
+# Persistent kits
+
+INGREDIENTS → KITS manages sound collections independently of recipes. SAVE AS creates a named collection; SAVE updates the current collection. Select a saved row for LOAD, DUPLICATE, RENAME, DELETE or SET DEFAULT. EXPORT exports the current sounds, including unsaved edits. IMPORT opens a portable collection as unsaved; SAVE keeps it in this browser. A star in the saved list marks the startup default. Without a default, the last saved/loaded kit opens at startup.
+
+Changes to sample membership, assignments and category selection settings mark the current kit unsaved. NEW, LOAD and IMPORT ask before discarding those changes; leaving the page uses the browser's unsaved-changes warning. Recipe and pattern edits do not mark a kit dirty. Kit loads preserve hit positions, velocity, timing, recipe, seed and undo/redo history, and follow the current playback transition mode.
+
+Storage uses Slop Factory Core's IndexedDbSampleStore (`the-breakery-kits`) for complete binary bundles. Only the catalog (IDs, names, counts, bundle hashes and startup selection) lives in localStorage (`breakery.kits.v1`). Duplicate kits share immutable bundle bytes until saved separately. Removing an ingredient cannot damage saved kits. Unreferenced saved bundles are reclaimed after replacement/deletion. Quota failures keep the previous saved version and current sounds; EXPORT remains available without IndexedDB.
+
+`.breakery-kit` is a ZIP using Core's `slopfactory-bundle` version 1, app identifier `the-breakery-kit`. Its `kit.json` document has format `breakery-kit`, version 1, name, ordered items (`id`, `name`, `cat`, `audio` content hash), and category settings (`mode`, optional `fixed`, optional `weights`). The bundle contains the actual audio bytes, with hash validation through Core. User files retain their original audio bytes; synthesised demo sounds are encoded as 16-bit WAV. File-system paths are excluded. Imported files are limited to 256 MB and 2,000 assignments; all audio must decode before assignments change.
+
+Browser storage is local to the origin and browser profile. Clearing site data removes saved kits; export files provide portable backups. Audio decoding support for compressed formats depends on the receiving browser. No manual browser playback/UI smoke test is automated by the unit suite.
