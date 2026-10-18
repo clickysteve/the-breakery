@@ -14,14 +14,17 @@
  * after the mixer and before master gain, by the same code; it never reaches the stems (dry or
  * not: stems are the tracks, the master is the processed mix).
  * Stems include every category (silent where muted), retaining all events for choking.
- * Dry stems bypass master gain and safety attenuation; excessive dry levels are rejected.
+ * Dry stems bypass master gain and OUTPUT; if one would clip they share one gain reduction (below).
  *
  * Clipping: if the mix would exceed full scale, every file is turned down by the same amount
- * to -1 dBFS and the result says so. Otherwise nothing is normalised.
+ * to -1 dBFS and the result says so. Dry stems get their own shared gain (the master is not part
+ * of them), so their balance is untouched. Otherwise nothing is normalised. Non-finite samples
+ * abort the render with a clear error instead of reaching the WAV encoder.
  */
 import { createZip, encodeWav16, fileName, levelStats } from '@slopfactory/core/export';
 import { EXPORT_SAMPLE_RATE, renderTimeline } from '@slopfactory/core/render';
 import { audibleCategories, emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
+import { applyGain, headroomGain, reductionDb, samplePeak } from './headroom';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Break, type Category } from '../engine/types';
 import { CHAIN_WORKLET_URL, OUTPUT_SEED, type ChainConfig } from './output';
@@ -53,6 +56,8 @@ export interface TakeawayResult {
   peakDb: number;
   /** dB the export was turned down to avoid clipping (0 = not needed) */
   reducedDb: number;
+  /** dB every dry stem was turned down by one shared gain to avoid clipping (0 = not needed) */
+  stemReducedDb: number;
   files: number;
   /** the OUTPUT chain was on but this browser could not run it: the master is unprocessed */
   outputSkipped?: boolean;
@@ -112,26 +117,34 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
   // Core taps precede master gain. Dry stems keep channel gain/pan only.
   if (!dryStems) for (const o of outputs.slice(1)) for (const c of o.channels) for (let i = 0; i < c.length; i++) c[i] = c[i]! * safeGain(level);
 
-  // One safety attenuation preserves stem summation (dry stems bypass master attenuation).
+  // Reject NaN/Infinity before anything is scaled or encoded.
+  for (const o of outputs) samplePeak(o.channels, o.voice === outputs[0]!.voice ? 'the master mix' : `the ${o.voice} stem`);
+
+  // Safety attenuation is one shared gain. Processed stems sum to the master, so one gain covers
+  // master and stems. Dry stems bypass master gain and OUTPUT: the master is turned down on its
+  // own, and the stems share a separate gain that keeps their mixer balance.
   const master = outputs[0]!;
-  const stats = levelStats(master.channels);
+  const stemOutputs = outputs.slice(1);
   let reducedDb = 0;
-  const highestPeak = dryStems ? stats.peak : Math.max(...outputs.map(o => levelStats(o.channels).peak));
-  if (highestPeak > 0.98) {
-    const g = 0.891 / highestPeak;
-    reducedDb = -20 * Math.log10(g);
-    for (const o of (dryStems ? outputs.slice(0, 1) : outputs)) for (const c of o.channels) for (let i = 0; i < c.length; i++) c[i] = c[i]! * g;
-  }
+  let stemReducedDb = 0;
   if (dryStems) {
-    const peak = Math.max(0, ...outputs.slice(1).map(o => levelStats(o.channels).peak));
-    if (peak > 0.98) throw new Error('Dry stems exceed WAV headroom. Lower channel levels and export again.');
+    const g = headroomGain(samplePeak(master.channels));
+    reducedDb = reductionDb(g);
+    applyGain(master.channels, g);
+    const sg = headroomGain(Math.max(0, ...stemOutputs.map((o) => samplePeak(o.channels))));
+    stemReducedDb = reductionDb(sg);
+    for (const o of stemOutputs) applyGain(o.channels, sg);
+  } else {
+    const g = headroomGain(Math.max(...outputs.map((o) => samplePeak(o.channels))));
+    reducedDb = reductionDb(g);
+    for (const o of outputs) applyGain(o.channels, g);
   }
   const peakDb = levelStats(master.channels).peakDb;
   const frames = master.channels[0]!.length;
   const nm = opts.naming;
   const masterName = nm ? buildFileName(nm, b, opts.mode === 'loop' ? 'loop' : '', 'wav') : takeawayName(b, opts, 'wav');
   const masterBytes = await encodeWav16(master.channels, res.sampleRate);
-  if (!opts.stems) return { name: masterName, bytes: masterBytes, type: 'audio/wav', seconds: frames / res.sampleRate, peakDb, reducedDb, files: 1, outputSkipped };
+  if (!opts.stems) return { name: masterName, bytes: masterBytes, type: 'audio/wav', seconds: frames / res.sampleRate, peakDb, reducedDb, stemReducedDb, files: 1, outputSkipped };
 
   const entries = [{ name: masterName, data: masterBytes }];
   const stemNames = nm ? stemFileNames(nm, b, outputs.slice(1).map((o) => String(o.voice))) : [];
@@ -140,7 +153,7 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
     const mid = midiTakeaway(b, only, map, nm);
     entries.push({ name: mid.name, data: mid.bytes });
   }
-  return { name: nm ? buildFileName(nm, b, 'stems', 'zip') : takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length, outputSkipped };
+  return { name: nm ? buildFileName(nm, b, 'stems', 'zip') : takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, stemReducedDb, files: entries.length, outputSkipped };
 }
 
 /** Offer bytes as a download. */
