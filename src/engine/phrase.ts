@@ -25,6 +25,7 @@
  * (BOOM BAP, GARAGE, ELECTRO) repeat exactly until the turnaround unless VARIATION is high.
  */
 import { chopBar, roll } from './chop';
+import { developJungle } from './jungle';
 import { posName } from './meter';
 import type { Rng } from './rng';
 import type { FillKind, StyleDef } from './styles';
@@ -221,6 +222,8 @@ export interface DevelopContext {
 /** All bars of the phrase, derived from the groove cell. */
 export function developPhrase(cell: Hit[], roles: BarRole[], ctx: DevelopContext): Hit[][] {
   const { def, recipe, beatRng, detailRng } = ctx;
+  // JUNGLE (recipes made since Phase 7; older ones keep the development below) develops fragments and displaced snares as a phrase (jungle.ts); every other recipe is below
+  if (def.style === 'jungle' && recipe.jungleCuts) return developJungle(cell, roles, ctx, { varyBeat, varyDetail, tidy });
   const copy = (hs: Hit[]) => hs.map((h) => ({ ...h }));
   const loopy = def.loop && recipe.variation < 0.5;
 

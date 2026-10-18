@@ -1,7 +1,7 @@
 /**
  * RECIPE · ROLLS · MUTATE, one window with three tabs.
  *
- * RECIPE: style, engine, tempo, bars, seed (with DICE, history and favourite), the eight
+ * RECIPE: style (with RANDOM RECIPE), engine (a separate row: the generator, not a recipe), tempo, bars, seed (with DICE, history and favourite), the eight
  * generative controls and TOM ACTIVITY. Every change re-bakes the same seeds, so you hear what the
  * control does to this break. Every number can be clicked and typed (emmm's numerical fields).
  * ROLLS: roll generation (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
@@ -54,26 +54,29 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const rolls = rollsTab(rollsPane, ui, W);
   const mut = mutateTab(mutatePane, ui, W);
 
-  // two rows of recipes; the last cell of the second row is the ENGINE toggle
+  // RECIPE: two rows of recipes (the last cell of the second row is RANDOM RECIPE). ENGINE is not a
+  // recipe but the generator that bakes it, so it has its own labelled row below, between rules.
   const perRow = 6;
   const bw = Math.floor((W - 8 - (perRow - 1) * 2) / perRow);
   const styleBtns = STYLES.map((s, i) => {
     const def = STYLE_DEFS[s];
     const row = Math.floor(i / perRow);
     const col = i % perRow;
-    return new Button(b, [4 + col * (bw + 2), 3 + row * 16, bw, 14], def.label, {
+    return new Button(b, [4 + col * (bw + 2), 1 + row * 14, bw, 13], def.label, {
       cls: 'small',
       tip: `${def.label} (${def.bpm[0]}–${def.bpm[1]} BPM): ${def.blurb} Choosing it sets every control to its defaults. The genre name is a tendency, not a promise of authenticity.`,
       onPress: () => app.setStyle(s),
     });
   });
-  const engine = new Button(b, [4 + 5 * (bw + 2), 19, bw, 14], 'ENGINE 2', {
+  const random = new Button(b, [4 + 5 * (bw + 2), 15, bw, 13], 'RANDOM', {
     cls: 'small',
-    tip: 'ENGINE: 2 is the current generator; 1 is the first release’s, kept exactly so its breaks still reproduce from their seeds. Switch to compare the two on the same seed (original four recipes only).',
-    onPress: () => app.setEngine(app.recipe.engine === 1 ? 2 : 1),
+    tip: 'RANDOM RECIPE: pick a different recipe at random and bake a new break with it. The length, kit and ENGINE stay, FREEZE is respected, and ⌘Z undoes it. (ENGINE 1 chooses among its four recipes.)',
+    onPress: () => void app.randomRecipe(),
   });
+  random.el.setAttribute('aria-label', 'Random recipe');
+  el('div', 'rule', b, [4, 30, W - 8]);
 
-  const y2 = 37;
+  const y2 = 32;
   label(b, 5, y2 + 4, 'BPM');
   const bpm = new NumBox(b, [24, y2, 30, 15], {
     get: () => app.recipe.bpm,
@@ -116,13 +119,28 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const fwd = new Button(b, [bx + 41, y2, 12, 15], '▶', { cls: 'small', tip: 'Forward in the history (→)', onPress: () => app.historyForward() });
   const fav = new Button(b, [W - 4 - 24, y2, 24, 15], 'FAV', { cls: 'small', tip: 'Save this break to the favourites (S): recipe, seeds, mutations and sample settings. Inverted when it is one; press again to remove it. Favourites are in the Seeds menu.', onPress: () => app.toggleFavourite() });
 
+  el('div', 'rule', b, [4, 49, W - 8]);
+  label(b, 5, 54, 'ENGINE', 'head');
+  const engineBtns = ([1, 2] as const).map((n, i) =>
+    new Button(b, [48 + i * (bw + 2), 51, bw, 13], `ENGINE ${n}`, {
+      cls: 'small',
+      tip:
+        n === 2
+          ? 'ENGINE 2: the current generator, which bakes every recipe. The engine is not a recipe: it is the version of the generator that the chosen recipe runs on.'
+          : 'ENGINE 1: the first release’s generator, kept exactly so its breaks still reproduce from their seeds. It knows only FUNK, HIP-HOP, JUNGLE and BROKEN, has no toms, rolls or MUTATE, and you can switch to compare the two on the same seed.',
+      onPress: () => app.setEngine(n),
+    }),
+  );
+  label(b, 48 + 2 * (bw + 2) + 3, 54, 'GENERATOR · NOT A RECIPE', 'tiny');
+  el('div', 'rule', b, [4, 66, W - 8]);
+
   // the eight controls in two columns, and TOM ACTIVITY (the toms are instruments, so they are part of the recipe)
   const ranges: RangeBar[] = [];
   const colW = Math.floor((W - 16) / 2);
   const rangeAt = (i: number, key: RecipeKey, text: string, o: Omit<ConstructorParameters<typeof RangeBar>[2], 'get' | 'set' | 'label'>) => {
     const col = Math.floor(i / 5);
     const x = 4 + col * (colW + 8);
-    const y = 57 + (i % 5) * 17;
+    const y = 69 + (i % 5) * 15;
     label(b, x + 1, y + 3, text);
     ranges.push(
       new RangeBar(b, [x + 74, y, colW - 74, 14], {
@@ -139,14 +157,15 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     format: pct,
     tip: 'TOM ACTIVITY: how much the high, mid and low toms take part, mostly in fills (descending and rising runs, snare/tom combinations, linear fills, answers to the backbeat). 0 = never. Needs FILLS for tom fills and VARIATION for toms in answer and development bars. Turning it up changes nothing else in the break.',
   });
-  const tomNote = el('div', 'label tiny', b, [4 + colW + 8 + 1, 57 + 4 * 17 + 4, colW - 2]);
+  const tomNote = el('div', 'label tiny', b, [4 + colW + 8 + 1, 69 + 4 * 15 + 4, colW - 2]);
 
   function update(): void {
     styleBtns.forEach((btn, i) => {
       btn.on = STYLES[i] === app.recipe.style;
     });
-    engine.text = `ENGINE ${app.recipe.engine}`;
-    engine.on = app.recipe.engine === 1;
+    engineBtns.forEach((btn, i) => {
+      btn.on = app.recipe.engine === i + 1;
+    });
     bpm.update();
     bars.update();
     seed.update();
