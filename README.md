@@ -23,7 +23,7 @@ humanise, variation, fills) and it composes.
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
 | **FREEZE** | Keep chosen layers (BEAT, DETAIL, FEEL, KIT) when baking again. |
-| **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; optionally per-drum stems. |
+| **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; optionally per-drum stems and a MIDI file. |
 
 OVERBAKE (destructive mutation) and BREED are planned; see *Next steps*.
 
@@ -80,7 +80,14 @@ from any folder of any static server). `npm run evaluate` regenerates
    bars' length with the tail folded onto the start, for looping at the stated tempo. *+ Stems*
    adds one WAV per drum in a ZIP. 44.1 kHz, 16-bit stereo, named like
    `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
-   (all files by the same amount) and the status line says so.
+   (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
+   the break (inside the ZIP when there are stems, otherwise as a second download).
+6. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
+   (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
+   38, closed hat 42, open hat 46, crash 49, ride 51, perc 39), one named track per drum, with
+   the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
+   length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
+   of the score is written, including hits that are silent here for want of a sample.
 
 `?seed=12345` in the address sets the seed. Keys: **BREAKERY ▸ Keys…**.
 
@@ -127,7 +134,10 @@ follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
 * 4/4 only; sixteenth grid with 32nd-note drags; no half-time feel, no toms.
 * Small fill vocabulary. Recipe values are hand-set hypotheses.
 * The demo kit is synthetic and plain. Use real one-shots for real results.
-* No MIDI yet; no OVERBAKE, BREED, slicing, pitch or effects.
+* MIDI is file export only: no MIDI output, clock or input. Note lengths are fixed (a 64th),
+  and SNARE and GHOST share GM note 38 (on separate tracks); hits on the same note at the same
+  tick are written once.
+* No OVERBAKE, BREED, slicing, pitch or effects.
 * Desktop-first: the fixed screen scales to fit; phones work best in landscape.
 
 ## Next steps
@@ -139,7 +149,8 @@ follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
    favourites.
 4. Milestone 4 (jungle laboratory): slice the rendered break at its known hit times,
    rearrange, retrigger, pitch; OVERBAKE.
-5. MIDI: export a MIDI file (General MIDI drum notes are already mapped), MIDI clock in/out.
+5. MIDI: live MIDI output and clock in/out (the file export's note mapping and timing carry
+   over); a choice of note map for drum machines that are not General MIDI.
 
 ## Research references
 

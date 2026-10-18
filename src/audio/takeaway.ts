@@ -6,7 +6,8 @@
  * - TAIL: the bars plus a tail so the last hits ring out (nothing is truncated).
  * - LOOP: exactly the bars' length, with the tail folded back onto the start, so the file loops
  *   seamlessly in a sampler at the stated tempo.
- * Optionally one stem per drum category as well (a ZIP), all the same length and gain.
+ * Optionally one stem per drum category as well (a ZIP), all the same length and gain, and a
+ * MIDI file of the break (midi/breakMidi.ts; inside the ZIP when there are stems).
  *
  * Clipping: if the mix would exceed full scale, every file is turned down by the same amount
  * to -1 dBFS and the result says so. Otherwise nothing is normalised.
@@ -15,6 +16,7 @@ import { createZip, encodeWav16, fileName, levelStats } from '@slopfactory/core/
 import { EXPORT_SAMPLE_RATE, renderTimeline } from '@slopfactory/core/render';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Break } from '../engine/types';
+import { breakMidi } from '../midi/breakMidi';
 import type { Ingredients } from './ingredients';
 import { breakTimeline, hatChoke, loopSeconds } from './timeline';
 
@@ -22,9 +24,11 @@ export interface TakeawayOptions {
   mode: 'tail' | 'loop';
   tailSeconds: number;
   stems: boolean;
+  /** also a Standard MIDI File of the break */
+  midi: boolean;
 }
 
-export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false });
+export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false, midi: false });
 
 export interface TakeawayResult {
   name: string;
@@ -47,6 +51,12 @@ export function foldLoop(ch: Float32Array, frames: number): Float32Array {
 export function takeawayName(b: Break, opts: TakeawayOptions, ext: string): string {
   const r = b.recipe;
   return fileName(['breakery', STYLE_DEFS[r.style].label.toLowerCase(), `${r.bpm}bpm`, `${r.bars}bar`, `seed${b.seeds.beat}`, opts.mode === 'loop' ? 'loop' : ''], ext);
+}
+
+/** The break as a Standard MIDI File (always exactly the bars; there is no tail or loop fold in MIDI). */
+export function midiTakeaway(b: Break): { name: string; bytes: Uint8Array; type: string; notes: number } {
+  const { bytes, notes } = breakMidi(b);
+  return { name: takeawayName(b, { ...defaultTakeaway(), mode: 'tail' }, 'mid'), bytes, type: 'audio/midi', notes };
 }
 
 export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void): Promise<TakeawayResult> {
@@ -87,6 +97,10 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
 
   const entries = [{ name: masterName, data: masterBytes }];
   for (const o of outputs.slice(1)) entries.push({ name: takeawayName(b, opts, 'wav').replace(/\.wav$/, `_${o.voice}.wav`), data: await encodeWav16(o.channels, res.sampleRate) });
+  if (opts.midi) {
+    const mid = midiTakeaway(b);
+    entries.push({ name: mid.name, data: mid.bytes });
+  }
   return { name: takeawayName(b, opts, 'zip'), bytes: createZip(entries), type: 'application/zip', seconds: frames / res.sampleRate, peakDb, reducedDb, files: entries.length };
 }
 

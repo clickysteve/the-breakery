@@ -8,7 +8,7 @@ import { IndexedDbSampleStore } from '@slopfactory/core/storage';
 import { App, BATCH_SIZE } from './app/app';
 import { Ingredients } from './audio/ingredients';
 import { Player } from './audio/player';
-import { download, takeaway, type TakeawayOptions } from './audio/takeaway';
+import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, setTip, view } from './ui/dom';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { bakeWindow } from './ui/bakeWindow';
@@ -76,6 +76,12 @@ async function togglePlay(): Promise<void> {
   app.changed(false);
 }
 
+function doMidiTakeaway(): void {
+  const mid = midiTakeaway(app.current);
+  download(mid.name, mid.bytes, mid.type);
+  app.say(`Took away ${mid.name} (${mid.notes} note${mid.notes === 1 ? '' : 's'}, ${app.current.recipe.bpm} BPM, GM drums on channel 10).`);
+}
+
 async function doTakeaway(): Promise<void> {
   const o: TakeawayOptions = { ...app.takeawayOpts };
   const r = app.current.recipe;
@@ -115,6 +121,13 @@ async function doTakeaway(): Promise<void> {
       cb.addEventListener('change', () => (o.stems = cb.checked));
       el('span', '', l, undefined, '+ STEMS (ZIP)');
       setTip(l, 'Also one WAV per drum category, the same length and gain as the mix, in a ZIP');
+      const lm = el('label', '', row2);
+      const cm = el('input', '', lm);
+      cm.type = 'checkbox';
+      cm.checked = o.midi;
+      cm.addEventListener('change', () => (o.midi = cm.checked));
+      el('span', '', lm, undefined, '+ MIDI');
+      setTip(lm, 'Also a MIDI file of the break (General MIDI drums, channel 10, swing and microtiming kept), in the ZIP with stems or as a second download');
     },
     320,
   );
@@ -125,7 +138,11 @@ async function doTakeaway(): Promise<void> {
   try {
     const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`));
     download(res.name, res.bytes, res.type);
-    app.say(`Took away ${res.name} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}).`);
+    if (o.midi && !o.stems) {
+      const mid = midiTakeaway(app.current);
+      download(mid.name, mid.bytes, mid.type);
+    }
+    app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}).`);
   } catch (e) {
     app.say('TAKEAWAY failed.');
     alertBox(`The render failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -161,12 +178,12 @@ interface MenuItem {
 }
 async function about(): Promise<void> {
   alertBox(
-    `<b>THE BREAKERY</b> · freshly baked breaks.<br><br>A generative breakbeat instrument from the Slop Factory. Bring one-shot samples (INGREDIENTS), set a RECIPE, BAKE: The Breakery composes an original two-bar (or one- or four-bar) drum performance with musically related kicks, snares, ghost notes and hats, a coherent feel, and a turnaround. TAKEAWAY renders it to WAV for your sampler.<br><br>Everything runs in your browser. Samples never leave it. No accounts, no tracking.<br><br><a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · <a href="${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md" target="_blank" rel="noopener">research notes</a>`,
+    `<b>THE BREAKERY</b> · freshly baked breaks.<br><br>A generative breakbeat instrument from the Slop Factory. Bring one-shot samples (INGREDIENTS), set a RECIPE, BAKE: The Breakery composes an original two-bar (or one- or four-bar) drum performance with musically related kicks, snares, ghost notes and hats, a coherent feel, and a turnaround. TAKEAWAY renders it to WAV for your sampler, or to a MIDI file for your drum machine or DAW.<br><br>Everything runs in your browser. Samples never leave it. No accounts, no tracking.<br><br><a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · <a href="${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md" target="_blank" rel="noopener">research notes</a>`,
   );
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE<br>N: BATCH (8 candidates)<br>1–8: audition a candidate<br>T: TAKEAWAY<br>L: loop on / off<br>F: freeze beat · G: detail · H: feel · K: kit<br>← →: previous / next seed<br><br>Drag number boxes up/down; drag or click range bars; arrow keys nudge the focused control.',
+    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE<br>N: BATCH (8 candidates)<br>1–8: audition a candidate<br>T: TAKEAWAY<br>M: MIDI file<br>L: loop on / off<br>F: freeze beat · G: detail · H: feel · K: kit<br>← →: previous / next seed<br><br>Drag number boxes up/down; drag or click range bars; arrow keys nudge the focused control.',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -183,6 +200,7 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       { label: 'Clear Ingredients…', action: () => void confirmDialog(screen, 'Remove all ingredients?', 'Remove').then((ok) => ok && ingredients.clear()) },
       { sep: true },
       { label: 'Takeaway (Export WAV)…', key: 'T', action: () => void doTakeaway() },
+      { label: 'Takeaway MIDI File', key: 'M', action: doMidiTakeaway },
     ],
   },
   {
@@ -258,6 +276,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'b') app.bake();
   else if (k === 'n') app.bakeBatch();
   else if (k === 't') void doTakeaway();
+  else if (k === 'm') doMidiTakeaway();
   else if (k === 'l') {
     player.loop = !player.loop;
     app.changed();
