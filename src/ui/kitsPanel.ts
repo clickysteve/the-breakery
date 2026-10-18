@@ -2,6 +2,7 @@ import type { KitManager } from '../app/kits';
 import { download } from '../audio/takeaway';
 import { el, esc } from './dom';
 import { promptDialog } from './dialogs';
+import { GemSelect } from './gemSelect';
 import { Button } from './widgets';
 import type { UiContext } from './context';
 
@@ -9,8 +10,7 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) 
   const panel = el('div', '', parent, [0, 0, 202, 405]);
   const title = el('div', 'label', panel, [6, 8, 190]);
   const count = el('div', 'label tiny', panel, [6, 27, 190]);
-  const list = el('select', 'mselect', panel, [5, 48, 192, 180]);
-  list.size = 10; list.setAttribute('aria-label', 'Saved kits');
+  const list = new GemSelect(panel, [5, 48, 192, 180], { label: 'Saved kits', mode: 'list' });
   const input = el('input', '', panel); input.type = 'file'; input.accept = '.breakery-kit,.zip'; input.hidden = true;
   let busy = false;
   const controls: Button[] = [];
@@ -55,14 +55,10 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) 
     if (signature === next) return;
     signature = next;
     const previous = list.value;
-    list.replaceChildren();
-    for (const e of kits.catalog.entries) {
-      const option = el('option', '', list, undefined, `${e.id === kits.catalog.defaultId ? '★ ' : ''}${e.name} (${e.count})`);
-      option.value = e.id;
-    }
+    list.setOptions(kits.catalog.entries.map((e) => ({ value: e.id, label: `${e.id === kits.catalog.defaultId ? '★ ' : ''}${e.name} (${e.count})` })));
     list.value = kits.catalog.entries.some(e => e.id === previous) ? previous : kits.catalog.currentId ?? kits.catalog.entries[0]?.id ?? '';
   }
-  panel.style.position = list.style.position = 'absolute';
+  panel.style.position = 'absolute';
   title.style.whiteSpace = 'nowrap';
   title.style.textOverflow = 'ellipsis';
   title.style.overflow = 'hidden';

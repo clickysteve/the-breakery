@@ -11,6 +11,7 @@ import { CATEGORIES, CATEGORY_LABEL, type Category } from '../engine/types';
 import { noteName } from '../midi/messages';
 import { ANY_PORT, DEFAULT_PORT, OMNI } from '../midi/routing';
 import { el, label, setTip } from './dom';
+import { GemSelect } from './gemSelect';
 import { Button, MWindow, NumBox } from './widgets';
 import type { UiContext } from './context';
 
@@ -33,23 +34,12 @@ export function midiWindow(parent: HTMLElement, ui: UiContext, rig: MidiRig, at:
   const b = win.body;
   const s = () => rig.settings;
 
-  const select = (x: number, y: number, w: number, aria: string, set: (v: string) => void) => {
-    const e = el('select', 'mselect', b);
-    Object.assign(e.style, { position: 'absolute', left: `${x}px`, top: `${y}px`, width: `${w}px`, height: '13px', fontSize: '8px', padding: '0 10px 0 2px' });
-    e.setAttribute('aria-label', aria);
-    e.addEventListener('pointerdown', (ev) => ev.stopPropagation());
-    e.addEventListener('change', () => set(e.value));
-    return e;
-  };
+  const select = (x: number, y: number, w: number, aria: string, set: (v: string) => void) => new GemSelect(b, [x, y, w, 13], { label: aria, fontSize: 8, onChange: set });
   /** Options: the fixed choices, then the devices; a chosen device that is missing is shown as such. */
-  const fill = (e: HTMLSelectElement, value: string, fixed: [string, string][], ports: MidiPortInfo[]) => {
+  const fill = (e: GemSelect, value: string, fixed: [string, string][], ports: MidiPortInfo[]) => {
     const opts: [string, string][] = [...fixed, ...ports.map((p): [string, string] => [p.id, `${p.connected ? '' : '✕ '}${p.name}`])];
     if (!opts.some(([v]) => v === value)) opts.push([value, `✕ ${s().names[value] ?? 'device'} (gone)`]);
-    const sig = JSON.stringify(opts);
-    if (e.dataset.sig !== sig) {
-      e.replaceChildren(...opts.map(([v, t]) => Object.assign(document.createElement('option'), { value: v, textContent: t })));
-      e.dataset.sig = sig;
-    }
+    e.setOptions(opts.map(([v, t]) => ({ value: v, label: t })));
     e.value = value;
   };
 
@@ -64,10 +54,10 @@ export function midiWindow(parent: HTMLElement, ui: UiContext, rig: MidiRig, at:
 
   label(b, 4, 25, 'OUT');
   const outSel = select(24, 22, 150, 'Default MIDI output', (v) => rig.setDevices({ output: v }));
-  setTip(outSel, 'DEFAULT OUTPUT: where tracks set to DEFAULT send their hits. NONE: only tracks with a device of their own are sent.');
+  setTip(outSel.el, 'DEFAULT OUTPUT: where tracks set to DEFAULT send their hits. NONE: only tracks with a device of their own are sent.');
   label(b, 182, 25, 'IN');
   const inSel = select(196, 22, 150, 'Default MIDI input', (v) => rig.setDevices({ input: v }));
-  setTip(inSel, 'DEFAULT INPUT: the device whose notes play tracks set to DEFAULT. ALL INPUTS: any connected device.');
+  setTip(inSel.el, 'DEFAULT INPUT: the device whose notes play tracks set to DEFAULT. ALL INPUTS: any connected device.');
   new Button(b, [W - 88, 22, 40, 13], 'PANIC', { cls: 'small', tip: 'PANIC: All Notes Off and All Sound Off on every channel of every MIDI output in use', onPress: () => rig.panic() });
   new Button(b, [W - 46, 22, 40, 13], 'GM', { cls: 'small', tip: 'Reset every track to General MIDI drums on channel 10 (inputs on any channel). Devices are kept.', onPress: () => rig.resetMapping() });
 
@@ -80,10 +70,10 @@ export function midiWindow(parent: HTMLElement, ui: UiContext, rig: MidiRig, at:
   });
   label(b, 98, 43, 'FROM');
   const clockInSel = select(122, 40, 98, 'External clock input', (v) => rig.setDevices({ clockIn: v }));
-  setTip(clockInSel, 'FROM: the input an EXTERNAL clock comes from. Choose the device: two clocks at once would play twice as fast.');
+  setTip(clockInSel.el, 'FROM: the input an EXTERNAL clock comes from. Choose the device: two clocks at once would play twice as fast.');
   label(b, 226, 43, 'SEND');
   const clockOutSel = select(250, 40, 98, 'Clock output', (v) => rig.setDevices({ clockOut: v }));
-  setTip(clockOutSel, 'SEND: with the INTERNAL clock, send MIDI Clock, Start and Stop to this output so a drum machine or sequencer can follow The Breakery. OFF: no clock is sent.');
+  setTip(clockOutSel.el, 'SEND: with the INTERNAL clock, send MIDI Clock, Start and Stop to this output so a drum machine or sequencer can follow The Breakery. OFF: no clock is sent.');
   const clockState = el('div', 'label small', b, [354, 43, W - 358]);
 
   const sep = el('div', '', b, [4, 58, W - 10, 1]);
@@ -100,11 +90,11 @@ export function midiWindow(parent: HTMLElement, ui: UiContext, rig: MidiRig, at:
     cat: Category;
     name: HTMLDivElement;
     outOn: Button;
-    outDev: HTMLSelectElement;
+    outDev: GemSelect;
     outCh: NumBox;
     outNote: NumBox;
     inOn: Button;
-    inDev: HTMLSelectElement;
+    inDev: GemSelect;
     inCh: NumBox;
     inNote: NumBox;
     learn: Button;
@@ -173,8 +163,8 @@ export function midiWindow(parent: HTMLElement, ui: UiContext, rig: MidiRig, at:
       setTip(r.outNote.el, `${CATEGORY_LABEL[r.cat]} OUT NOTE: ${o.note} (${noteName(o.note)}). Also the MIDI file’s note. Type 0–127, or drag.`);
       setTip(r.inNote.el, `${CATEGORY_LABEL[r.cat]} IN NOTE: ${i.note} (${noteName(i.note)}). Tracks with the same note, channel and device play together.`);
       r.learn.on = rig.learning === r.cat;
-      for (const e of [r.outDev, r.outCh.el, r.outNote.el]) e.style.opacity = o.on ? '1' : '0.4';
-      for (const e of [r.inDev, r.inCh.el, r.inNote.el]) e.style.opacity = i.on ? '1' : '0.4';
+      for (const e of [r.outDev.el, r.outCh.el, r.outNote.el]) e.style.opacity = o.on ? '1' : '0.4';
+      for (const e of [r.inDev.el, r.inCh.el, r.inNote.el]) e.style.opacity = i.on ? '1' : '0.4';
     }
     note.textContent = !ready
       ? 'CHANNELS AND NOTES ALSO SET THE MIDI FILE (FILE ▸ TAKEAWAY MIDI FILE), WITH MIDI ON OR OFF.'

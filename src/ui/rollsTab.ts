@@ -7,6 +7,7 @@
 import { toggleTarget } from '../engine/generate';
 import { CATEGORY_LABEL, MAX_ROLL, MIN_ROLL, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEED_LABEL, ROLL_SPEEDS, ROLL_TARGETS, TOMS, type RollDynamics, type RollPlace, type RollSpeed, type RollTarget } from '../engine/types';
 import { el, label, setTip } from './dom';
+import { GemSelect } from './gemSelect';
 import { Button, NumBox, RangeBar } from './widgets';
 import type { UiContext } from './context';
 
@@ -39,16 +40,7 @@ const TARGET_TIP: Record<RollTarget, string> = {
 export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   const { app } = ui;
   const sel = (x: number, y: number, w: number, aria: string, options: readonly string[], text: (o: string) => string, set: (v: string) => void) => {
-    const s = el('select', 'mselect', b);
-    Object.assign(s.style, { position: 'absolute', left: `${x}px`, top: `${y}px`, width: `${w}px`, height: '14px', fontSize: '8px' });
-    s.setAttribute('aria-label', aria);
-    for (const o of options) {
-      const op = el('option', '', s, undefined, text(o));
-      op.value = o;
-    }
-    s.addEventListener('pointerdown', (e) => e.stopPropagation());
-    s.addEventListener('change', () => set(s.value));
-    return s;
+    return new GemSelect(b, [x, y, w, 14], { label: aria, fontSize: 8, options: options.map((o) => ({ value: o, label: text(o) })), onChange: set });
   };
   const on = () => app.recipe.rollsOn !== false;
 
@@ -89,7 +81,7 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   label(b, 100, 47, 'HITS');
   label(b, c2, 47, 'SPEED');
   const speed = sel(c2 + 58, 44, W - 4 - c2 - 58, 'Roll speed', ROLL_SPEEDS, (o) => ROLL_SPEED_LABEL[o as RollSpeed], (v) => app.setRecipe({ rollSpeed: v as RollSpeed }));
-  setTip(speed, 'SPEED: the subdivision of a roll’s strokes: sixteenths, sixteenth triplets, 32nds, 32nd triplets, 64ths. The strokes keep that spacing exactly (they are not put back on the sixteenth grid).');
+  setTip(speed.el, 'SPEED: the subdivision of a roll’s strokes: sixteenths, sixteenth triplets, 32nds, 32nd triplets, 64ths. The strokes keep that spacing exactly (they are not put back on the sixteenth grid).');
   label(b, 5, 65, 'DYNAMICS');
   const dyn = sel(72, 62, c2 - 8 - 72, 'Roll dynamics', ROLL_DYNAMICS, (o) => DYN_LABEL[o as RollDynamics], (v) => app.setRecipe({ rollDynamics: v as RollDynamics }));
   label(b, c2, 65, 'PLACEMENT');
@@ -102,7 +94,7 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   el('div', 'rule', b, [4, 114, W - 8]);
   const count = el('div', 'label', b, [5, 119, W - 10]);
   const note = el('div', 'label tiny', b, [5, 132, W - 10]);
-  const settings = [amount.el, length.el, speed, dyn, place, ...targets.map((t) => t.el)];
+  const settings = [amount.el, length.el, speed.el, dyn.el, place.el, ...targets.map((t) => t.el)];
 
   function update(): void {
     const r = app.recipe;
@@ -115,8 +107,8 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
     speed.value = r.rollSpeed;
     dyn.value = r.rollDynamics;
     place.value = r.rollPlace;
-    setTip(dyn, `DYNAMICS: ${DYN_TIP[r.rollDynamics]}. Faster rolls are played softer, so they do not pile up into a roar.`);
-    setTip(place, `PLACEMENT: ${PLACE_TIP[r.rollPlace]}`);
+    setTip(dyn.el, `DYNAMICS: ${DYN_TIP[r.rollDynamics]}. Faster rolls are played softer, so they do not pile up into a roar.`);
+    setTip(place.el, `PLACEMENT: ${PLACE_TIP[r.rollPlace]}`);
     targets.forEach((t, i) => (t.on = r.rollTargets.includes(ROLL_TARGETS[i]!)));
     // settings of a switched-off generator look inactive (they still work, and are kept)
     for (const c of settings) c.classList.toggle('inactive', !live);

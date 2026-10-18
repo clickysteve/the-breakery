@@ -12,6 +12,7 @@
 import { formatParam, matchChainPreset, presetsFor, type AudioEngineDef, type ParamDef, type StageConfig } from '@slopfactory/core/engines';
 import { OUTPUT_ENGINES } from '../audio/output';
 import { el, setTip } from './dom';
+import { GemSelect } from './gemSelect';
 import { Button, RangeBar } from './widgets';
 import type { App } from '../app/app';
 
@@ -105,17 +106,19 @@ function paramControl(host: HTMLElement, rect: [number, number, number, number],
     set(opts[(i + d + opts.length) % opts.length]!.value);
   };
   new Button(host, [x, y, 14, h], '◀', { cls: 'small', tip: `Previous ${name}`, onPress: () => step(-1) });
-  const cur = new Button(host, [x + 16, y, w - 32, h], '', {
-    cls: 'small',
-    tip: `${name}: click for the list`,
-    onPress: () => dropdown(menuHost, cur.el, opts.map((o) => ({ label: up(o.label), tip: o.description, checked: o.value === get(), action: () => set(o.value) }))),
+  const cur = new GemSelect(host, [x + 16, y, w - 32, h], {
+    label: name,
+    fontSize: 8,
+    options: opts.map((o, i) => ({ value: String(i), label: up(o.label) })),
+    onChange: (v) => set(opts[Number(v)]!.value),
   });
   new Button(host, [x + w - 14, y, 14, h], '▶', { cls: 'small', tip: `Next ${name}`, onPress: () => step(1) });
   return {
     update: () => {
-      const o = opts.find((p) => p.value === get());
-      cur.text = `${up(o?.label ?? String(get()))} ▾`;
-      cur.tip = `${name}: ${up(o?.label ?? '')}${o?.description ? `, ${o.description}` : ''}. Click for the list; ◀ ▶ step.`;
+      const i = opts.findIndex((p) => p.value === get());
+      const o = opts[i];
+      cur.value = String(i);
+      setTip(cur.el, `${name}: ${up(o?.label ?? '')}${o?.description ? `, ${o.description}` : ''}. Click for the list; ◀ ▶ step.`);
     },
   };
 }
@@ -225,10 +228,14 @@ export function outputPanel(parent: HTMLElement, app: App, rect: { w: number; h:
       el('div', 'empty-note', detail, [0, 22, RW], `"${s.engine}" was saved by an application with an engine The Breakery does not have. It is kept (and saved) unchanged and passes audio through. REMOVE it on the left to drop it.`);
       return;
     }
-    const title = new Button(detail, [0, 2, 170, 13], `${i + 1} · ${up(def.name)} ▾`, {
-      cls: 'small',
+    el('div', 'label head', detail, [0, 4], `${i + 1} ·`);
+    new GemSelect(detail, [18, 2, 152, 13], {
+      label: `Engine of stage ${i + 1}`,
+      fontSize: 8,
+      options: chain.available().map((e) => ({ value: e.id, label: up(e.name) })),
+      value: def.id,
       tip: 'Swap this stage for another engine (same place in the chain)',
-      onPress: () => dropdown(detail, title.el, chain.available().map((e) => ({ label: up(e.name), tip: e.description, checked: e.id === def.id, action: () => chain.replace(s.id, e.id) }))),
+      onChange: (v) => chain.replace(s.id, v),
     });
     new Button(detail, [RW - 56, 2, 56, 13], 'DEFAULTS', { cls: 'small', tip: `Set every ${up(def.name)} parameter back to its default`, onPress: () => chain.resetParams(s.id) });
     const desc = el('div', 'label tiny', detail, [0, 19, RW]);
