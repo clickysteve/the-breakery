@@ -201,5 +201,49 @@ export async function run(): Promise<string> {
   const rolls0 = app.rollCount.hits;
   app.deleteHit();
   check(app.rollCount.hits === rolls0 - 1, 'a roll hit deletes on its own');
+  // ---------------------------------------------------------------- Space toggles playback from any non-text control
+  {
+    const { player } = (window as unknown as { breakery: { player: { playing: boolean; stop(): void } } }).breakery;
+    const space = async (target: Element, o: KeyboardEventInit = {}) => {
+      (target as HTMLElement).focus?.();
+      const ev = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true, ...o });
+      target.dispatchEvent(ev);
+      for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 25));
+      return ev;
+    };
+    if (player.playing) player.stop();
+    const btn = $$('.btn').find((b) => visible(b))!;
+    const ev1 = await space(btn);
+    check(ev1.defaultPrevented && player.playing, 'Space starts playback from a focused button');
+    await chooseTab('MIXER');
+    await space($$('.mtab').find((x) => x.textContent === 'PATTERN')!);
+    check(!player.playing, 'Space stops playback from a focused tab after switching tabs');
+    const slider = $$('.range, [role="slider"]').find((b) => visible(b));
+    if (slider) {
+      await space(slider);
+      check(player.playing, 'Space starts playback from a focused slider');
+      await space(slider, { repeat: true });
+      check(player.playing, 'a held Space does not toggle');
+      await space(slider, { shiftKey: true });
+      check(player.playing, 'Shift+Space does not toggle');
+      await space(slider);
+      check(!player.playing, 'Space stops playback from a slider');
+    }
+    const box = document.createElement('input');
+    box.type = 'text';
+    document.body.appendChild(box);
+    const ev2 = await space(box);
+    check(!ev2.defaultPrevented && !player.playing, 'Space in a text field is left to the field');
+    box.remove();
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    document.body.appendChild(cb);
+    await space(cb);
+    check(player.playing, 'Space starts playback from a focused checkbox');
+    await space(document.body);
+    check(!player.playing, 'Space stops playback from an empty area');
+    cb.remove();
+  }
+
   return 'passed';
 }

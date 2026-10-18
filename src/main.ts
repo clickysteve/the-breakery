@@ -19,6 +19,7 @@ import { loadNaming, saveNaming, buildFileName, type NamingPrefs } from './audio
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
+import { isTransportKey } from './ui/transportKey';
 import { bakeWindow } from './ui/bakeWindow';
 import { ingredientsWindow } from './ui/ingredientsWindow';
 import { patternWindow } from './ui/patternWindow';
@@ -508,6 +509,14 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   const t = e.target as HTMLElement;
+  // Space toggles playback from any non-text control (buttons, tabs, sliders, checkboxes, empty areas); a held key is ignored
+  if (e.key === ' ' || e.code === 'Space') {
+    if (isTransportKey(e)) {
+      e.preventDefault();
+      if (!e.repeat) void togglePlay();
+    }
+    return;
+  }
   if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   const k = e.key.toLowerCase();
   if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'z' || k === 'y')) {
@@ -528,8 +537,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.key === 'Escape' && sel) {
     closeMenu();
     app.select(null);
-  } else if (e.key === ' ') void togglePlay();
-  else if (k === 'b') app.bake();
+  } else if (k === 'b') app.bake();
   else if (k === 'n') app.bakeBatch();
   else if (k === 't') void doTakeaway();
   else if (k === 'm') doMidiTakeaway();
