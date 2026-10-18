@@ -5,10 +5,14 @@ INGREDIENTS ──kit index──┐
 RECIPE + SEEDS ──────────┤
                          ▼
                    engine/generate.ts  (pure TypeScript, no DOM, no audio)
-   engine 2: phrase plan → foundation → support → [mutations] → phrase development
-             (answers, development, chops, fills) → performance → AUTO samples
-             → TOMS → ROLLS → hand EDITS → PICK modes and hand-chosen samples
-   engine 1 (v1/, frozen): the first release's generator, then AUTO samples → hand EDITS → PICK
+   GENERATION (GROOVE, engine 2): phrase plan → foundation → support → [mutations]
+             → phrase development (answers, development, chops, fills) → performance
+             → AUTO samples → TOMS → ROLLS
+   LEGACY (engine 1, v1/, frozen): the first release's generator, then AUTO samples
+                         │
+   TRANSFORMATION (engine/transform.ts): CHOP (engine/chopper.ts), from the GROOVE every time
+                         │
+             → hand EDITS → PICK modes and hand-chosen samples
                          │
                          ▼  Break = structured events
           ┌──────────────┼───────────────┐
@@ -123,14 +127,69 @@ re-bakes the same seeds, so its effect is heard on the same break. MUTATE append
 (its own seed plus which layers it may change) to `seeds.mut`; each one applies a few variation
 operations to the groove cell before the phrase is developed.
 
-## Engines and reproducibility
+## Generation, transformation and reproducibility
 
-`Recipe.engine` says which generator baked a break. Engine 1 (`src/engine/v1/`, with its own frozen
-recipe table) is the first release's code; `test/engine1.test.ts` checks 120 reference breaks from
-that release still come out identical, sample choices included (AUTO is the original sample
-choice). A saved recipe without an engine is engine 1. Engine 1 knows only the original four
-recipes and ignores mutations; choosing a new recipe switches to engine 2. Tune engine 2 freely;
-never change `v1/`.
+There is one generator the user sees, **GROOVE**: the recipe-driven generator (`Recipe.engine` 2,
+`v2/`, with the Phase 7 JUNGLE `jungleCuts`). `groove()` in generate.ts bakes it. There is no
+engine selector any more.
+
+`Recipe.engine` still says which generator baked a break, because saves must reproduce. Engine 1
+(`src/engine/v1/`, with its own frozen recipe table) is the first release's code, now internal
+only: `test/engine1.test.ts` checks 120 reference breaks from that release still come out
+identical, sample choices included. A saved recipe without an engine is engine 1. Such a break
+(restored state, history, favourites) loads as **LEGACY** and plays exactly as saved; the app never
+re-labels its metadata. RECIPE ▸ **USE GROOVE** (`App.useCurrentGroove`) re-bakes the same seeds
+and controls with the GROOVE (JUNGLE gets `jungleCuts`), one undoable step. Anything that makes a
+new break (BAKE, BATCH, a typed seed, DICE, a seed from a link, RANDOM RECIPE, a recipe change)
+leaves LEGACY and uses the GROOVE; MUTATE is refused on a LEGACY break with a message. Tune the
+GROOVE freely; never change `v1/`.
+
+Known compatibility limit: before this change a typed seed with engine 1 selected baked an engine 1
+break; it now bakes a GROOVE break. Breaks already saved with engine 1 still reproduce from the
+state, the history and the favourites.
+
+**Transformations** (`engine/transform.ts`) run after the GROOVE and before the hand edits:
+`RESULT = transform(GROOVE, recipe, seeds)`. They always start from the GROOVE baked from the seeds,
+never from an earlier result, so they never compound, and a transformation that is off returns its
+input unchanged. CHOP is the first; `TRANSFORMS` is the list a later one joins. Their settings live
+in the recipe (`Recipe.chop`), so they travel with the history, favourites, batch, undo and the
+saved state, and a recipe without them (every older save) is unchanged.
+
+## CHOP
+
+`engine/chopper.ts` re-arranges the GROOVE's phrase at the event level (no audio is sliced):
+
+* **Analysis.** `atomicSpans` finds rolls and tom fills (never cut). Backbeats, ghosts, the bar
+  roles of the phrase plan (groove, answer, development, fill, turnaround), crashes and floor kicks
+  (anchors that stay put) come from the events' roles.
+* **Slicing.** `slicePhrase` cuts each bar on the SLICE SIZE grid (LARGE 8, MEDIUM 4, SMALL 2,
+  MICRO 1 sixteenths); the recipe's `grain` joins neighbours into longer phrases (FUNK) or splits
+  them into fragments (BREAKCORE). No slice cuts through a span.
+* **Choosing slices.** Each slice has a chance from AMOUNT, the bar's role (turnarounds and fills
+  more, the first groove bar least), its position and backbeat and fill protection. Slices are
+  ranked once (weighted keys) and the expected count is edited, so a higher AMOUNT edits the same
+  slices and more. The first slice is never edited, so the loop starts as itself.
+* **Operations.** RECALL an earlier fragment (motif reuse, call and response, displaced
+  fragments), SWAP with the next slice, REPEAT the previous slice, DOUBLE or RETRIGGER a drum in a
+  fast burst (written as `role: 'roll'`, so ROLLS and the PATTERN group them), GAP (a drop-out, at
+  most one per bar). RETRIGGER scales doubles and retriggers; at 0 none are added. Recipes weigh
+  the same operations (`CHOP_STYLE`): FUNK long fragments and a held backbeat, HIP-HOP and BOOM BAP
+  motifs and gaps, JUNGLE snare-led cuts and fast retriggers, D&B controlled edits with turnaround
+  emphasis, BREAKCORE tiny fragments and many retriggers.
+* **Continuity.** Moved hits keep their velocity, sample and feel; swing is recomputed at the new
+  place. Recipes with a strong backbeat re-anchor it, refuse new snares on beats 1 and 3, and
+  restore a backbeat to bars left without one. Overlaps keep the louder hit, ghosts under a snare
+  and hats under an open hat are dropped.
+* **Determinism.** Streams `chop-slices`, `chop`, `chop-order` from the BEAT seed (plus the RE-CHOP
+  `variant`), with a fixed number of draws per slice, so FREEZE BEAT keeps the chop and the same
+  inputs always give the same result.
+
+Copies carry the sample the GROOVE chose for their source hit, so FREEZE SAMPLES and the kit seed
+are respected. **Hand edits after CHOP**: CHOP is a preview, recalculated at every change, until the
+first hand edit. The edits are positional and were made on the chopped result, so CHOP is then
+APPLIED (fixed: `App.chopLocked`); `setChop` refuses with a message rather than move hits under the
+edits. Undoing the edits, or CLEAR ALL HAND EDITS, frees it. Nothing is discarded silently.
+`npm run evaluate` writes `docs/chop-report.md` (grids and measures, not a listening test).
 
 ## Sample selection
 
@@ -205,7 +264,7 @@ MIX filters the timeline and MIDI by the same rule. Previews use a second, ungat
   beat seed from one, feel from the other, recipe values interpolated) — the layered seeds make
   this natural. Event-level crossover can work bar-by-bar on the `role`-annotated events.
 * **OVERBAKE / audio slicing**: every hit's exact time is known (`eventSeconds`), so slice points
-  come for free; `chop.ts` already resequences events, and an audio engine could play the chopped
+  come for free; `chop.ts` and CHOP (`chopper.ts`) already resequence events, and an audio engine could play the chopped
   events as slices of a rendered break (with tails, pitch and stretch).
 * **Shared MIDI in Core**: `src/midi/` (except `breakMidi`) is written against Core's MIDI
   interfaces so it can move into Core as roadmap steps 1–5 (messages, access, output, clock,

@@ -1,9 +1,11 @@
 /**
- * BAKE: the whole generator, top-down.
+ * BAKE: GENERATION (GROOVE), then TRANSFORMATION (CHOP), then the hand edits.
  *
- *   phrase plan  ->  foundation (kick, snare)  ->  supporting voices  ->  [mutations]
- *               ->  phrase development (answer, development, chops, fills)
- *               ->  performance (velocity, swing, microtiming)  ->  sample selection
+ *   GROOVE   phrase plan  ->  foundation (kick, snare)  ->  supporting voices  ->  [mutations]
+ *            ->  phrase development (answer, development, chops, fills)
+ *            ->  performance (velocity, swing, microtiming)  ->  AUTO samples  ->  TOMS, ROLLS
+ *   CHOP     transform.ts: fragments of the GROOVE rearranged (chopper.ts), from the GROOVE every time
+ *   EDITS    the hand-edit layer (edits.ts)  ->  PICK modes and hand-chosen samples
  *
  * Deterministic: the same recipe (including its ENGINE), seeds, kit and sample settings give the
  * same break. Streams per layer:
@@ -13,7 +15,8 @@
  *   kit     sample selection
  *   mut     MUTATE: each mutation seed varies the groove cell (engine 2)
  *
- * Engine 1 (v1/) is the first release's generator, frozen so its breaks stay reproducible.
+ * GROOVE is engine 2. Engine 1 (v1/) is the first release's generator, kept internally (LEGACY)
+ * so breaks saved with it reproduce exactly; nothing new is baked with it.
  */
 import { generateFoundation } from './foundation';
 import { emptyKit, type KitIndex } from './kit';
@@ -26,6 +29,8 @@ import { FLOURISH, STYLE_DEFS } from './styles';
 import { generateSupport, planSupport } from './support';
 import { addRolls } from './rolls';
 import { addToms } from './toms';
+import { sanitiseChop } from './chopper';
+import { transform } from './transform';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
 import { CATEGORIES, clamp, LAYERS, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds } from './types';
@@ -51,6 +56,9 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   // the new JUNGLE phrase belongs to engine 2's JUNGLE only; anything else (or anything saved before it) keeps the old
   if (r.jungleCuts === true && def.style === 'jungle' && engine === 2) out.jungleCuts = true;
   else delete out.jungleCuts;
+  const chop = sanitiseChop(r.chop);
+  if (chop) out.chop = chop;
+  else delete out.chop;
   return out;
 }
 
@@ -127,20 +135,33 @@ function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: 
 }
 
 /**
- * BAKE a break. `edits` (the user's hand edits, edits.ts) are applied to the generated events
- * after the AUTO sample choice and before the PICK modes, so the generator and the AUTO choice
- * are untouched by them, and playback, export, stems, MIDI and the pattern view all use the
- * edited events.
+ * GROOVE: generation. The recipe-driven break (engine 2, or the legacy engine 1 for breaks saved
+ * with it), with its AUTO sample choice and (engine 2) its toms and rolls. Exactly what BAKE made
+ * before CHOP existed.
+ */
+export function groove(recipe: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}): { core: Omit<Break, 'recipe' | 'seeds'>; events: BreakEvent[]; main: ReturnType<typeof autoSamples> } {
+  const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
+  const main = autoSamples(core.events, kit, seeds.kit, samples);
+  const events = recipe.engine === 2 ? flourish(core, recipe, seeds) : core.events;
+  return { core, events, main };
+}
+
+/**
+ * BAKE a break: GROOVE, then the transformations (CHOP), then the hand edits. The transformations
+ * always start from the GROOVE baked from the seeds (never from an earlier result), so changing
+ * CHOP is heard on the same break, and CHOP at 0 is the GROOVE exactly. `edits` (the user's hand
+ * edits, edits.ts) are applied after the AUTO sample choice and the transformations and before the
+ * PICK modes, so the generator and the AUTO choice are untouched by them, and playback, export,
+ * stems, MIDI and the pattern view all use the edited events.
  */
 export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}, names: (id: string) => string = (id) => id, edits?: Edits | null): Break {
   const recipe = sanitiseRecipe(recipeIn);
-  const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
-  const main = autoSamples(core.events, kit, seeds.kit, samples);
-  const layered = recipe.engine === 2 ? flourish(core, recipe, seeds) : core.events;
-  const { events, report } = applyEdits(layered, edits, recipe);
-  finishSamples(events, kit, seeds.kit, samples, names, main);
+  const g = groove(recipe, seeds, kit, samples);
+  const t = transform(g.events, { recipe, seeds, plan: g.core.plan });
+  const { events, report } = applyEdits(t.events, edits, recipe);
+  finishSamples(events, kit, seeds.kit, samples, names, g.main);
   const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
-  return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...core, events, ...ed };
+  return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...g.core, events, ...ed, ...(t.chop ? { chop: t.chop } : {}) };
 }
 
 export function randomSeeds(): Seeds {

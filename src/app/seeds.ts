@@ -6,6 +6,7 @@
  * sample-selection settings. Samples themselves are not stored: a favourite plays with whatever
  * kit is loaded, through the same selection settings.
  */
+import { chopActive } from '../engine/chopper';
 import { editsKey, hasEdits, sanitiseEdits, type Edits } from '../engine/edits';
 import { sanitiseMutation, sanitiseRecipe } from '../engine/generate';
 import { sanitiseSampleSettings, type SampleSettings } from '../engine/samples';
@@ -37,6 +38,7 @@ export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edit
   const k: unknown[] = [r.engine, r.style, r.bpm, r.bars, r.density, r.complexity, r.syncopation, r.ghosts, r.swing, r.humanise, r.variation, r.fills, s.beat, s.detail, s.feel, s.kit, (s.mut ?? []).map((m) => (m.style ? [m.seed, m.beat, m.detail, m.style, m.depth, m.range, m.cats ?? null] : [m.seed, m.beat, m.detail]))];
   if (r.rollsOn === false) k.push('no rolls');
   if (r.jungleCuts) k.push('jungle cuts');
+  if (chopActive(r.chop)) k.push(['chop', r.chop!.amount, r.chop!.slice, r.chop!.retrigger, r.chop!.variant]);
   if (hasEdits(e.edits)) k.push(editsKey(e.edits));
   return JSON.stringify(k);
 }
@@ -44,7 +46,7 @@ export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edit
 /** A display label: "funky chicken +2 · JUNGLE 8 bars". */
 export function entryLabel(e: SeedEntry): string {
   const n = e.seeds.mut?.length ?? 0;
-  return `${e.name ?? e.seeds.beat}${n ? ` +${n}` : ''} · ${STYLE_DEFS[e.recipe.style]?.label ?? e.recipe.style} ${e.recipe.bars} bar${e.recipe.bars > 1 ? 's' : ''}${e.recipe.engine === 1 ? ' · engine 1' : ''}${hasEdits(e.edits) ? ' · edited' : ''}`;
+  return `${e.name ?? e.seeds.beat}${n ? ` +${n}` : ''} · ${STYLE_DEFS[e.recipe.style]?.label ?? e.recipe.style} ${e.recipe.bars} bar${e.recipe.bars > 1 ? 's' : ''}${e.recipe.engine === 1 ? ' · legacy' : ''}${chopActive(e.recipe.chop) ? ' · chopped' : ''}${hasEdits(e.edits) ? ' · edited' : ''}`;
 }
 
 /** History: a list with a cursor, like a browser's back and forward. */

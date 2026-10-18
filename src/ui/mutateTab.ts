@@ -97,7 +97,7 @@ export function mutateTab(b: HTMLElement, ui: UiContext, W: number) {
 
   function update(): void {
     const m = app.mutation;
-    const e1 = app.recipe.engine === 1;
+    const e1 = app.legacy;
     const frozen = app.frozen.beat && app.frozen.detail;
     styles.forEach((s, i) => (s.on = MUTATION_STYLES[i] === m.style));
     depth.update();
@@ -114,7 +114,7 @@ export function mutateTab(b: HTMLElement, ui: UiContext, W: number) {
     lineage.textContent = n ? `THIS PATTERN: ${n} MUTATION${n === 1 ? '' : 'S'} FROM SEED ${app.seedText}` : `THIS PATTERN: SEED ${app.seedText}, NOT MUTATED`;
     back.style.display = app.history.canBack ? '' : 'none';
     note.textContent = e1
-      ? 'MUTATE NEEDS ENGINE 2 (RECIPE ▸ ENGINE)'
+      ? 'LEGACY BREAK: MUTATE NEEDS THE CURRENT GROOVE (RECIPE ▸ USE GROOVE)'
       : frozen
         ? 'BEAT AND DETAIL ARE BOTH FROZEN (BAKE): NOTHING TO MUTATE'
         : m.target === 'selected' && !m.cats.length
