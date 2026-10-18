@@ -48,6 +48,9 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   out.rollTargets = Array.isArray(r.rollTargets) ? ROLL_TARGETS.filter((t) => (r.rollTargets as unknown[]).includes(t)) : [...fl.rollTargets];
   if (r.rollsOn === false) out.rollsOn = false;
   else delete out.rollsOn;
+  // the new JUNGLE phrase belongs to engine 2's JUNGLE only; anything else (or anything saved before it) keeps the old
+  if (r.jungleCuts === true && def.style === 'jungle' && engine === 2) out.jungleCuts = true;
+  else delete out.jungleCuts;
   return out;
 }
 

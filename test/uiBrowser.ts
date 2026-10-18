@@ -1,6 +1,9 @@
 /** Browser-only checks of the interface (the real app in Chromium), invoked by ui.test.ts. */
 import type { App } from '../src/app/app';
 import { CATEGORIES } from '../src/engine/types';
+import { STYLE_DEFS } from '../src/engine/styles';
+
+const STYLE_LABELS = Object.fromEntries(Object.entries(STYLE_DEFS).map(([k, d]) => [k, d.label])) as Record<string, string>;
 
 function check(ok: unknown, message: string): asserts ok {
   if (!ok) throw new Error(message);
@@ -66,6 +69,32 @@ export async function run(): Promise<string> {
   }
   check(JSON.stringify(app.current.events) === before && JSON.stringify(app.recipe) === recipe, 'tab switching changes nothing');
   check(!$$('.mwin .btn').some((b) => /^MUT$/.test(b.textContent ?? '')), 'no MUT button left in RECIPE');
+
+  // RECIPE tab: ENGINE is its own labelled row (a generator, not a recipe); RANDOM RECIPE sits with the recipes
+  await chooseTab('RECIPE');
+  const recipeWin = win('RECIPE');
+  const rbtn = (t: string) => $$('.btn', recipeWin).find((b) => b.textContent === t)!;
+  const engines = ['ENGINE 1', 'ENGINE 2'].map(rbtn);
+  check(engines.every(Boolean) && rbtn('RANDOM'), 'ENGINE 1, ENGINE 2 and RANDOM buttons in RECIPE');
+  check($$('.label.head', recipeWin).some((l) => l.textContent === 'ENGINE'), 'an ENGINE heading');
+  check(rect(engines[0]!).top > rect(rbtn('RANDOM')).bottom && rect(engines[0]!).top > rect($$('.btn', recipeWin).find((b) => b.textContent === 'DICE')!).bottom, 'ENGINE sits in its own row below the recipes and the BPM row');
+  check(engines[1]!.classList.contains('on') && !engines[0]!.classList.contains('on'), 'ENGINE 2 shown selected');
+  check(!$$('.btn', recipeWin).some((b) => b.textContent === 'ENGINE' || b.textContent === 'ENGINE 3'), 'no engine button posing as a recipe');
+  const wr = rect(recipeWin);
+  for (const b of $$('.btn, .label, .range', recipeWin).filter(visible)) check(rect(b).right <= wr.right + 1 && rect(b).left >= wr.left - 1 && rect(b).bottom <= wr.bottom + 1, `${b.textContent} inside the RECIPE window`);
+  const btns = $$('.btn', recipeWin).filter(visible).map((b) => [b, rect(b)] as const);
+  for (let i = 0; i < btns.length; i++) for (let j = i + 1; j < btns.length; j++) {
+    const a = btns[i]![1], c = btns[j]![1];
+    check(a.right <= c.left + 0.5 || c.right <= a.left + 0.5 || a.bottom <= c.top + 0.5 || c.bottom <= a.top + 0.5, `${btns[i]![0].textContent} overlaps ${btns[j]![0].textContent}`);
+  }
+  const styleBefore = app.recipe.style;
+  rbtn('RANDOM').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+  await tick();
+  check(app.recipe.style !== styleBefore && app.recipe.engine === 2, 'RANDOM RECIPE chose another recipe and kept ENGINE 2');
+  check($$('.btn.on', recipeWin).some((b) => b.textContent === (STYLE_LABELS[app.recipe.style])), 'the chosen recipe is shown selected');
+  app.undo();
+  await tick();
+  check(app.recipe.style === styleBefore, 'RANDOM RECIPE undone');
 
   // ---------------------------------------------------------------- mixer layout and controls
   await chooseTab('MIXER');

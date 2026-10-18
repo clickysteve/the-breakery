@@ -12,7 +12,8 @@ import { SECTION_DEFS, type Section } from '../engine/sections';
 import { freshSeed } from '../engine/rng';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, MUTATION_STYLES, TPS, type Break, type Category, type Engine, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
+import { V1_STYLES } from '../engine/v1/styles';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type Engine, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -243,6 +244,28 @@ export class App {
     }
     this.setRecipe({ engine });
     this.say(engine === CURRENT_ENGINE ? 'ENGINE 2: the current generator.' : `ENGINE 1: the first release’s generator, kept so its breaks reproduce. Same seed, same recipe: compare by ear.${this.seeds.mut?.length ? ' (Mutations apply to engine 2 only.)' : ''}`);
+  }
+
+  /**
+   * RANDOM RECIPE: a different recipe at random (never ENGINE, which is the generator and not a
+   * recipe: ENGINE 1 only knows its four), and a new break from it. The pattern length, the kit and
+   * the ENGINE stay; the seeds follow FREEZE exactly as BAKE does. One undo step. `roll` 0..1 picks the recipe.
+   */
+  randomRecipe(roll = Math.random()): Style {
+    const pool: Style[] = this.recipe.engine === 1 ? [...V1_STYLES] : [...STYLES];
+    const others = pool.filter((s) => s !== this.recipe.style);
+    const choices = others.length ? others : pool;
+    const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
+    const note = this.leaveEdits();
+    this.recipe = sanitiseRecipe(defaultRecipe(style, this.recipe.bars, this.recipe.engine));
+    this.seeds = reseed(this.seeds, this.frozen);
+    this.seedName = null;
+    this.picked = null;
+    this.show(this.bakeWith(this.seeds));
+    this.remember();
+    this.status = `Random recipe: ${STYLE_DEFS[style].label}, seed ${this.seeds.beat}.${note}`;
+    this.changed();
+    return style;
   }
 
   resetRecipe(): void {

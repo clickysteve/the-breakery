@@ -273,6 +273,15 @@ control; random jitter is to be avoided.
 | Resampling, filtering | No | Yes |
 | Original groove vs chopped arrangement | Yes: the groove bar (A) is never chopped, so chops are heard *against* the groove | — |
 
+### 4.3 The JUNGLE phrase (Phase 7)
+
+JUNGLE recipes made since Phase 7 (`jungleCuts` in the recipe; saved JUNGLE breaks without it develop as before) build their phrase in `src/engine/jungle.ts` instead of varying each voice on its own.
+
+* **Documented** (§4.1): slices repeated, moved and retriggered; displaced snares; rolls at the end of a phrase.
+* **Design hypotheses** (not measured): which move goes in which bar, and how often. The motif plays in bar 1; bar 2 repeats it with one small change in the second half; the development bar (bar 3 of 4) displaces the second backbeat early or late with a short snare response and a secondary accent, repeats a beat or half bar of the groove (everything on those steps moves together), or goes half-time (one snare on beat 3, thin time); the turnaround adds a displaced backbeat or a repeated fragment and a snare retrigger burst of at most four sixteenths (sixteenths, then a 32nd pair). Ghost notes are re-placed from the groove's own ghost figure around every main snare, so a displaced snare keeps its ghosts, and ghosts that belong to no snare are dropped. Hit counts stay about where they were.
+* **Not possible** with one-shot events: the tails, room and pitch of sliced audio, and retriggering a slice mid-sound. These need an audio slicing engine.
+* **Needs listening**: whether the displaced snares, half-time bars and bursts sound like jungle, and how often each move should happen.
+
 ---
 
 ## 5. Computational approaches

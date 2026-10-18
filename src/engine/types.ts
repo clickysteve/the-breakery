@@ -106,6 +106,11 @@ export interface Recipe {
   rollTargets: RollTarget[];
   /** ROLL GENERATION (engine 2): false = the ROLLS layer adds no rolls (absent = on). Rolls already in a break are not deleted by it. */
   rollsOn?: boolean;
+  /**
+   * JUNGLE only: develop the phrase with fragments, displaced snares and retrigger bursts (jungle.ts).
+   * Absent means the way JUNGLE developed before Phase 7, so JUNGLE breaks saved earlier reproduce exactly.
+   */
+  jungleCuts?: true;
 }
 
 /** The 0..1 controls (a missing one is 0: TOMS and ROLLS are 0 in recipes saved before they existed). */

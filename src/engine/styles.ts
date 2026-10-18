@@ -130,7 +130,7 @@ export const STYLE_DEFS: Record<Style, StyleDef> = {
     snareLag: 24, timingScale: 1, programmed: false,
   },
   jungle: {
-    style: 'jungle', label: 'JUNGLE', blurb: 'A break sped up and resequenced: the groove, then chopped and rearranged bars, snare displacements and rolls into the top.',
+    style: 'jungle', label: 'JUNGLE', blurb: 'A break chopped and rearranged: a motif, repeated fragments, displaced snares with ghosts tied to them, and retrigger bursts into the top.',
     bpm: [150, 180, 165],
     defaults: { density: 0.62, complexity: 0.6, syncopation: 0.6, ghosts: 0.6, swing: 0.08, humanise: 0.3, variation: 0.65, fills: 0.6 },
     backbeat: 'two-four',
@@ -286,7 +286,7 @@ export function defaultRecipe(style: Style = 'funk', bars: Bars = 2, engine: Eng
   const d = STYLE_DEFS[style];
   const old = engine === 1 ? v1Defaults(style) : null;
   const fl = FLOURISH[style].defaults;
-  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl }) };
+  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl }), ...(!old && style === 'jungle' ? { jungleCuts: true as const } : {}) };
 }
 
 // ------------------------------------------------------------------ TOMS and ROLLS (engine 2)
