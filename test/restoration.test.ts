@@ -3,7 +3,7 @@
  * options and related sections, roll grouping, the grid's click/drag rules, and that grid edits
  * reach the player (and so MIDI out) and the MIDI file.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App, defaultMutate, sanitiseMutate } from '../src/app/app';
 import { entryKey, sanitiseEntry } from '../src/app/seeds';
 import { bake, mutate, mutationBars, sanitiseRecipe, seedsFrom, toggleTarget } from '../src/engine/generate';
@@ -232,6 +232,9 @@ describe('MUTATE options', () => {
     });
 
     it('creates related sections from the current pattern', () => {
+      // MUTATE draws a fresh seed with Math.random; pin it so this check is deterministic
+      let n = 0;
+      const rand = vi.spyOn(Math, 'random').mockImplementation(() => ((n = (n * 7919 + 1237) % 10007) + 0.5) / 10008);
       const { app } = makeApp('777');
       app.setRecipe(r);
       const orig = app.current;
@@ -253,6 +256,7 @@ describe('MUTATE options', () => {
       expect(app.recipe.density).toBeLessThan(r.density);
       app.historyBack();
       expect(JSON.stringify(strip(app.current))).toBe(JSON.stringify(strip(orig)));
+      rand.mockRestore();
     });
   });
 });

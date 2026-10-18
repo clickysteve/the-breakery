@@ -2,6 +2,7 @@
  * BAKE: generate (BAKE, BATCH), FREEZE (RHYTHM = beat + detail + feel, SAMPLES = the kit layer,
  * or single layers), play, loop, level and TAKEAWAY.
  */
+import { saveSwitchMode } from '../app/switchMode';
 import { STEPS, type Layer } from '../engine/types';
 import { el, label, setTip } from './dom';
 import { Button, MWindow, RangeBar } from './widgets';
@@ -25,7 +26,7 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
   const half = Math.floor((W - 2 * G - G) / 2);
   const col2 = G + half + G;
   new Button(b, [G, 4, W - 2 * G, 24], 'BAKE', { cls: 'bigbtn', tip: 'BAKE a new break from the recipe (B). Frozen layers are kept.', onPress: () => app.bake() });
-  new Button(b, [G, 32, half, 16], 'BATCH', { tip: 'BATCH: bake 8 candidates to compare (N). Click one in the BATCH window to audition it.', onPress: () => app.bakeBatch() });
+  new Button(b, [G, 32, half, 16], 'BATCH', { tip: 'BATCH: bake 8 candidates to compare (N). Click one in the BATCH tab to audition it.', onPress: () => app.bakeBatch() });
   new Button(b, [col2, 32, W - G - col2, 16], 'TAKEAWAY', { tip: 'TAKEAWAY: export the break as a WAV file, with stems and MIDI if you like (T)', onPress: () => ui.takeaway() });
 
   const third = Math.floor((W - 2 * G - 2 * G) / 3);
@@ -47,6 +48,7 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
     cls: 'small', tip: 'SWITCH: when a new pattern (BAKE, MUTATE, a candidate, an edit of the recipe) takes over while playing. Click to cycle NEXT BAR, NEXT LOOP, IMMEDIATE.',
     onPress: () => {
       app.player.switchMode = modes[(modes.indexOf(app.player.switchMode) + 1) % modes.length]!;
+      saveSwitchMode(app.player.switchMode);
       app.changed(false);
     },
   });

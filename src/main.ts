@@ -8,6 +8,7 @@ import './ui/style.css';
 import { IndexedDbSampleStore } from '@slopfactory/core/storage';
 import { KitManager } from './app/kits';
 import { App, BATCH_SIZE } from './app/app';
+import { loadSwitchMode } from './app/switchMode';
 import { MidiRig } from './app/midi';
 import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredients';
 import { audibleCategories, mixActive } from './app/mix';
@@ -19,7 +20,6 @@ import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/
 import { el, esc, setTip, view } from './ui/dom';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { bakeWindow } from './ui/bakeWindow';
-import { batchWindow } from './ui/batchWindow';
 import { ingredientsWindow } from './ui/ingredientsWindow';
 import { patternWindow } from './ui/patternWindow';
 import { recipeWindow } from './ui/recipeWindow';
@@ -65,6 +65,7 @@ try {
 }
 const ingredients = new Ingredients(store);
 const player = new Player(ingredients);
+player.switchMode = loadSwitchMode();
 await ingredients.restore().catch(() => ingredients.loadDemo());
 const params = new URLSearchParams(location.search);
 const app = new App(ingredients, player, params.get('seed') ?? undefined);
@@ -304,10 +305,9 @@ const ui: UiContext = {
 const desk = el('div', '', screen, [0, 0, W, H]);
 desk.style.position = 'absolute';
 const wIng = ingredientsWindow(desk, ui, { x: 5, y: 21, w: 208, h: 444 });
-const wRecipe = recipeWindow(desk, ui, { x: 218, y: 21, w: 322, h: 162 });
-const wBake = bakeWindow(desk, ui, { x: 545, y: 21, w: 170, h: 162 });
-const wPattern = patternWindow(desk, ui, { x: 218, y: 188, w: 497, h: 277 });
-const wBatch = batchWindow(desk, ui, { x: 720, y: 21, w: 155, h: 444 });
+const wRecipe = recipeWindow(desk, ui, { x: 218, y: 21, w: 482, h: 162 });
+const wBake = bakeWindow(desk, ui, { x: 705, y: 21, w: 170, h: 162 });
+const wPattern = patternWindow(desk, ui, { x: 218, y: 188, w: 657, h: 277 });
 const wPalette = paletteWindow(desk, palettes, { x: 288, y: 60 });
 const wMidi = midiWindow(desk, ui, midi, { x: 222, y: 40 });
 
@@ -575,7 +575,6 @@ function updateAll(): void {
   wRecipe.update();
   wBake.update();
   wPattern.update();
-  wBatch.update();
   if (wMidi.win.open) wMidi.update();
   statusEl.textContent = app.status || 'Freshly baked breaks.';
   setTip(statusEl, app.status);

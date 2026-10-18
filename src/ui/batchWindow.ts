@@ -5,7 +5,6 @@
 import { BATCH_SIZE } from '../app/app';
 import { STEPS, type Break, type Category } from '../engine/types';
 import { el, setTip, svgEl } from './dom';
-import { MWindow } from './widgets';
 import type { UiContext } from './context';
 
 const MINI_ROWS: Category[][] = [['kick'], ['snare'], ['ghost'], ['htom', 'mtom', 'ltom'], ['hat', 'ride', 'open']];
@@ -25,22 +24,21 @@ function mini(b: Break, w: number, h: number): string {
   return s;
 }
 
-export function batchWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
+export function batchPanel(b: HTMLElement, ui: UiContext, rect: { w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'BATCH', ...rect });
-  const b = win.body;
-  const W = rect.w - 2;
-  const gap = 4;
-  // a row of eight in a wide window, or a grid of columns in a narrow one
-  const cols = W >= 400 ? BATCH_SIZE : 2;
+  const W = rect.w;
+  const gap = 6;
+  // four across and two down in the wide lower panel; two across and four down if it is ever narrow
+  const cols = W >= 400 ? BATCH_SIZE / 2 : 2;
   const rows = Math.ceil(BATCH_SIZE / cols);
   const cw = Math.floor((W - 8 - gap * (cols - 1)) / cols);
-  const ch = Math.min(100, Math.floor((rect.h - 18 - 8 - gap * (rows - 1)) / rows));
+  const ch = Math.floor((rect.h - 8 - gap * (rows - 1)) / rows);
   const note = el('div', 'empty-note', b, [8, 12, W - 16]);
   note.textContent = 'Press BATCH (or N) to bake eight candidates from the recipe. Audition them here and keep the one you want; FREEZE keeps chosen layers across the batch.';
   const boxes = Array.from({ length: BATCH_SIZE }, (_, i) => {
     const box = el('div', 'candidate', b, [4 + (i % cols) * (cw + gap), 4 + Math.floor(i / cols) * (ch + gap), cw, ch]);
     box.setAttribute('role', 'button');
+    box.style.cursor = 'pointer';
     const svg = svgEl(cw - 4, ch - 14);
     Object.assign(svg.style, { position: 'absolute', left: '2px', top: '2px' });
     box.appendChild(svg);
@@ -57,12 +55,12 @@ export function batchWindow(parent: HTMLElement, ui: UiContext, rect: { x: numbe
       x.box.style.display = c ? 'block' : 'none';
       if (!c) return;
       x.svg.innerHTML = mini(c, cw - 4, ch - 14);
-      x.lab.textContent = `${i + 1} · ${c.seeds.beat}`;
+      x.lab.textContent = `${i + 1} · SEED ${c.seeds.beat} · ${c.recipe.bars} BAR${c.recipe.bars > 1 ? 'S' : ''}`;
       x.box.classList.toggle('current', app.picked === i);
       x.box.classList.toggle('queued', app.picked === i && app.player.queued);
       setTip(x.box, `Candidate ${i + 1} (seed ${c.seeds.beat}): click or press ${i + 1} to audition`);
     });
   }
   update();
-  return { update, win };
+  return { update };
 }
