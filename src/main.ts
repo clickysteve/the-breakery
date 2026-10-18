@@ -283,7 +283,7 @@ async function doTakeaway(): Promise<void> {
       const mid = midiTakeaway(app.current, only, map, naming);
       download(mid.name, mid.bytes, mid.type);
     }
-    app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}${res.outputSkipped ? '; OUTPUT could not run in this browser, so the master is unprocessed' : ''}).`);
+    app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}${res.stemReducedDb > 0 ? `, stems turned down ${res.stemReducedDb.toFixed(1)} dB (shared safety attenuation)` : ''}${res.outputSkipped ? '; OUTPUT could not run in this browser, so the master is unprocessed' : ''}).`);
   } catch (e) {
     app.say('TAKEAWAY failed.');
     alertBox(`The render failed: ${e instanceof Error ? e.message : String(e)}`);
