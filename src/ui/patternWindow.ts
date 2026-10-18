@@ -131,7 +131,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   const r3 = r2 + 17;
   el('div', 'label small', b, [6, r3 + 3], 'SNAP');
   const snapBtns = SNAPS.map((t, i) => new Button(b, [30 + i * 31, r3, 30, 12], SNAP_LABEL[t]!, { cls: 'small', tip: `SNAP ${SNAP_LABEL[t]}: where new hits land, and the step for moving hits (moves keep a hit's offset from the grid, so rolls keep their subdivision)`, onPress: () => app.setSnap(t) }));
-  const undo = new Button(b, [W - 168, r3, 34, 12], 'UNDO', { cls: 'small', tip: 'Undo the last hand edit (⌘Z)', onPress: () => app.undo() });
+  const undo = new Button(b, [W - 168, r3, 34, 12], 'UNDO', { cls: 'small', tip: 'Undo the last pattern action (Cmd/Ctrl+Z)', onPress: () => app.undo() });
   const redo = new Button(b, [W - 132, r3, 34, 12], 'REDO', { cls: 'small', tip: 'Redo (⇧⌘Z)', onPress: () => app.redo() });
   const clear = new Button(b, [W - 96, r3, 90, 12], 'CLEAR EDITS', { cls: 'small', tip: 'Remove every hand edit of this break: back to the break as generated (⌘Z undoes it)', onPress: () => app.revertAll() });
   const foot = el('div', 'label tiny', b, [6, r3 + 17, W - 12]);
