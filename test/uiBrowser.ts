@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH']];
+  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
   const tabs = $$('.mtab');
-  check(tabs.length === 8, `8 tabs, got ${tabs.length}`);
+  check(tabs.length === 9, `9 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);
@@ -72,7 +72,7 @@ export async function run(): Promise<string> {
   // tab switching keeps state and does not touch playback
   const before = JSON.stringify(app.current.events);
   const recipe = JSON.stringify(app.recipe);
-  for (const t of ['ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'PATTERN']) {
+  for (const t of ['ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
     await chooseTab(t);
     const tab = $$('.mtab').find((x) => x.textContent === t)!;
     check(tab.classList.contains('on') && tab.getAttribute('aria-selected') === 'true', `${t} selected`);
