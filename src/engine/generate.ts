@@ -31,6 +31,11 @@ import { addRolls } from './rolls';
 import { addTomPhrases, addToms, tomVoices } from './toms';
 import { sanitiseChop } from './chopper';
 import { transform } from './transform';
+import { sanitiseRollExpr } from './rollExpr';
+import { personaBars, personaPerform, personaRecipe, sanitisePersonality } from './personality';
+import { dnaBars, sanitiseDna } from './dna';
+import { sanitiseDestroy } from './destroy';
+import { applyRegen, sanitiseRegen } from './regen';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
 import { CATEGORIES, clamp, CURRENT_REVISION, LAYERS, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds } from './types';
@@ -63,7 +68,23 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   const chop = sanitiseChop(r.chop);
   if (chop) out.chop = chop;
   else delete out.chop;
+  // Phase 12: absent unless set, so every recipe saved before them bakes exactly as it did
+  const opt = <K extends 'rollExpr' | 'personality' | 'dna' | 'destroy'>(k: K, v: Recipe[K] | undefined) => {
+    if (v) out[k] = v;
+    else delete out[k];
+  };
+  opt('rollExpr', sanitiseRollExpr(r.rollExpr));
+  opt('personality', sanitisePersonality(r.personality));
+  opt('dna', sanitiseDna(r.dna));
+  opt('destroy', sanitiseDestroy(r.destroy));
   return out;
+}
+
+/** Stored seeds made safe (mutations and track regenerations kept only when valid). */
+export function sanitiseSeeds(s: Seeds): Seeds {
+  const regen = sanitiseRegen(s.regen);
+  const mut = Array.isArray(s.mut) ? s.mut.filter((m) => m && Number.isFinite(m.seed)).map(sanitiseMutation) : [];
+  return { beat: s.beat >>> 0, detail: s.detail >>> 0, feel: s.feel >>> 0, kit: s.kit >>> 0, ...(mut.length ? { mut } : {}), ...(regen ? { regen } : {}) };
 }
 
 /** The roll targets toggled (kept in the canonical order). */
@@ -113,6 +134,10 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
     return kept ?? develop(key)[i]!;
   });
 
+  // BREAK DNA builds with its vocabulary, then the PERSONALITY plays the phrase its way (both off: the bars as they are)
+  const shaped = personaBars(dnaBars(bars, roles, recipe.dna, { beatSeed: seeds.beat, halftime: def.backbeat === 'three' }), roles, recipe, recipe.personality, seeds.beat);
+  bars.splice(0, bars.length, ...shaped);
+
   const crash = (i: number, why: string) => {
     bars[i] = tidy([...bars[i]!.filter((h) => !((h.cat === 'hat' || h.cat === 'ride' || h.cat === 'open') && h.step === 0)), { cat: 'crash', step: 0, sub: 0, level: 0.85, role: 'crash', why }]);
   };
@@ -161,7 +186,9 @@ function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: 
  * with it), with its AUTO sample choice and (engine 2) its toms and rolls. Exactly what BAKE made
  * before CHOP existed.
  */
-export function groove(recipe: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}): { core: Omit<Break, 'recipe' | 'seeds'>; events: BreakEvent[]; main: ReturnType<typeof autoSamples> } {
+export function groove(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}): { core: Omit<Break, 'recipe' | 'seeds'>; events: BreakEvent[]; main: ReturnType<typeof autoSamples> } {
+  // the PERSONALITY's composition: the recipe the GROOVE is generated from (engine 2; NEUTRAL: the recipe itself)
+  const recipe = recipeIn.engine === 2 ? personaRecipe(recipeIn, recipeIn.personality) : recipeIn;
   const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
   const main = autoSamples(core.events, kit, seeds.kit, samples);
   const flourished = recipe.engine === 2 ? flourish(core, recipe, seeds, kit) : core.events;
@@ -180,12 +207,20 @@ export function groove(recipe: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(),
  */
 export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}, names: (id: string) => string = (id) => id, edits?: Edits | null): Break {
   const recipe = sanitiseRecipe(recipeIn);
-  const g = groove(recipe, seeds, kit, samples);
-  const t = transform(g.events, { recipe, seeds, plan: g.core.plan });
-  const { events, report } = applyEdits(t.events, edits, recipe);
+  const core = (s: Seeds) => {
+    const g = groove(recipe, s, kit, samples);
+    return { g, t: transform(g.events, { recipe, seeds: s, plan: g.core.plan }) };
+  };
+  const { g, t } = core(seeds);
+  // REGEN TRACK: the selected tracks from the best of their candidates, every other track exactly as it was
+  const rg = applyRegen(t.events, seeds, g.core.plan, (s) => core(s).t.events);
+  // the PERSONALITY's performance (and DILLA's timing), keyed by position: before the hand edits, so a TIME set by hand wins
+  const performed = personaPerform(rg.events, recipe.personality, { plan: g.core.plan, feelSeed: seeds.feel, bpm: recipe.bpm, swing: recipe.swing, busyFrom: t.events });
+  const { events, report } = applyEdits(performed, edits, recipe);
   finishSamples(events, kit, seeds.kit, samples, names, g.main);
   const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
-  return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...g.core, events, ...ed, ...(t.chop ? { chop: t.chop } : {}) };
+  const copy: Seeds = { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}), ...(seeds.regen ? { regen: seeds.regen.map((x) => ({ cats: [...x.cats], n: x.n })) } : {}) };
+  return { recipe, seeds: copy, ...g.core, events, ...ed, ...(t.chop ? { chop: t.chop } : {}), ...(t.destroy ? { destroy: t.destroy } : {}), ...(rg.report ? { regen: rg.report } : {}) };
 }
 
 export function randomSeeds(): Seeds {
@@ -203,6 +238,8 @@ export function reseed(current: Seeds, frozen: Partial<Record<Layer, boolean>>, 
   const next = seedsFrom(seed);
   for (const l of LAYERS) if (frozen[l]) next[l] = current[l];
   if (frozen.beat && frozen.detail && current.mut?.length) next.mut = current.mut.map((m) => ({ ...m }));
+  // track regenerations belong to the beat they were made on, as mutations do
+  if (frozen.beat && frozen.detail && current.regen?.length) next.regen = current.regen.map((x) => ({ cats: [...x.cats], n: x.n }));
   return next;
 }
 

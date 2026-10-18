@@ -152,6 +152,8 @@ export interface ChopContext {
   plan: BarRole[];
   /** the BEAT seed (FREEZE BEAT keeps the chop) */
   seed: number;
+  /** the recipe's CHOP_STYLE as BREAK DNA leans it (absent: the recipe's own) */
+  style?: ChopStyle;
 }
 
 /** A roll or a tom fill, first to last hit (grid ticks from the start of the break): never cut. */
@@ -196,7 +198,7 @@ export function slicePhrase(spans: readonly Span[], bars: number, size: SliceSiz
  */
 export function chop(source: readonly BreakEvent[], settings: ChopSettings, ctx: ChopContext): { events: BreakEvent[]; report: ChopReport } {
   if (!chopActive(settings)) return { events: source as BreakEvent[], report: { slices: 0, edited: 0, ops: {} } };
-  const cs = CHOP_STYLE[ctx.recipe.style] ?? CHOP_STYLE.funk;
+  const cs = ctx.style ?? CHOP_STYLE[ctx.recipe.style] ?? CHOP_STYLE.funk;
   const bars = ctx.plan.length;
   const tag = settings.variant ? `:${settings.variant}` : '';
   const spans = atomicSpans(source, bars);

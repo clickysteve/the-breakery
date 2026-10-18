@@ -16,7 +16,7 @@
  * Every function here is pure: it returns a new layer. Undo and redo are snapshots of the layer.
  */
 import { swingDelay } from './performance';
-import { CATEGORY_LABEL, clamp, STEPS, TPB, TPS, type BreakEvent, type Category, type Recipe, type Role } from './types';
+import { CATEGORY_LABEL, clamp, safePitch, STEPS, TPB, TPS, type BreakEvent, type Category, type Recipe, type Role } from './types';
 
 /** A change to one generated hit. */
 export interface HitPatch {
@@ -24,6 +24,10 @@ export interface HitPatch {
   offsetMs?: number;
   /** a sample chosen by hand (otherwise the category's PICK mode chooses) */
   sample?: string;
+  /** EXPRESSION: semitones set by hand (0 is a setting too: it overrides a generated pitch) */
+  pitch?: number;
+  /** EXPRESSION: reversed or forwards, set by hand (false overrides a generated reverse) */
+  reverse?: boolean;
 }
 
 /** A hit placed by hand (or a generated hit moved by hand). */
@@ -38,8 +42,14 @@ export interface ManualHit {
   sample?: string;
   /** when it was a generated hit moved by hand: what it was */
   from?: { key: string; role: Role; why: string };
-  /** a roll hit kept when ROLL GENERATION was turned off (still drawn and counted as a roll) */
+  /** a roll hit kept when ROLL GENERATION was turned off, or made by RATCHET (still drawn and counted as a roll) */
   role?: 'roll';
+  /** made by RATCHET: one of the strokes the selected hit was split into */
+  ratchet?: true;
+  /** EXPRESSION: semitones (absent = 0) */
+  pitch?: number;
+  /** EXPRESSION: played backwards */
+  reverse?: true;
 }
 
 export interface Edits {
@@ -68,7 +78,7 @@ export const hasEdits = (e: Edits | null | undefined): boolean => editCount(e) >
 export function editsKey(e: Edits | null | undefined): string {
   if (!hasEdits(e)) return '';
   const x = e!;
-  return JSON.stringify([[...x.removed].sort(), Object.keys(x.changed).sort().map((k) => [k, x.changed[k]]), x.added.map((m) => [m.cat, m.bar, m.step, m.sub, m.vel, m.offsetMs, m.sample ?? ''])]);
+  return JSON.stringify([[...x.removed].sort(), Object.keys(x.changed).sort().map((k) => [k, x.changed[k]]), x.added.map((m) => [m.cat, m.bar, m.step, m.sub, m.vel, m.offsetMs, m.sample ?? '', ...(m.pitch || m.reverse ? [m.pitch ?? 0, !!m.reverse] : [])])]);
 }
 
 /** A position from the start of the break, in grid ticks. */
@@ -128,7 +138,7 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
       sub: m.sub,
       level: m.vel / 127,
       role: m.role === 'roll' || m.from?.role === 'roll' ? 'roll' : 'manual',
-      why: m.from ? `moved by hand to ${pos} (generated as ${m.from.role}: ${m.from.why})` : m.role === 'roll' ? `roll hit at ${pos}, kept when roll generation was turned off` : `added by hand at ${pos}`,
+      why: m.from ? `moved by hand to ${pos} (generated as ${m.from.role}: ${m.from.why})` : m.ratchet ? `ratchet stroke at ${pos}, made by hand` : m.role === 'roll' ? `roll hit at ${pos}, kept when roll generation was turned off` : `added by hand at ${pos}`,
       vel: m.vel,
       swing: Math.round(swingDelay(m.step + m.sub / TPS, recipe.swing) * 1000) / 1000 || 0,
       offsetMs: m.offsetMs,
@@ -136,6 +146,8 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
       ref: manualRef(m.id),
       manual: m.from ? 'moved' : 'added',
       ...(m.sample ? { pinned: m.sample } : {}),
+      ...(m.pitch ? { pitch: m.pitch } : {}),
+      ...(m.reverse ? { reverse: true as const } : {}),
     });
   }
   const out: BreakEvent[] = [];
@@ -156,6 +168,16 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
         notes.push('sample chosen by hand');
         e.pinned = p.sample;
       }
+      if (p.pitch !== undefined && p.pitch !== (e.pitch ?? 0)) {
+        notes.push(`pitch ${fmtPitch(e.pitch ?? 0)} → ${fmtPitch(p.pitch)}`);
+        if (p.pitch) e.pitch = p.pitch;
+        else delete e.pitch;
+      }
+      if (p.reverse !== undefined && p.reverse !== !!e.reverse) {
+        notes.push(p.reverse ? 'reversed' : 'played forwards');
+        if (p.reverse) e.reverse = true;
+        else delete e.reverse;
+      }
       if (notes.length) {
         e.manual = 'edited';
         e.editWhy = `Changed by hand: ${notes.join(', ')}.`;
@@ -169,6 +191,8 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
 }
 
 const fmtMs = (ms: number) => `${ms > 0 ? '+' : ''}${Math.round(ms * 10) / 10} ms`;
+/** "+7 st", "-12 st", "0 st" */
+export const fmtPitch = (st: number) => `${st > 0 ? '+' : ''}${st} st`;
 
 // ---------------------------------------------------------------------------- operations
 
@@ -194,15 +218,18 @@ export interface EditResult {
 }
 
 /** Add a hit by hand. If one is already there, that hit is the result (nothing is added). */
-export function addHit(edits: Edits, events: BreakEvent[], hit: { cat: Category; bar: number; step: number; sub: number; vel?: number; offsetMs?: number; sample?: string; role?: 'roll' }): EditResult {
+export function addHit(edits: Edits, events: BreakEvent[], hit: { cat: Category; bar: number; step: number; sub: number; vel?: number; offsetMs?: number; sample?: string; role?: 'roll'; pitch?: number; reverse?: boolean }): EditResult {
   const there = events.find((e) => e.cat === hit.cat && e.bar === hit.bar && e.step === hit.step && e.sub === hit.sub);
   if (there) return { edits, ref: there.ref ?? null };
   const out = clone(edits);
   const id = newId(out);
   // a generated hit that was removed here comes back as a hand-placed one (the removal stays, so it is not doubled)
-  out.added.push({ id, cat: hit.cat, bar: hit.bar, step: hit.step, sub: hit.sub, vel: clamp(Math.round(hit.vel ?? DEFAULT_VEL[hit.cat]), 1, 127), offsetMs: hit.offsetMs ?? 0, ...(hit.sample ? { sample: hit.sample } : {}), ...(hit.role === 'roll' ? { role: 'roll' as const } : {}) });
+  out.added.push({ id, cat: hit.cat, bar: hit.bar, step: hit.step, sub: hit.sub, vel: clamp(Math.round(hit.vel ?? DEFAULT_VEL[hit.cat]), 1, 127), offsetMs: hit.offsetMs ?? 0, ...(hit.sample ? { sample: hit.sample } : {}), ...(hit.role === 'roll' ? { role: 'roll' as const } : {}), ...expr(hit) });
   return { edits: out, ref: manualRef(id) };
 }
+
+/** A hit's EXPRESSION as stored on a hand-placed hit (nothing for the defaults). */
+const expr = (e: { pitch?: number; reverse?: boolean }): Pick<ManualHit, 'pitch' | 'reverse'> => ({ ...(safePitch(e.pitch) ? { pitch: safePitch(e.pitch) } : {}), ...(e.reverse ? { reverse: true as const } : {}) });
 
 export function deleteHit(edits: Edits, ref: string): Edits {
   const out = clone(edits);
@@ -233,7 +260,7 @@ export function moveHit(edits: Edits, events: BreakEvent[], ref: string, to: { b
   if (!out.removed.includes(ref)) out.removed.push(ref);
   delete out.changed[ref];
   const id = newId(out);
-  out.added.push({ id, cat: e.cat, ...to, vel: e.vel, offsetMs: e.offsetMs, ...(patch?.sample ? { sample: patch.sample } : {}), from: { key: ref, role: e.role, why: e.why } });
+  out.added.push({ id, cat: e.cat, ...to, vel: e.vel, offsetMs: e.offsetMs, ...(patch?.sample ? { sample: patch.sample } : {}), ...expr(e), from: { key: ref, role: e.role, why: e.why } });
   return { edits: out, ref: manualRef(id) };
 }
 
@@ -242,7 +269,9 @@ function patchHit(edits: Edits, events: BreakEvent[], ref: string, p: HitPatch):
   if (!e) return { edits, ref: null };
   if ((p.vel === undefined || p.vel === e.vel)
     && (p.offsetMs === undefined || p.offsetMs === e.offsetMs)
-    && (!('sample' in p) || (p.sample ?? null) === (e.pinned ?? null))) return { edits, ref };
+    && (!('sample' in p) || (p.sample ?? null) === (e.pinned ?? null))
+    && (p.pitch === undefined || p.pitch === (e.pitch ?? 0))
+    && (p.reverse === undefined || p.reverse === !!e.reverse)) return { edits, ref };
   const out = clone(edits);
   if (isManualRef(ref)) {
     const m = out.added.find((x) => manualRef(x.id) === ref)!;
@@ -252,6 +281,14 @@ function patchHit(edits: Edits, events: BreakEvent[], ref: string, p: HitPatch):
       if (p.sample) m.sample = p.sample;
       else delete m.sample;
     }
+    if (p.pitch !== undefined) {
+      if (p.pitch) m.pitch = p.pitch;
+      else delete m.pitch;
+    }
+    if (p.reverse !== undefined) {
+      if (p.reverse) m.reverse = true;
+      else delete m.reverse;
+    }
   } else {
     const cur = { ...(out.changed[ref] ?? {}) };
     if (p.vel !== undefined) cur.vel = p.vel;
@@ -260,6 +297,8 @@ function patchHit(edits: Edits, events: BreakEvent[], ref: string, p: HitPatch):
       if (p.sample) cur.sample = p.sample;
       else delete cur.sample;
     }
+    if (p.pitch !== undefined) cur.pitch = p.pitch;
+    if (p.reverse !== undefined) cur.reverse = p.reverse;
     if (Object.keys(cur).length) out.changed[ref] = cur;
     else delete out.changed[ref];
   }
@@ -270,6 +309,10 @@ export const setVelocity = (edits: Edits, events: BreakEvent[], ref: string, vel
 export const setTiming = (edits: Edits, events: BreakEvent[], ref: string, ms: number) => patchHit(edits, events, ref, { offsetMs: Math.round(clamp(ms, -MANUAL_OFFSET_MS, MANUAL_OFFSET_MS) * 10) / 10 || 0 });
 /** A sample chosen by hand, or null to let the category's PICK mode choose again. */
 export const setSample = (edits: Edits, events: BreakEvent[], ref: string, sample: string | null) => patchHit(edits, events, ref, { sample: sample ?? undefined });
+/** EXPRESSION: the hit transposed (semitones, ±24, by playback rate). */
+export const setPitch = (edits: Edits, events: BreakEvent[], ref: string, st: number) => patchHit(edits, events, ref, { pitch: safePitch(st) });
+/** EXPRESSION: the hit played backwards, or forwards. */
+export const setReverse = (edits: Edits, events: BreakEvent[], ref: string, on: boolean) => patchHit(edits, events, ref, { reverse: on });
 
 /** A copy of the hit `ticks` later (the next free place of its category), placed by hand. */
 export function duplicateHit(edits: Edits, events: BreakEvent[], ref: string, ticks: number, bars: number): EditResult {
@@ -277,7 +320,7 @@ export function duplicateHit(edits: Edits, events: BreakEvent[], ref: string, ti
   if (!e) return { edits, ref: null };
   for (let t = tickOf(e) + ticks; t < bars * TPB; t += ticks) {
     const p = posOf(t);
-    if (!occupied(events, e.cat, p)) return addHit(edits, events, { cat: e.cat, ...p, vel: e.vel, offsetMs: e.offsetMs, ...(e.pinned ? { sample: e.pinned } : {}) });
+    if (!occupied(events, e.cat, p)) return addHit(edits, events, { cat: e.cat, ...p, vel: e.vel, offsetMs: e.offsetMs, ...(e.pinned ? { sample: e.pinned } : {}), ...expr(e) });
   }
   return { edits, ref: null };
 }
@@ -328,6 +371,8 @@ export function sanitiseEdits(v: unknown, cats: readonly string[]): Edits {
       if (Number.isFinite(p.vel)) q.vel = clamp(Math.round(p.vel!), 1, 127);
       if (Number.isFinite(p.offsetMs)) q.offsetMs = clamp(Number(p.offsetMs), -MANUAL_OFFSET_MS, MANUAL_OFFSET_MS);
       if (typeof p.sample === 'string' && p.sample) q.sample = p.sample;
+      if (p.pitch !== undefined && Number.isFinite(Number(p.pitch))) q.pitch = safePitch(p.pitch);
+      if (typeof p.reverse === 'boolean') q.reverse = p.reverse;
       if (Object.keys(q).length) out.changed[k] = q;
     }
   if (Array.isArray(o.added))
@@ -346,6 +391,8 @@ export function sanitiseEdits(v: unknown, cats: readonly string[]): Edits {
         ...(typeof m.sample === 'string' && m.sample ? { sample: m.sample } : {}),
         ...(m.from && typeof m.from.key === 'string' ? { from: { key: m.from.key, role: m.from.role, why: String(m.from.why ?? '') } } : {}),
         ...(m.role === 'roll' ? { role: 'roll' as const } : {}),
+        ...(m.ratchet === true && m.role === 'roll' ? { ratchet: true as const } : {}),
+        ...expr(m),
       });
     }
   // ids must be unique

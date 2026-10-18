@@ -12,7 +12,7 @@ import { asciiGrid } from '../src/engine/ascii';
 import { bake, seedsFrom } from '../src/engine/generate';
 import { emptyKit, type KitIndex } from '../src/engine/kit';
 import { defaultRecipe, STYLE_DEFS } from '../src/engine/styles';
-import { CATEGORIES, CURRENT_REVISION, isTom, STEPS, TPB, TPS, type Bars, type Break, type BreakEvent, type Recipe, type Style } from '../src/engine/types';
+import { CATEGORIES, isTom, STEPS, TPB, TPS, type Bars, type Break, type BreakEvent, type Recipe, type Style } from '../src/engine/types';
 
 const STYLES: Style[] = ['funk', 'hiphop', 'jungle', 'broken', 'dnb', 'breakcore'];
 const LEVELS = [0, 0.2, 0.5, 0.75, 1];
@@ -32,7 +32,7 @@ const backbeat = (e: BreakEvent) => e.cat === 'snare' && (e.role === 'backbeat' 
 type Era = 'before' | 'after';
 function recipe(style: Style, bars: Bars, t: number, era: Era, patch: Partial<Recipe> = {}): Recipe {
   const r = { ...defaultRecipe(style, bars), toms: t, ...patch };
-  return era === 'before' ? { ...r, revision: 0 } : { ...r, revision: CURRENT_REVISION, rollsOn: false };
+  return era === 'before' ? { ...r, revision: 0 } : { ...r, revision: 1, rollsOn: false };
 }
 
 /** tom hits; phrases (a new one after a gap of more than an eighth, or a new bar); toms used; bars with toms; share in the last bar; share in the last beat of a bar; unisons with a kick; clashes with a backbeat */

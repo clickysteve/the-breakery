@@ -31,6 +31,8 @@ const noTomKit = (): KitIndex => ({ ...fullKit(), htom: [], mtom: [], ltom: [] }
 const r = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), rolls: 0, ...patch });
 /** the same as released, before TOM ACTIVITY's phrases (revision 0) */
 const r0 = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => r(style, bars, { revision: 0, ...patch });
+/** TOM ACTIVITY's phrases as revision 1 made them (saved breaks reproduce them; revision 2 recalibrated the curve) */
+const r1 = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => r(style, bars, { revision: 1, ...patch });
 const toms = (b: Break) => b.events.filter((e) => isTom(e.cat));
 const same = (a: BreakEvent, b: BreakEvent) => a.cat === b.cat && a.bar === b.bar && a.step === b.step && a.sub === b.sub && a.vel === b.vel && a.offsetMs === b.offsetMs && a.swing === b.swing && a.sample === b.sample;
 const posKey = (e: BreakEvent) => `${e.cat}|${e.bar}|${e.step}|${e.sub}`;
@@ -192,7 +194,7 @@ describe('tom fills as released (revision 0, kept for saved breaks)', () => {
 
 describe('TOM ACTIVITY: tom phrases (revision 1)', () => {
   const S = SEEDS.slice(0, 24);
-  const breaks = (style: Recipe['style'], t: number, bars: Bars = 4, patch: Partial<Recipe> = {}, kit: KitIndex = fullKit()) => S.map((s) => bake(r(style, bars, { toms: t, ...patch }), seedsFrom(s), kit));
+  const breaks = (style: Recipe['style'], t: number, bars: Bars = 4, patch: Partial<Recipe> = {}, kit: KitIndex = fullKit()) => S.map((s) => bake(r1(style, bars, { toms: t, ...patch }), seedsFrom(s), kit));
   const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
   const tomPos = (b: Break) => toms(b).map(posKey);
   const isBackbeat = (e: BreakEvent) => e.cat === 'snare' && (e.role === 'backbeat' || e.role === 'displaced backbeat');
@@ -270,7 +272,7 @@ describe('TOM ACTIVITY: tom phrases (revision 1)', () => {
   it('is independent of ROLLS: the toms are the same with roll generation off or on, and at any roll probability', () => {
     for (const style of STYLES)
       for (const seed of S.slice(0, 10)) {
-        const rec = r(style, 4, { toms: 1, rolls: 1, rollPlace: 'anywhere' });
+        const rec = r1(style, 4, { toms: 1, rolls: 1, rollPlace: 'anywhere' });
         const nonRoll = (b: Break) => toms(b).filter((e) => e.role !== 'roll').map(posKey);
         const on = bake(rec, seedsFrom(seed), fullKit());
         expect(nonRoll(bake({ ...rec, rollsOn: false }, seedsFrom(seed), fullKit())), style).toEqual(nonRoll(on));
@@ -341,8 +343,8 @@ describe('TOM ACTIVITY: tom phrases (revision 1)', () => {
   it('changes nothing else: every other hit keeps its velocity, timing and sample; only hands in a fill, and snares it re-voices, make room', () => {
     for (const style of STYLES)
       for (const seed of S.slice(0, 8)) {
-        const base = bake(r(style, 4, { toms: 0 }), seedsFrom(seed), fullKit());
-        const withToms = bake(r(style, 4, { toms: 1 }), seedsFrom(seed), fullKit());
+        const base = bake(r1(style, 4, { toms: 0 }), seedsFrom(seed), fullKit());
+        const withToms = bake(r1(style, 4, { toms: 1 }), seedsFrom(seed), fullKit());
         const byKey = new Map(base.events.map((e) => [posKey(e), e]));
         for (const e of withToms.events) {
           const was = byKey.get(posKey(e));
@@ -373,14 +375,14 @@ describe('TOM ACTIVITY: tom phrases (revision 1)', () => {
 
   it('is deterministic, and FREEZE BEAT keeps the phrases where they are', () => {
     for (const style of STYLES) {
-      const a = bake(r(style, 4, { toms: 0.8 }), seedsFrom(31), fullKit());
-      expect(bake(r(style, 4, { toms: 0.8 }), seedsFrom(31), fullKit()).events).toEqual(a.events);
+      const a = bake(r1(style, 4, { toms: 0.8 }), seedsFrom(31), fullKit());
+      expect(bake(r1(style, 4, { toms: 0.8 }), seedsFrom(31), fullKit()).events).toEqual(a.events);
     }
     let kept = 0;
     for (const seed of S.slice(0, 15)) {
       const s0 = seedsFrom(seed);
-      const x = bake(r('funk', 4, { toms: 0.9 }), s0, fullKit());
-      const y = bake(r('funk', 4, { toms: 0.9 }), reseed(s0, { beat: true }), fullKit());
+      const x = bake(r1('funk', 4, { toms: 0.9 }), s0, fullKit());
+      const y = bake(r1('funk', 4, { toms: 0.9 }), reseed(s0, { beat: true }), fullKit());
       if (toms(x).length) {
         kept++;
         expect(tomPos(y)).toEqual(tomPos(x));
@@ -402,7 +404,7 @@ describe('TOM ACTIVITY: tom phrases (revision 1)', () => {
     let three = 0;
     for (const style of ['funk', 'jungle', 'broken', 'dnb'] as const)
       for (const seed of S.slice(0, 10)) {
-        const rec = r(style, 4, { toms: 1 });
+        const rec = r1(style, 4, { toms: 1 });
         const full = bake(rec, seedsFrom(seed), fullKit());
         if (new Set(toms(full).map((e) => e.cat)).size === 3) three++;
         const where = (b: Break) => toms(b).map((e) => `${e.bar}|${e.step}|${e.sub}`);

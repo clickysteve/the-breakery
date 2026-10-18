@@ -6,6 +6,11 @@
  */
 
 import type { ApplyReport, Edits } from './edits';
+import type { RollExpression } from './rollExpr';
+import type { PersonalitySetting } from './personality';
+import type { DnaSetting } from './dna';
+import type { DestroySettings, DestroyReport } from './destroy';
+import type { Regen, RegenReport } from './regen';
 
 /** Drum categories, in display order (toms high to low, as they sit on a kit). */
 export const CATEGORIES = ['kick', 'snare', 'ghost', 'htom', 'mtom', 'ltom', 'hat', 'open', 'ride', 'crash', 'perc'] as const;
@@ -64,9 +69,11 @@ export const CURRENT_ENGINE: Engine = 2;
  *   1           TOM ACTIVITY plays tom phrases (toms.ts addTomPhrases); ROLL GENERATION off holds
  *               back every new roll: the ROLLS layer, the fills' rolls and retrigger bursts (played
  *               as plain fills instead) and CHOP's retriggers
+ *   2           TOM ACTIVITY recalibrated (toms.ts tomCurve): more phrases, longer runs and more
+ *               accent strokes as it rises, so the whole range is useful (docs/tom-report.md)
  * New breaks are baked with the current revision.
  */
-export const CURRENT_REVISION = 1;
+export const CURRENT_REVISION = 2;
 
 /** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
 export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
@@ -131,6 +138,14 @@ export interface Recipe {
   jungleCuts?: true;
   /** CHOP: the transformation applied to the GROOVE (absent = none: every recipe saved before CHOP) */
   chop?: ChopSettings;
+  /** ROLLS ▸ EXPRESSION: how every roll moves (absent = CLASSIC: as generated; rollExpr.ts) */
+  rollExpr?: RollExpression;
+  /** PERSONALITY: who plays the break, and how strongly (absent = NEUTRAL; personality.ts) */
+  personality?: PersonalitySetting;
+  /** BREAK DNA: a construction vocabulary the break is built from (absent = NONE; dna.ts) */
+  dna?: DnaSetting;
+  /** CHOP ▸ DESTROY: event-level destruction after CHOP (absent = none; destroy.ts) */
+  destroy?: DestroySettings;
 }
 
 /** CHOP SLICE SIZE: the typical fragment, in sixteenths (recipes lengthen or shorten some of them). */
@@ -177,6 +192,11 @@ export interface Seeds {
    * operations to the groove cell, so the whole phrase changes with it but stays related.
    */
   mut?: Mutation[];
+  /**
+   * REGEN TRACK: a lineage of track regenerations. Each step regenerates some tracks (and only
+   * them) from a seed derived from the beat seed, the tracks and the step's number (regen.ts).
+   */
+  regen?: Regen[];
 }
 
 /** MUTATE styles: how a mutation varies the groove. */
@@ -264,7 +284,19 @@ export interface BreakEvent extends Hit {
   editWhy?: string;
   /** a sample chosen by hand for this hit */
   pinned?: string;
+  /**
+   * EXPRESSION: transposition in semitones, by sample playback rate as on a hardware sampler (the
+   * sound gets shorter as it goes up; no time-stretch). -24..24; absent = 0, the sample as it is.
+   */
+  pitch?: number;
+  /** EXPRESSION: the sample played backwards, starting at the hit's position (absent = forwards) */
+  reverse?: true;
 }
+
+/** EXPRESSION: the pitch range of a hit, semitones either way. */
+export const MAX_PITCH = 24;
+/** A hit's pitch made safe: a whole number of semitones within ±MAX_PITCH (0 for anything else). */
+export const safePitch = (p: unknown): number => (Number.isFinite(Number(p)) ? clamp(Math.round(Number(p)), -MAX_PITCH, MAX_PITCH) : 0) || 0;
 
 /**
  * Role of each bar in the phrase. A groove (the motif), A2 answer (the groove varied), B
@@ -299,6 +331,10 @@ export interface Break {
   editReport?: ApplyReport;
   /** what CHOP did to the GROOVE (absent when CHOP is off) */
   chop?: ChopReport;
+  /** what DESTROY did (absent when it is off) */
+  destroy?: DestroyReport;
+  /** what the last REGEN TRACK step chose (absent without one) */
+  regen?: RegenReport;
 }
 
 /** What CHOP did: how many slices it edited, and how. */

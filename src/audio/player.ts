@@ -18,12 +18,12 @@
  */
 import { Mixer, NotePlayer } from '@slopfactory/core/audio';
 import { emptyChain, loadOutputChain, type ChainConfig } from '@slopfactory/core/engines';
-import { CATEGORIES, type Break } from '../engine/types';
+import { CATEGORIES, type Break, type BreakEvent } from '../engine/types';
 import { audible as isAudible, emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
 import { CLOCK, CLOCK_PPQ, START, STOP, songPosition } from '../midi/messages';
 import type { MidiRouter } from '../midi/router';
 import type { Ingredients } from './ingredients';
-import { eventSeconds, hatChoke, ROOT_PITCH } from './timeline';
+import { eventSeconds, hatChoke, noteInstrument, notePitch, ROOT_PITCH } from './timeline';
 import { CHAIN_WORKLET_URL, OUTPUT_SEED } from './output';
 
 export type SwitchMode = 'bar' | 'loop' | 'immediate';
@@ -209,6 +209,7 @@ export class Player {
 
   private build(b: Break): void {
     this.current = b;
+    this.warm(b);
     const bpm = this.playing ? this.tempo : b.recipe.bpm;
     // every hit: the sampled ones play here, and all of them go out as MIDI
     this.list = b.events
@@ -366,8 +367,14 @@ export class Player {
     this.midi?.releaseAll(false);
   }
 
+  /** Reversed copies of the samples a break plays backwards, made when the break arrives, never while scheduling. */
+  private warm(b: Break): void {
+    for (const e of b.events) if (e.reverse && e.sample) this.ingredients.instrument(noteInstrument(e.sample, e));
+  }
+
   /** Never replace audio already handed to Web Audio. Quantise beyond that frontier. */
   setBreak(b: Break): void {
+    this.warm(b);
     if (!this.playing || !this.ctx || !this.current) {
       this.current = this.audible = b;
       return;
@@ -475,22 +482,22 @@ export class Player {
       const a = this.toAudio(t);
       if (a >= ctx.currentTime - (this.clock === 'external' ? EXT_LATE : 0.005)) {
         const at = Math.max(a, ctx.currentTime);
-        if (s.e.sample) this.trigger(s.e.cat, s.e.sample, s.e.vel, at);
+        if (s.e.sample) this.trigger(s.e.cat, noteInstrument(s.e.sample, s.e), s.e.vel, at, notePitch(s.e));
         if (s.midi) this.midi?.hit(s.e.cat, s.e.vel, this.perfTime(at), this.perfTime(this.toAudio(t + GATE_QUARTERS * (60 / this.tempo))));
       }
       this.idx++;
     }
   }
 
-  private trigger(voice: string, sample: string, vel: number, time: number): void {
+  private trigger(voice: string, instrument: string, vel: number, time: number, pitch = ROOT_PITCH): void {
     const key = `n${this.seq++}`;
-    this.notes!.noteOn(key, voice, { time, pitch: ROOT_PITCH, velocity: vel, instrument: sample });
+    this.notes!.noteOn(key, voice, { time, pitch, velocity: vel, instrument });
   }
 
-  /** Play one sample now (INGREDIENTS preview, clicking a hit in the pattern). */
-  async audition(voice: string, sample: string, vel = 110): Promise<void> {
+  /** Play one sample now (INGREDIENTS preview, clicking a hit in the pattern: with its pitch and reverse). */
+  async audition(voice: string, sample: string, vel = 110, expr: Pick<BreakEvent, 'pitch' | 'reverse'> = {}): Promise<void> {
     if (!(await this.ensure())) return;
-    this.preview!.noteOn(`p${this.seq++}`, voice, { time: this.ctx!.currentTime + 0.005, pitch: ROOT_PITCH, velocity: vel, instrument: sample });
+    this.preview!.noteOn(`p${this.seq++}`, voice, { time: this.ctx!.currentTime + 0.005, pitch: notePitch(expr), velocity: vel, instrument: noteInstrument(sample, expr) });
   }
 
   /**
