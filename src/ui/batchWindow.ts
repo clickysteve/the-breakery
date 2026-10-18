@@ -31,12 +31,15 @@ export function batchWindow(parent: HTMLElement, ui: UiContext, rect: { x: numbe
   const b = win.body;
   const W = rect.w - 2;
   const gap = 4;
-  const cw = Math.floor((W - 8 - gap * (BATCH_SIZE - 1)) / BATCH_SIZE);
-  const ch = rect.h - 18 - 8;
-  const note = el('div', 'empty-note', b, [10, 22, W - 20]);
+  // a row of eight in a wide window, or a grid of columns in a narrow one
+  const cols = W >= 400 ? BATCH_SIZE : 2;
+  const rows = Math.ceil(BATCH_SIZE / cols);
+  const cw = Math.floor((W - 8 - gap * (cols - 1)) / cols);
+  const ch = Math.min(64, Math.floor((rect.h - 18 - 8 - gap * (rows - 1)) / rows));
+  const note = el('div', 'empty-note', b, [8, 12, W - 16]);
   note.textContent = 'Press BATCH (or N) to bake eight candidates from the recipe. Audition them here and keep the one you want; FREEZE keeps chosen layers across the batch.';
   const boxes = Array.from({ length: BATCH_SIZE }, (_, i) => {
-    const box = el('div', 'candidate', b, [4 + i * (cw + gap), 4, cw, ch]);
+    const box = el('div', 'candidate', b, [4 + (i % cols) * (cw + gap), 4 + Math.floor(i / cols) * (ch + gap), cw, ch]);
     box.setAttribute('role', 'button');
     const svg = svgEl(cw - 4, ch - 14);
     Object.assign(svg.style, { position: 'absolute', left: '2px', top: '2px' });

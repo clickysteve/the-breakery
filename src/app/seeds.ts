@@ -6,16 +6,19 @@
  * sample-selection settings. Samples themselves are not stored: a favourite plays with whatever
  * kit is loaded, through the same selection settings.
  */
+import { editsKey, hasEdits, sanitiseEdits, type Edits } from '../engine/edits';
 import { sanitiseRecipe } from '../engine/generate';
 import { sanitiseSampleSettings, type SampleSettings } from '../engine/samples';
 import { STYLE_DEFS } from '../engine/styles';
-import type { Recipe, Seeds } from '../engine/types';
+import { CATEGORIES, type Recipe, type Seeds } from '../engine/types';
 
 export interface SeedEntry {
   recipe: Recipe;
   seeds: Seeds;
   /** the name typed or rolled, or null for a plain number */
   name: string | null;
+  /** hand edits of this break (absent when there are none) */
+  edits?: Edits;
 }
 
 export interface Favourite extends SeedEntry {
@@ -27,17 +30,19 @@ export interface Favourite extends SeedEntry {
 export const HISTORY_MAX = 60;
 export const FAVOURITES_MAX = 200;
 
-/** What makes two entries the same break. */
-export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'>): string {
+/** What makes two entries the same break (hand edits included: an edited break is another break). */
+export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edits }): string {
   const r = sanitiseRecipe(e.recipe);
   const s = e.seeds;
-  return JSON.stringify([r.engine, r.style, r.bpm, r.bars, r.density, r.complexity, r.syncopation, r.ghosts, r.swing, r.humanise, r.variation, r.fills, s.beat, s.detail, s.feel, s.kit, (s.mut ?? []).map((m) => [m.seed, m.beat, m.detail])]);
+  const k: unknown[] = [r.engine, r.style, r.bpm, r.bars, r.density, r.complexity, r.syncopation, r.ghosts, r.swing, r.humanise, r.variation, r.fills, s.beat, s.detail, s.feel, s.kit, (s.mut ?? []).map((m) => [m.seed, m.beat, m.detail])];
+  if (hasEdits(e.edits)) k.push(editsKey(e.edits));
+  return JSON.stringify(k);
 }
 
 /** A display label: "funky chicken +2 · JUNGLE 8 bars". */
 export function entryLabel(e: SeedEntry): string {
   const n = e.seeds.mut?.length ?? 0;
-  return `${e.name ?? e.seeds.beat}${n ? ` +${n}` : ''} · ${STYLE_DEFS[e.recipe.style]?.label ?? e.recipe.style} ${e.recipe.bars} bar${e.recipe.bars > 1 ? 's' : ''}${e.recipe.engine === 1 ? ' · engine 1' : ''}`;
+  return `${e.name ?? e.seeds.beat}${n ? ` +${n}` : ''} · ${STYLE_DEFS[e.recipe.style]?.label ?? e.recipe.style} ${e.recipe.bars} bar${e.recipe.bars > 1 ? 's' : ''}${e.recipe.engine === 1 ? ' · engine 1' : ''}${hasEdits(e.edits) ? ' · edited' : ''}`;
 }
 
 /** History: a list with a cursor, like a browser's back and forward. */
@@ -108,10 +113,12 @@ export function sanitiseEntry(v: unknown): SeedEntry | null {
   const s = o.seeds;
   if (![s.beat, s.detail, s.feel, s.kit].every(isSeed)) return null;
   const mut = Array.isArray(s.mut) ? s.mut.filter((m) => m && isSeed(m.seed)).map((m) => ({ seed: m.seed >>> 0, beat: !!m.beat, detail: !!m.detail })) : [];
+  const edits = sanitiseEdits(o.edits, CATEGORIES);
   return {
     recipe: sanitiseRecipe(o.recipe),
     seeds: { beat: s.beat >>> 0, detail: s.detail >>> 0, feel: s.feel >>> 0, kit: s.kit >>> 0, ...(mut.length ? { mut } : {}) },
     name: typeof o.name === 'string' && o.name ? o.name : null,
+    ...(hasEdits(edits) ? { edits } : {}),
   };
 }
 

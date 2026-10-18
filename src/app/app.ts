@@ -5,11 +5,12 @@
  * so each control's effect is heard on the same break; BAKE draws new seeds for every layer that
  * is not frozen; MUTATE varies the current groove a little.
  */
+import { addHit, deleteHit, describeEdits, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
 import { bake, mutate, parseSeed, reseed, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
 import { freshSeed } from '../engine/rng';
 import { sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { CURRENT_ENGINE, LAYERS, type Break, type Category, type Engine, type Layer, type Recipe, type Seeds, type Style } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, TPS, type Break, type Category, type Engine, type Layer, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -17,6 +18,10 @@ import { audible, emptyMix, sanitiseMix, type MixState } from './mix';
 import { diceName, entryKey, entryLabel, FAVOURITES_MAX, sanitiseFavourite, SeedHistory, type Favourite, type SeedEntry } from './seeds';
 
 export const BATCH_SIZE = 8;
+/** Grid for placing and moving hits by hand, in grid ticks (12 per sixteenth). */
+export const SNAPS = [12, 6, 3, 8, 4] as const;
+export const SNAP_LABEL: Record<number, string> = { 12: '1/16', 6: '1/32', 3: '1/64', 8: '1/16T', 4: '1/32T' };
+const UNDO_LIMIT = 200;
 const STATE_KEY = 'breakery.state.v1';
 const HISTORY_KEY = 'breakery.history.v1';
 const FAVOURITES_KEY = 'breakery.favourites.v1';
@@ -31,6 +36,12 @@ interface Saved {
   takeaway: TakeawayOptions;
   samples: SampleSettings;
   mix: MixState;
+  /** hand edits of the current break */
+  edits?: Edits;
+  /** FREEZE EDITS: carry the hand edits onto new breaks */
+  keepEdits?: boolean;
+  /** grid for placing and moving hits */
+  snap?: number;
 }
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
@@ -68,6 +79,17 @@ export class App {
   history: SeedHistory;
   favourites: Favourite[];
   status = '';
+  /** hand edits of the current break (a layer over the generated events: engine/edits.ts) */
+  edits: Edits = noEdits();
+  /** FREEZE EDITS: new breaks (BAKE, BATCH, seeds, MUTATE) keep the hand edits */
+  keepEdits = false;
+  /** the selected hit (its ref), or null */
+  selected: string | null = null;
+  /** grid for placing and moving hits, in grid ticks */
+  snap = 12;
+  private undoStack: string[] = [];
+  private redoStack: string[] = [];
+  private lastEdit: { key: string; at: number } | null = null;
   private listeners: (() => void)[] = [];
 
   constructor(public ingredients: Ingredients, public player: Player, initialSeed?: string) {
@@ -80,6 +102,10 @@ export class App {
     this.takeawayOpts = { ...defaultTakeaway(), ...(s?.takeaway ?? {}) };
     this.samples = sanitiseSampleSettings(s?.samples);
     this.mix = sanitiseMix(s?.mix);
+    // a seed from the link is another break: its edits are not these
+    if (!fromUrl) this.edits = sanitiseEdits(s?.edits, CATEGORIES);
+    this.keepEdits = s?.keepEdits === true;
+    this.snap = (SNAPS as readonly number[]).includes(Number(s?.snap)) ? Number(s!.snap) : 12;
     this.history = SeedHistory.from(readJson(HISTORY_KEY));
     const favs = readJson(FAVOURITES_KEY);
     this.favourites = Array.isArray(favs) ? favs.map(sanitiseFavourite).filter((f): f is Favourite => !!f) : [];
@@ -108,23 +134,24 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
 
-  /** Bake with the current recipe, kit and sample settings. */
-  private bakeWith(seeds: Seeds, recipe = this.recipe): Break {
-    return bake(recipe, seeds, this.ingredients.kit(), { settings: this.samples, loudness: this.ingredients.loudness() }, (id) => this.ingredients.name(id));
+  /** Bake with the current recipe, kit, sample settings and (by default) the hand edits. */
+  private bakeWith(seeds: Seeds, recipe = this.recipe, edits: Edits | null = this.edits): Break {
+    return bake(recipe, seeds, this.ingredients.kit(), { settings: this.samples, loudness: this.ingredients.loudness() }, (id) => this.ingredients.name(id), edits);
   }
 
   private show(b: Break): void {
     this.current = b;
     this.player.setBreak(b);
+    if (this.selected && !findRef(b.events, this.selected)) this.selected = null;
   }
 
   private remember(): void {
-    this.history.push({ recipe: this.recipe, seeds: this.seeds, name: this.seedName });
+    this.history.push(this.entry);
   }
 
   /** The current seed as shown: its name, or the number. */
@@ -133,14 +160,33 @@ export class App {
   }
 
   get entry(): SeedEntry {
-    return { recipe: this.recipe, seeds: this.seeds, name: this.seedName };
+    return { recipe: this.recipe, seeds: this.seeds, name: this.seedName, ...(hasEdits(this.edits) ? { edits: JSON.parse(JSON.stringify(this.edits)) as Edits } : {}) };
   }
 
-  /** Re-bake the current seeds (after a recipe, kit or sample-setting change); the batch follows. */
+  /** Re-bake the current seeds (after a recipe, kit or sample-setting change); the batch follows. Hand edits are re-applied. */
   rebake(): void {
+    const before = this.current.editReport;
     this.show(this.bakeWith(this.seeds));
-    this.batch = this.batch.map((c) => this.bakeWith(c.seeds));
+    this.batch = this.batch.map((c, i) => (i === this.picked ? this.current : this.bakeWith(c.seeds, this.recipe, this.keepEdits ? this.edits : null)));
+    const r = this.current.editReport;
+    if (r && (r.outside !== (before?.outside ?? 0) || r.inactive !== (before?.inactive ?? 0)) && (r.outside || r.inactive)) this.status = describeEdits(this.edits, r);
     this.changed();
+  }
+
+  /**
+   * A NEW break is about to replace this one (BAKE, BATCH, a seed, DICE, MUTATE). Its hand edits
+   * stay with it in the history (they were stored there with every edit), unless FREEZE EDITS
+   * carries them onto the new break. Returns a note for the status line.
+   */
+  private leaveEdits(): string {
+    if (!hasEdits(this.edits)) return '';
+    if (this.keepEdits) return ` Hand edits kept (FREEZE EDITS).`;
+    const n = editCount(this.edits);
+    this.edits = noEdits();
+    this.selected = null;
+    this.undoStack = [];
+    this.redoStack = [];
+    return ` Your ${n} hand edit${n === 1 ? '' : 's'} stay with the previous break: ◀ goes back to it (FREEZE EDITS carries edits onto new breaks).`;
   }
 
   setRecipe(patch: Partial<Recipe>): void {
@@ -174,42 +220,52 @@ export class App {
 
   /** BAKE: new seeds for the layers that are not frozen. */
   bake(): void {
+    const note = this.leaveEdits();
     this.seeds = reseed(this.seeds, this.frozen);
     this.seedName = null;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Baked: ${STYLE_DEFS[this.recipe.style].label}, seed ${this.seeds.beat}.`;
+    this.status = `Baked: ${STYLE_DEFS[this.recipe.style].label}, seed ${this.seeds.beat}.${note}`;
     this.changed();
   }
 
   /** BATCH: several candidates from new seeds (frozen layers kept); the first becomes current. */
   bakeBatch(n = BATCH_SIZE): void {
+    const note = this.leaveEdits();
     this.batch = [];
     for (let i = 0; i < n; i++) this.batch.push(this.bakeWith(reseed(this.seeds, this.frozen)));
     this.pick(0);
-    this.status = `A batch of ${n}: click one (or press 1–${n}) to audition it.`;
+    this.status = `A batch of ${n}: click one (or press 1–${n}) to audition it.${note}`;
     this.changed();
   }
 
   pick(i: number): void {
     const b = this.batch[i];
     if (!b) return;
+    if (i !== this.picked) {
+      const note = this.leaveEdits();
+      if (note) this.status = note.trim();
+    }
     this.picked = i;
     this.seeds = { ...b.seeds };
     this.seedName = null;
-    this.show(b);
+    // a candidate is baked with the edits it was made with; bake it again with the current ones
+    this.show(hasEdits(this.edits) || b.edits ? this.bakeWith(this.seeds) : b);
+    this.batch[i] = this.current;
     this.remember();
     this.changed();
   }
 
   /** Set every layer from one seed (a number, or a name). */
   setSeed(seed: number, name: string | null = null): void {
+    const note = this.leaveEdits();
     this.seeds = seedsFrom(Math.max(0, Math.floor(seed)) >>> 0);
     this.seedName = name;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
+    this.status = `Seed ${this.seedText}.${note}`;
     this.changed();
   }
 
@@ -217,8 +273,10 @@ export class App {
   setSeedText(text: string): boolean {
     const p = parseSeed(text);
     if (!p) return false;
+    const had = hasEdits(this.edits) && !this.keepEdits;
     this.setSeed(p.seed, p.name);
-    this.status = p.name ? `Seed “${p.name}” (${p.seed}): the same name always bakes the same break with the same recipe.` : `Seed ${p.seed}.`;
+    const note = had ? ' Your hand edits stay with the previous break (◀).' : '';
+    this.status = (p.name ? `Seed “${p.name}” (${p.seed}): the same name always bakes the same break with the same recipe.` : `Seed ${p.seed}.`) + note;
     this.changed(false);
     return true;
   }
@@ -242,19 +300,25 @@ export class App {
       this.say('MUTATE needs ENGINE 2 (engine 1 is kept exactly as released).');
       return;
     }
+    const note = this.leaveEdits();
     this.seeds = next;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Mutation ${next.mut!.length}: the groove varied a little${this.frozen.beat ? ' (kick and snare frozen)' : this.frozen.detail ? ' (detail frozen)' : ''}. ← goes back.`;
+    this.status = `Mutation ${next.mut!.length}: the groove varied a little${this.frozen.beat ? ' (kick and snare frozen)' : this.frozen.detail ? ' (detail frozen)' : ''}. ← goes back.${note}`;
     this.changed();
   }
 
+  /** A break from the history or the favourites, exactly as it was: with its own hand edits. */
   private restore(e: SeedEntry, samples?: SampleSettings): void {
     this.recipe = sanitiseRecipe(e.recipe);
     this.seeds = { ...e.seeds, ...(e.seeds.mut ? { mut: e.seeds.mut.map((m) => ({ ...m })) } : {}) };
     this.seedName = e.name;
     if (samples) this.samples = sanitiseSampleSettings(samples);
+    this.edits = sanitiseEdits(e.edits, CATEGORIES);
+    this.selected = null;
+    this.undoStack = [];
+    this.redoStack = [];
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
   }
@@ -339,6 +403,191 @@ export class App {
 
   get frozenCount(): number {
     return LAYERS.filter((l) => this.frozen[l]).length;
+  }
+
+  /** FREEZE EDITS: carry the hand edits onto new breaks (they are positional: "no kick on 1.3", "a ghost on 2.4"). */
+  toggleKeepEdits(): void {
+    this.keepEdits = !this.keepEdits;
+    this.status = this.keepEdits ? 'FREEZE EDITS: new breaks keep your hand edits (deleted, added, moved and changed hits, by position).' : 'Hand edits stay with their break: a new break starts unedited (◀ returns to an edited one).';
+    this.changed();
+  }
+
+  // ---------------------------------------------------------------- hand editing
+
+  get hasEdits(): boolean {
+    return hasEdits(this.edits);
+  }
+
+  get canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+
+  get canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+
+  private snapshot(): string {
+    return JSON.stringify({ edits: this.edits, selected: this.selected });
+  }
+
+  /** Re-apply the edit layer to the current seeds: playback follows at once (not at the loop point). */
+  private applyEdits(): void {
+    const b = this.bakeWith(this.seeds);
+    this.current = b;
+    this.player.update(b);
+    if (this.picked !== null && this.batch[this.picked]) this.batch[this.picked] = b;
+    if (this.selected && !findRef(b.events, this.selected)) this.selected = null;
+    this.history.replaceCurrent(this.entry);
+    this.changed();
+  }
+
+  /**
+   * Start a gesture (a drag that moves a hit, or paints several): one undo step for all of it.
+   * Operations inside it pass `gesture`.
+   */
+  beginGesture(): void {
+    this.undoStack.push(this.snapshot());
+    if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
+    this.redoStack = [];
+    this.lastEdit = null;
+  }
+
+  /** Commit a new edit layer. `coalesce`: quick repeats with the same key (a number being dragged) make one undo step. */
+  private commit(r: EditResult, select: boolean, opts: { gesture?: boolean; coalesce?: string; say?: string } = {}): boolean {
+    if (r.edits === this.edits) {
+      if (select && r.ref) this.select(r.ref);
+      return false;
+    }
+    if (!opts.gesture) {
+      const now = Date.now();
+      if (!opts.coalesce || this.lastEdit?.key !== opts.coalesce || now - this.lastEdit.at > 1500) {
+        this.undoStack.push(this.snapshot());
+        if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
+      }
+      this.lastEdit = opts.coalesce ? { key: opts.coalesce, at: now } : null;
+      this.redoStack = [];
+    }
+    this.edits = r.edits;
+    if (select) this.selected = r.ref;
+    if (opts.say !== undefined) this.status = opts.say;
+    this.applyEdits();
+    return true;
+  }
+
+  select(ref: string | null): void {
+    if (ref === this.selected) return;
+    this.selected = ref && findRef(this.current.events, ref) ? ref : null;
+    this.changed(false);
+  }
+
+  get selectedEvent() {
+    return findRef(this.current.events, this.selected);
+  }
+
+  /** Add a hit by hand at a grid tick of the break; it becomes the selected hit. Returns its ref. */
+  addHit(cat: Category, tick: number, gesture = false): string | null {
+    const p = posOf(tick);
+    if (p.bar < 0 || p.bar >= this.recipe.bars) return null;
+    const r = addHit(this.edits, this.current.events, { cat, ...p });
+    this.commit(r, true, { gesture, say: r.edits === this.edits ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
+    const e = this.selectedEvent;
+    if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel);
+    return r.ref;
+  }
+
+  deleteHit(ref: string | null = this.selected): void {
+    const e = findRef(this.current.events, ref);
+    if (!e || !ref) return;
+    const label = refLabel(this.current.events, ref);
+    this.commit({ edits: deleteHit(this.edits, ref), ref: null }, ref === this.selected, { say: `Deleted ${label}${e.manual === 'added' ? '' : ' (⌘Z brings it back)'}.` });
+  }
+
+  /** Move a hit to a grid tick (same category). False if refused (another hit of the category is there). */
+  moveHit(ref: string, tick: number, gesture = false): boolean {
+    const p = posOf(tick);
+    if (p.bar < 0 || p.bar >= this.recipe.bars) return false;
+    const r = moveHit(this.edits, this.current.events, ref, p);
+    if (!r.ref) return false;
+    this.commit(r, true, { gesture, say: `Moved to ${posLabel(p)}.` });
+    return true;
+  }
+
+  /** Move the selected hit by `ticks` (keys and the ◀ ▶ buttons). */
+  nudge(ticks: number): void {
+    const e = this.selectedEvent;
+    if (!e) return;
+    const t = e.bar * 16 * TPS + e.step * TPS + e.sub + ticks;
+    if (t < 0 || t >= this.recipe.bars * 16 * TPS) return this.say('That would move the hit out of the pattern.');
+    if (!this.moveHit(this.selected!, t)) this.say(`There is already a ${CATEGORY_LABEL[e.cat]} hit there.`);
+  }
+
+  setHitVelocity(v: number, ref: string | null = this.selected): void {
+    if (!ref) return;
+    this.commit(setVelocity(this.edits, this.current.events, ref, v), false, { coalesce: `vel:${ref}` });
+  }
+
+  setHitTiming(ms: number, ref: string | null = this.selected): void {
+    if (!ref) return;
+    this.commit(setTiming(this.edits, this.current.events, ref, ms), false, { coalesce: `time:${ref}` });
+  }
+
+  setHitSample(sample: string | null, ref: string | null = this.selected): void {
+    if (!ref) return;
+    this.commit(setSample(this.edits, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
+    const e = findRef(this.current.events, ref);
+    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel);
+  }
+
+  duplicateHit(ref: string | null = this.selected): void {
+    if (!ref) return;
+    const r = duplicateHit(this.edits, this.current.events, ref, this.snap, this.recipe.bars);
+    if (!r.ref) return this.say('No free place for a copy after this hit.');
+    this.commit(r, true, { say: `Duplicated: ${refLabel(this.current.events, ref)} → ${refLabel(this.bakeWith(this.seeds, this.recipe, r.edits).events, r.ref)}.` });
+  }
+
+  /** Back to how the generator made this hit (a moved hit returns to its place). */
+  revertHit(ref: string | null = this.selected): void {
+    if (!ref) return;
+    const r = revertHit(this.edits, ref);
+    if (!r.ref) return this.say('This hit was placed by hand: there is nothing generated to go back to (DEL removes it).');
+    this.commit(r, true, { say: 'Back to the generated hit.' });
+  }
+
+  /** Remove every hand edit of this break (undoable). */
+  revertAll(): void {
+    if (!hasEdits(this.edits)) return this.say('This break has no hand edits.');
+    const n = editCount(this.edits);
+    this.commit({ edits: noEdits(), ref: null }, true, { say: `Removed ${n} hand edit${n === 1 ? '' : 's'}: the break is as generated (⌘Z undoes this).` });
+  }
+
+  undo(): void {
+    const s = this.undoStack.pop();
+    if (!s) return this.say('Nothing to undo.');
+    this.redoStack.push(this.snapshot());
+    this.restoreSnapshot(s);
+    this.say('Undone.');
+  }
+
+  redo(): void {
+    const s = this.redoStack.pop();
+    if (!s) return this.say('Nothing to redo.');
+    this.undoStack.push(this.snapshot());
+    this.restoreSnapshot(s);
+    this.say('Redone.');
+  }
+
+  private restoreSnapshot(s: string): void {
+    const o = JSON.parse(s) as { edits: Edits; selected: string | null };
+    this.edits = o.edits;
+    this.selected = o.selected;
+    this.lastEdit = null;
+    this.applyEdits();
+  }
+
+  setSnap(ticks: number): void {
+    if (!(SNAPS as readonly number[]).includes(ticks)) return;
+    this.snap = ticks;
+    this.changed();
   }
 
   // ---------------------------------------------------------------- samples

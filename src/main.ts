@@ -22,7 +22,7 @@ import { recipeWindow } from './ui/recipeWindow';
 import { installTooltips } from './ui/tooltip';
 import type { UiContext } from './ui/context';
 
-const W = 720;
+const W = 880;
 const H = 470;
 const REPO = 'https://github.com/clickysteve/the-breakery';
 
@@ -262,8 +262,8 @@ desk.style.position = 'absolute';
 const wIng = ingredientsWindow(desk, ui, { x: 5, y: 21, w: 208, h: 444 });
 const wRecipe = recipeWindow(desk, ui, { x: 218, y: 21, w: 322, h: 152 });
 const wBake = bakeWindow(desk, ui, { x: 545, y: 21, w: 170, h: 152 });
-const wPattern = patternWindow(desk, ui, { x: 218, y: 178, w: 497, h: 196 });
-const wBatch = batchWindow(desk, ui, { x: 218, y: 379, w: 497, h: 86 });
+const wPattern = patternWindow(desk, ui, { x: 218, y: 178, w: 497, h: 287 });
+const wBatch = batchWindow(desk, ui, { x: 720, y: 21, w: 155, h: 444 });
 
 // ------------------------------------------------------------------ menus
 interface MenuItem {
@@ -280,7 +280,7 @@ async function about(): Promise<void> {
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN.',
+    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to select it; drag it sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN.',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -299,6 +299,21 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       { sep: true },
       { label: 'Takeaway (Export WAV)…', key: 'T', action: () => void doTakeaway() },
       { label: 'Takeaway MIDI File', key: 'M', action: doMidiTakeaway },
+    ],
+  },
+  {
+    title: 'Edit',
+    items: () => [
+      { label: app.canUndo ? 'Undo Hand Edit' : 'Undo', key: '⌘Z', action: () => app.undo() },
+      { label: 'Redo', key: '⇧⌘Z', action: () => app.redo() },
+      { sep: true },
+      { label: 'Delete Hit', key: 'Del', action: () => app.deleteHit() },
+      { label: 'Duplicate Hit', action: () => app.duplicateHit() },
+      { label: 'Revert Hit to Generated', action: () => app.revertHit() },
+      { label: 'Select None', key: 'Esc', action: () => app.select(null) },
+      { sep: true },
+      { label: 'Clear All Hand Edits', action: () => app.revertAll() },
+      { label: 'Freeze Edits (keep on new breaks)', key: 'E', checked: () => app.keepEdits, action: () => app.toggleKeepEdits() },
     ],
   },
   {
@@ -422,11 +437,25 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   const t = e.target as HTMLElement;
-  if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement) return;
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   const k = e.key.toLowerCase();
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'z' || k === 'y')) {
+    // undo / redo of hand edits (a number box being typed into keeps its own keys)
+    e.preventDefault();
+    if (k === 'y' || e.shiftKey) app.redo();
+    else app.undo();
+    return;
+  }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
   const n = Number(e.key);
-  if (e.key === ' ') void togglePlay();
+  const sel = app.selectedEvent;
+  if (sel && (e.key === 'Delete' || e.key === 'Backspace')) app.deleteHit();
+  else if (sel && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (t === document.body || t.classList.contains('btn') || t.closest('.patternsvg'))) app.nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 48 : app.snap));
+  else if (sel && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && (t === document.body || t.classList.contains('btn'))) app.setHitVelocity(sel.vel + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 1 : 5));
+  else if (e.key === 'Escape' && sel) {
+    closeMenu();
+    app.select(null);
+  } else if (e.key === ' ') void togglePlay();
   else if (k === 'b') app.bake();
   else if (k === 'n') app.bakeBatch();
   else if (k === 't') void doTakeaway();
@@ -438,6 +467,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'g') app.toggleFreeze('detail');
   else if (k === 'h') app.toggleFreeze('feel');
   else if (k === 'k') app.toggleFreeze('kit');
+  else if (k === 'e') app.toggleKeepEdits();
   else if (e.key === 'ArrowRight' && (t === document.body || t.classList.contains('btn'))) app.historyForward();
   else if (e.key === 'ArrowLeft' && (t === document.body || t.classList.contains('btn'))) app.historyBack();
   else if (n >= 1 && n <= BATCH_SIZE) app.pick(n - 1);

@@ -5,6 +5,8 @@
  * frozen, compared and bred independently, as in the Groove MIDI Dataset's representation).
  */
 
+import type { ApplyReport, Edits } from './edits';
+
 /** Drum categories, in display order. */
 export const CATEGORIES = ['kick', 'snare', 'ghost', 'hat', 'open', 'ride', 'crash', 'perc'] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -122,7 +124,9 @@ export type Role =
   /** a hit copied from another place in the groove by a chop (event-level resequencing) */
   | 'chop'
   /** a fast retrigger of the same sound (a roll or stutter) */
-  | 'roll';
+  | 'roll'
+  /** placed (or moved) by hand: not generated */
+  | 'manual';
 
 /** A hit in the score, before performance. `level` is its nominal dynamic, 0..1. */
 export interface Hit {
@@ -150,6 +154,14 @@ export interface BreakEvent extends Hit {
   sample: string | null;
   /** why that sample (sample-selection mode), for the pattern view */
   sampleWhy?: string;
+  /** identity for editing: the generated hit's key ("snare|1|4|0"), or "m:<id>" for a hand-placed hit */
+  ref?: string;
+  /** edited by hand: added, moved (a generated hit placed elsewhere) or edited (velocity, timing, sample) */
+  manual?: 'added' | 'moved' | 'edited';
+  /** what was changed by hand (shown with the generator's explanation) */
+  editWhy?: string;
+  /** a sample chosen by hand for this hit */
+  pinned?: string;
 }
 
 /**
@@ -179,6 +191,10 @@ export interface Break {
   /** which timekeeper the generator chose */
   timekeeper: 'hat' | 'ride';
   events: BreakEvent[];
+  /** the hand edits applied to the generated events (absent when there are none) */
+  edits?: Edits;
+  /** edits that could not apply to this break (kept, not dropped) */
+  editReport?: ApplyReport;
 }
 
 /** Grid ticks of an event from the start of the break. */

@@ -43,8 +43,13 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
     onPress: () => app.toggleRhythm(),
   });
   const samples = new Button(b, [7 + hw, 86, W - 11 - hw, 13], 'SAMPLES', { cls: 'small', tip: FREEZE_TIP.kit, onPress: () => app.toggleFreeze('kit') });
-  const tw = Math.floor((W - 8 - 6) / 3);
+  const tw = Math.floor((W - 8 - 9) / 4);
   const layers = (['beat', 'detail', 'feel'] as Layer[]).map((l, i) => new Button(b, [4 + i * (tw + 3), 101, tw, 12], l.toUpperCase(), { cls: 'small', tip: FREEZE_TIP[l], onPress: () => app.toggleFreeze(l) }));
+  const edits = new Button(b, [4 + 3 * (tw + 3), 101, W - 8 - 3 * (tw + 3), 12], 'EDITS', {
+    cls: 'small',
+    tip: 'FREEZE EDITS (E): new breaks (BAKE, BATCH, a seed, MUTATE) keep your hand edits, by position. Off: hand edits stay with their break (◀ in the history returns to it); a new break starts as generated. Recipe, sample and length changes always keep them.',
+    onPress: () => app.toggleKeepEdits(),
+  });
 
   label(b, 6, 120, 'LEVEL');
   const level = new RangeBar(b, [40, 117, W - 44, 13], {
@@ -83,6 +88,7 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
     rhythm.on = app.rhythmFrozen;
     samples.on = app.frozen.kit;
     layers.forEach((f, i) => (f.on = app.frozen[(['beat', 'detail', 'feel'] as Layer[])[i]!]));
+    edits.on = app.keepEdits;
     level.update();
     tick();
   }

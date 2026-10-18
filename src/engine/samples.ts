@@ -23,7 +23,7 @@
  * resolved first; the mode of the HIT's category then picks from that pool. A missing FIXED
  * sample falls back to the pool's first sample, and says so.
  */
-import { assignSamples, sourceOf, type KitIndex } from './kit';
+import { assignSamples, sourceOf, type KitChoice, type KitIndex } from './kit';
 import { hashString, stream } from './rng';
 import { CATEGORIES, CATEGORY_LABEL, type BreakEvent, type Category } from './types';
 
@@ -86,16 +86,44 @@ const ordinal = (n: number) => `${n}${n % 10 === 1 && n % 100 !== 11 ? 'st' : n 
  * explanations.
  */
 export function selectSamples(events: BreakEvent[], kit: KitIndex, kitSeed: number, ctx: SampleContext = {}, names: (id: string) => string = (id) => id): void {
+  const main = autoSamples(events, kit, kitSeed, ctx);
+  finishSamples(events, kit, kitSeed, ctx, names, main);
+}
+
+const autoWhy = (kit: KitIndex, cat: Category) => 'AUTO: the break’s main sample' + (cat !== sourceOf(kit, cat) ? ` (${CATEGORY_LABEL[cat]} uses ${CATEGORY_LABEL[sourceOf(kit, cat)!]} samples)` : '');
+
+/**
+ * The AUTO choice for the GENERATED events, exactly as engine 1 made it: it consumes its stream
+ * once per event in order, so it runs on the generated events before any hand edit, and a hit
+ * added or deleted by hand never changes another hit's sample.
+ */
+export function autoSamples(events: BreakEvent[], kit: KitIndex, kitSeed: number, ctx: SampleContext = {}): KitChoice {
   const settings = ctx.settings ?? {};
-  // AUTO first, exactly as engine 1 did it (it consumes its stream for every event)
-  assignSamples(events, kit, kitSeed);
-  for (const e of events) if (e.sample && modeOf(settings, e.cat) === 'auto') e.sampleWhy = 'AUTO: the break’s main sample' + (e.cat !== sourceOf(kit, e.cat) ? ` (${CATEGORY_LABEL[e.cat]} uses ${CATEGORY_LABEL[sourceOf(kit, e.cat)!]} samples)` : '');
+  const main = assignSamples(events, kit, kitSeed);
+  for (const e of events) if (e.sample && modeOf(settings, e.cat) === 'auto') e.sampleWhy = autoWhy(kit, e.cat);
+  return main;
+}
+
+/**
+ * Everything after AUTO, on the finished event list (hand edits applied): hits without a sample
+ * yet (placed by hand) take their category's main sample, the categories' PICK modes choose, and
+ * samples chosen by hand win (if they are still loaded).
+ */
+export function finishSamples(events: BreakEvent[], kit: KitIndex, kitSeed: number, ctx: SampleContext, names: (id: string) => string, main: KitChoice): void {
+  const settings = ctx.settings ?? {};
+  for (const e of events) {
+    if (e.sample || e.pinned) continue;
+    const src = sourceOf(kit, e.cat);
+    if (!src) continue;
+    e.sample = main[src];
+    if (e.sample && modeOf(settings, e.cat) === 'auto') e.sampleWhy = autoWhy(kit, e.cat);
+  }
 
   for (const cat of CATEGORIES) {
     const mode = modeOf(settings, cat);
     if (mode === 'auto') continue;
     const src = sourceOf(kit, cat);
-    const evs = events.filter((e) => e.cat === cat);
+    const evs = events.filter((e) => e.cat === cat && !e.pinned);
     if (!src || !evs.length) continue;
     const pool = kit[src];
     const via = cat !== src ? ` (from the ${CATEGORY_LABEL[src]} samples)` : '';
@@ -178,6 +206,20 @@ export function selectSamples(events: BreakEvent[], kit: KitIndex, kitSeed: numb
         }
         break;
       }
+    }
+  }
+
+  // samples chosen by hand: any loaded sample, whatever its category
+  const ready = new Set(CATEGORIES.flatMap((c) => kit[c]));
+  for (const e of events) {
+    if (!e.pinned) continue;
+    if (ready.has(e.pinned)) {
+      e.sample = e.pinned;
+      e.sampleWhy = 'chosen by hand';
+    } else {
+      const src = sourceOf(kit, e.cat);
+      e.sample = src ? main[src] : null;
+      e.sampleWhy = `the sample chosen by hand is no longer loaded${e.sample ? ': the main sample instead' : ''}`;
     }
   }
 }

@@ -20,7 +20,8 @@ import { emptyKit, type KitIndex } from './kit';
 import { perform } from './performance';
 import { developPhrase, mutateCell, planBars, tidy } from './phrase';
 import { freshSeed, hashString, stream } from './rng';
-import { selectSamples, type SampleContext } from './samples';
+import { applyEdits, hasEdits, type Edits } from './edits';
+import { autoSamples, finishSamples, type SampleContext } from './samples';
 import { STYLE_DEFS } from './styles';
 import { generateSupport, planSupport } from './support';
 import { bakeV1 } from './v1/generate';
@@ -65,11 +66,20 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
   return { plan: roles, feel, timekeeper: plan.timekeeper, events };
 }
 
-export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}, names?: (id: string) => string): Break {
+/**
+ * BAKE a break. `edits` (the user's hand edits, edits.ts) are applied to the generated events
+ * after the AUTO sample choice and before the PICK modes, so the generator and the AUTO choice
+ * are untouched by them, and playback, export, stems, MIDI and the pattern view all use the
+ * edited events.
+ */
+export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}, names: (id: string) => string = (id) => id, edits?: Edits | null): Break {
   const recipe = sanitiseRecipe(recipeIn);
   const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
-  selectSamples(core.events, kit, seeds.kit, samples, names);
-  return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...core };
+  const main = autoSamples(core.events, kit, seeds.kit, samples);
+  const { events, report } = applyEdits(core.events, edits, recipe);
+  finishSamples(events, kit, seeds.kit, samples, names, main);
+  const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
+  return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...core, events, ...ed };
 }
 
 export function randomSeeds(): Seeds {

@@ -52,6 +52,8 @@ export class Player {
   private list: Scheduled[] = [];
   private idx = 0;
   private loopStart = 0;
+  /** audio time up to which hits are already scheduled */
+  private scheduledUntil = 0;
   private seq = 0;
   playing = false;
   loop = true;
@@ -136,6 +138,31 @@ export class Player {
     else this.current = b;
   }
 
+  /**
+   * The same break, edited by hand: heard from the next unscheduled hit, not at the loop point
+   * (hits already scheduled, at most the look-ahead of 150 ms, still play). A change of length
+   * waits for the loop point like a new break.
+   */
+  update(b: Break): void {
+    if (!this.playing || !this.ctx || !this.current) {
+      this.current = b;
+      this.pending = null;
+      return;
+    }
+    if (b.recipe.bars !== this.current.recipe.bars || b.recipe.bpm !== this.current.recipe.bpm || this.pending) {
+      this.pending = b;
+      return;
+    }
+    const done = this.idx >= this.list.length;
+    this.build(b);
+    if (done) this.idx = this.list.length;
+    else {
+      const until = this.scheduledUntil - this.loopStart;
+      this.idx = this.list.findIndex((x) => x.sec > until + 1e-9);
+      if (this.idx < 0) this.idx = this.list.length;
+    }
+  }
+
   stop(): void {
     this.ticker?.stop();
     this.ticker = null;
@@ -182,6 +209,7 @@ export class Player {
       const s = this.list[this.idx]!;
       const t = this.loopStart + s.sec;
       if (t > horizon) return;
+      this.scheduledUntil = t;
       if (t >= ctx.currentTime - 0.005) this.trigger(s.e.cat, s.e.sample!, s.e.vel, Math.max(t, ctx.currentTime));
       this.idx++;
     }
