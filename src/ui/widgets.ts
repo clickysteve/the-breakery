@@ -14,18 +14,66 @@ export interface WindowOpts {
   h: number;
   /** a close box (emmm's triangle): the window can be hidden and shown again */
   closable?: boolean;
+  /**
+   * Tabs in place of the title: each is a title tab with the slanted edge; the current one joins
+   * the window body, the others sit behind it (dithered). Each tab has its own pane in the body.
+   */
+  tabs?: string[];
+  /** called when another tab is chosen (after its pane is shown) */
+  onTab?: (i: number) => void;
 }
 
-/** A window: title in a tab with a slanted edge; drag the title bar to move it. */
+/** A window: title in a tab with a slanted edge (or several tabs); drag the title bar to move it. */
 export class MWindow {
   el: HTMLDivElement;
   body: HTMLDivElement;
   titleEl: HTMLDivElement;
+  /** one pane per tab (empty without tabs) */
+  panes: HTMLDivElement[] = [];
+  /** the current tab */
+  tab = 0;
+  private tabEls: HTMLDivElement[] = [];
   constructor(parent: HTMLElement, public o: WindowOpts) {
     this.el = el('div', 'mwin', parent, [o.x, o.y, o.w, o.h]);
     this.el.setAttribute('role', 'region');
-    this.el.setAttribute('aria-label', o.title);
-    const tb = el('div', 'titlebar', this.el);
+    this.el.setAttribute('aria-label', o.tabs ? o.tabs.join(' · ') : o.title);
+    const tb = el('div', 'titlebar' + (o.tabs ? ' tabbed' : ''), this.el);
+    if (o.tabs) {
+      tb.setAttribute('role', 'tablist');
+      this.tabEls = o.tabs.map((t, i) => {
+        const tab = el('div', 'mtab', tb);
+        tab.setAttribute('role', 'tab');
+        tab.tabIndex = 0;
+        el('span', 'mtab-text', tab, undefined, t);
+        el('div', 'mtab-slant', tab).appendChild(svgEl(16, 16, `<line x1="0.5" y1="0" x2="16" y2="15.5" stroke="var(--ink)"/>`));
+        tab.addEventListener('pointerdown', () => this.setTab(i));
+        tab.addEventListener('keydown', (ev) => {
+          const k = ev.key;
+          if (k === 'Enter' || k === ' ') this.setTab(i);
+          else if (k === 'ArrowRight' || k === 'ArrowLeft') {
+            const j = (i + (k === 'ArrowRight' ? 1 : -1) + o.tabs!.length) % o.tabs!.length;
+            this.setTab(j);
+            this.tabEls[j]!.focus();
+          } else return;
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        return tab;
+      });
+      this.titleEl = this.tabEls[0]!.firstChild as HTMLDivElement;
+      el('div', 'titlefill', tb);
+      this.body = el('div', 'body', this.el);
+      this.body.style.height = o.h - 18 + 'px';
+      this.panes = o.tabs.map((t) => {
+        const p = el('div', 'pane', this.body, [0, 0, o.w - 2, o.h - 18]);
+        p.setAttribute('role', 'tabpanel');
+        p.setAttribute('aria-label', t);
+        return p;
+      });
+      this.showTab(0);
+      this.drag(tb);
+      return;
+    }
     if (o.closable) {
       const c = el('div', 'close', tb);
       c.appendChild(svgEl(13, 15, `<polygon points="3.5,3.5 11.5,3.5 3.5,11.5" fill="var(--paper)" stroke="var(--ink)"/>`));
@@ -43,6 +91,9 @@ export class MWindow {
     el('div', 'titlefill', tb);
     this.body = el('div', 'body', this.el);
     this.body.style.height = o.h - 18 + 'px';
+    this.drag(tb);
+  }
+  private drag(tb: HTMLElement): void {
     tb.addEventListener('pointerdown', (ev) => {
       this.front();
       const x0 = this.o.x;
@@ -57,6 +108,20 @@ export class MWindow {
   }
   front(): void {
     this.el.style.zIndex = String(++zTop);
+  }
+  /** Choose a tab: its pane is shown, the others hidden (their contents and state are kept). */
+  setTab(i: number): void {
+    if (i === this.tab || !this.panes[i]) return;
+    this.showTab(i);
+    this.o.onTab?.(i);
+  }
+  private showTab(i: number): void {
+    this.tab = i;
+    this.tabEls.forEach((t, j) => {
+      t.classList.toggle('on', j === i);
+      t.setAttribute('aria-selected', String(j === i));
+    });
+    this.panes.forEach((p, j) => (p.hidden = j !== i));
   }
   setTitle(t: string): void {
     if (this.titleEl.textContent !== t) this.titleEl.textContent = t;
@@ -83,7 +148,8 @@ export interface ButtonOpts {
 /** A framed button; `on` inverts it (toggles, the current style). */
 export class Button {
   el: HTMLDivElement;
-  constructor(parent: HTMLElement, rect: [number, number, number, number], text: string, o: ButtonOpts) {
+  /** `rect` without a size: the button fills a grid cell (its CSS sets the size) */
+  constructor(parent: HTMLElement, rect: [number, number, number?, number?], text: string, o: ButtonOpts) {
     this.el = el('div', 'btn ' + (o.cls ?? ''), parent, rect, text);
     this.el.setAttribute('role', 'button');
     this.el.tabIndex = 0;
@@ -185,6 +251,8 @@ export interface RangeOpts {
   parse?: (text: string) => number | null;
   /** the text an edit starts from (default: the shown text without units) */
   editText?: (v: number) => string;
+  /** bipolar (PAN): the fill grows from this point, which is marked (0.5 = the centre) */
+  origin?: number;
 }
 
 const pctParse = (t: string): number | null => (NUMBER_TEXT.test(t) ? Math.max(0, Math.min(1, Number(t) / 100)) : null);
@@ -199,7 +267,7 @@ export class RangeBar {
   private val: HTMLDivElement;
   private entry: TextEntry;
   private entryEl: HTMLDivElement | null = null;
-  constructor(parent: HTMLElement, rect: [number, number, number, number], private o: RangeOpts) {
+  constructor(parent: HTMLElement, rect: [number, number, number?, number?], private o: RangeOpts) {
     this.el = el('div', 'range', parent, rect);
     this.el.tabIndex = 0;
     this.el.setAttribute('role', 'slider');
@@ -209,6 +277,7 @@ export class RangeBar {
     setTip(this.el, o.tip + ' Double-click (or Return) to type a value.');
     this.fill = el('div', 'fill fill-grey', this.el);
     this.fill.style.left = '0';
+    if (o.origin !== undefined) el('div', 'origin', this.el).style.left = `${o.origin * 100}%`;
     this.val = el('div', 'val', this.el);
     this.entry = new TextEntry(this.el, (ch) => /[0-9.\-]/.test(ch));
     const setFrom = (ev: PointerEvent, final: boolean) => {
@@ -319,7 +388,9 @@ export class RangeBar {
 
   update(): void {
     const v = this.o.get();
-    this.fill.style.width = `${Math.round(v * 100)}%`;
+    const from = this.o.origin ?? 0;
+    this.fill.style.left = `${Math.round(Math.min(v, from) * 100)}%`;
+    this.fill.style.width = `${Math.round(Math.abs(v - from) * 100)}%`;
     const t = this.o.format(v);
     if (this.val.textContent !== t) {
       this.val.replaceChildren();

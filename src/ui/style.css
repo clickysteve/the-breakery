@@ -240,6 +240,82 @@ svg {
 .mwin .body {
   position: relative;
 }
+/* tabs in the title bar (MWindow `tabs`): each one a title tab with the slanted edge. The current
+   tab is plain paper and joins the body (no line under it); the others sit behind, dithered, with
+   the line under them. */
+.mwin .titlebar.tabbed {
+  border-bottom: none;
+}
+.titlebar.tabbed .titlefill,
+.titlebar.tabbed .mtab:not(.on) {
+  border-bottom: 1px solid var(--ink);
+}
+.mwin .mtab {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  height: 16px;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  cursor: default;
+  background-image: var(--lightgrey);
+  background-size: 4px 4px;
+}
+.mwin .mtab + .mtab {
+  border-left: 1px solid var(--ink);
+}
+.mwin .mtab.on {
+  background: var(--paper);
+}
+.mwin .mtab-text {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 6px;
+}
+.mwin .mtab:not(.on) .mtab-text {
+  font-weight: 400;
+}
+/* the label of a tab behind stays legible on its dither: a paper plate under the text */
+.mwin .mtab:not(.on) .mtab-text {
+  background: var(--paper);
+  margin: 3px 0 3px 3px;
+  padding: 0 3px;
+}
+.mwin .mtab-slant {
+  position: relative;
+  width: 16px;
+  flex: none;
+  background: var(--paper);
+}
+/* the slanted edge: the tab's own surface below the diagonal, the title bar's paper above it */
+.mwin .mtab-slant::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: inherit;
+  clip-path: polygon(0 0, 1px 0, 100% 100%, 0 100%);
+}
+.mwin .mtab:not(.on) .mtab-slant::before {
+  background-image: var(--lightgrey);
+  background-size: 4px 4px;
+}
+.mwin .mtab-slant svg {
+  position: absolute;
+  inset: 0;
+}
+.mwin .mtab:focus-visible {
+  outline: 1px dotted var(--ink);
+  outline-offset: -3px;
+}
+.mwin .pane {
+  position: absolute;
+}
+.mwin .pane[hidden] {
+  display: none;
+}
 
 /* ------------------------------------------------------------ generic controls */
 .num {
@@ -332,6 +408,14 @@ svg {
   top: 0;
   bottom: 0;
 }
+.range .origin {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -1px;
+  background: var(--ink);
+}
 .range .cur {
   position: absolute;
   top: 0;
@@ -374,7 +458,11 @@ input.mtext {
   appearance: none;
   -webkit-appearance: none;
 }
-select.mselect {
+select.mselect[size] {
+  background-image: none;
+  padding-right: 3px;
+}
+select.mselect:not([size]) {
   padding-right: 10px;
   background-image: linear-gradient(45deg, transparent 50%, var(--ink) 50%), linear-gradient(135deg, var(--ink) 50%, transparent 50%);
   background-position:
@@ -390,7 +478,7 @@ select.mselect {
   font-weight: 600;
   font-size: 10px;
   border: 1px solid var(--ink);
-  border-radius: 6px;
+  border-radius: 0;
   background: var(--paper);
   color: var(--ink);
   padding: 2px 10px;
@@ -664,9 +752,11 @@ select.mselect {
   letter-spacing: 1px;
   box-shadow: 1px 1px 0 var(--ink);
 }
+/* disabled: a dotted frame on a faint dither; the label stays readable */
 .btn.disabled {
+  border-style: dotted;
   color: var(--dim);
-  background-image: var(--lightgrey);
+  background-image: var(--dots);
   background-size: 4px 4px;
 }
 .btn.small {
@@ -885,4 +975,112 @@ select.mselect {
 }
 .importlist .srow select.mselect {
   width: 72px;
+}
+
+/* ------------------------------------------------------------ The Breakery 0.3 */
+/* a section heading inside a panel */
+.label.head {
+  font-size: 8px;
+  font-weight: 600;
+}
+.rule {
+  position: absolute;
+  height: 0;
+  border-top: 1px dotted var(--ink);
+}
+/* MIXER: one grid, so every row, heading and the master line up by construction */
+.mixgrid {
+  position: absolute;
+  display: grid;
+  grid-template-columns: 62px minmax(96px, 1fr) 92px 36px 36px 96px;
+  /* headings, eleven channels, the rule, the master */
+  grid-template-rows: 9px repeat(11, 16px) 5px 16px;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+}
+.mixgrid .cell {
+  position: relative;
+  height: 14px;
+}
+.mixgrid .cell > .range,
+.mixgrid .cell > .btn {
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+}
+.mixgrid .mhead {
+  font-family: var(--font-tiny);
+  font-size: 7px;
+  line-height: 7px;
+  align-self: end;
+  padding-bottom: 1px;
+}
+.mixgrid .mname {
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mixgrid .mname.silent {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+.mixgrid .msep {
+  grid-column: 1 / -1;
+  height: 0;
+  border-top: 1px solid var(--ink);
+  align-self: center;
+}
+.mixgrid .span2 {
+  grid-column: span 2;
+}
+/* a level meter: dithered scale, the level drawn solid over it, a clip mark at the right */
+.meter {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 10px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  overflow: hidden;
+}
+.meter.half {
+  height: 6px;
+}
+.meter.half + .meter.half {
+  top: 8px;
+}
+.meter .mfill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  background: var(--activity);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+.meter .mtick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dotted var(--ink);
+}
+/* a setting that does nothing at the moment (ROLL GENERATION off, ALL TRACKS chosen): dotted, dithered, still usable */
+.inactive {
+  border-style: dotted !important;
+}
+.range.inactive .fill {
+  background-image: var(--lightgrey);
+  background-size: 4px 4px;
+}
+.btn.on.inactive {
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: underline;
 }

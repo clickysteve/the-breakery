@@ -2,6 +2,7 @@ import type { KitManager } from '../app/kits';
 import { download } from '../audio/takeaway';
 import { el, esc } from './dom';
 import { promptDialog } from './dialogs';
+import { Button } from './widgets';
 import type { UiContext } from './context';
 
 export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) {
@@ -12,7 +13,7 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) 
   list.size = 10; list.setAttribute('aria-label', 'Saved kits');
   const input = el('input', '', panel); input.type = 'file'; input.accept = '.breakery-kit,.zip'; input.hidden = true;
   let busy = false;
-  const controls: HTMLButtonElement[] = [];
+  const controls: Button[] = [];
   const run = async (action: () => Promise<void> | void) => {
     if (busy) return;
     busy = true; update();
@@ -36,8 +37,7 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) 
     ['SET DEFAULT', () => kits.setDefault(selected())],
   ];
   actions.forEach(([label, action], i) => {
-    const button = el('button', 'mbutton', panel, [5 + (i % 2) * 98, 240 + Math.floor(i / 2) * 25, 94, 20], label);
-    button.addEventListener('click', () => void run(action)); controls.push(button);
+    controls.push(new Button(panel, [5 + (i % 2) * 98, 240 + Math.floor(i / 2) * 22, 94, 18], label, { onPress: () => void run(action) }));
   });
   input.addEventListener('change', () => {
     const file = input.files?.[0]; input.value = '';
@@ -49,7 +49,7 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) 
     title.textContent = kits.name;
     title.title = kits.name;
     count.textContent = `${ui.app.ingredients.items.length} SAMPLES${kits.dirty ? ' · * UNSAVED' : ''}${busy ? ' · WORKING…' : ''}`;
-    controls.forEach(b => b.disabled = busy);
+    controls.forEach(b => (b.disabled = busy));
     list.disabled = busy;
     const next = JSON.stringify(kits.catalog);
     if (signature === next) return;
@@ -67,6 +67,5 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitManager) 
   title.style.textOverflow = 'ellipsis';
   title.style.overflow = 'hidden';
   title.style.height = '18px';
-  controls.forEach(b => b.style.position = 'absolute');
   update(); return { panel, update };
 }

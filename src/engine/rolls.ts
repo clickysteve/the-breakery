@@ -247,3 +247,38 @@ export function addRolls(events: BreakEvent[], ctx: RollContext, rng: Rng, frng:
   return out.sort((x, y) => tickOf(x) - tickOf(y));
 }
 
+
+/** A roll as one group of hits: consecutive roll hits no more than a sixteenth apart, in one bar. */
+export interface RollGroup {
+  cat: Category;
+  bar: number;
+  /** first and last hit, grid ticks from the start of the break */
+  start: number;
+  end: number;
+  events: BreakEvent[];
+}
+
+/**
+ * The rolls in a break's events (role 'roll', whether from ROLLS, a fill or kept by hand). Per
+ * category (`perCat`, one group per pattern row, as drawn) or as whole rolls across drums (a roll
+ * round the toms is one roll, as counted).
+ */
+export function rollGroups(events: readonly BreakEvent[], perCat = false): RollGroup[] {
+  const rolls = events.filter((e) => e.role === 'roll').sort((a, b) => tickOf(a) - tickOf(b));
+  const groups: RollGroup[] = [];
+  const open = new Map<string, RollGroup>();
+  for (const e of rolls) {
+    const k = perCat ? `${e.cat}|${e.bar}` : `${e.bar}`;
+    const t = tickOf(e);
+    const g = open.get(k);
+    if (g && t - g.end <= TPS) {
+      g.events.push(e);
+      g.end = t;
+    } else {
+      const ng: RollGroup = { cat: e.cat, bar: e.bar, start: t, end: t, events: [e] };
+      groups.push(ng);
+      open.set(k, ng);
+    }
+  }
+  return groups;
+}

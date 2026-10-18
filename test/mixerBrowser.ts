@@ -99,7 +99,7 @@ export async function run() {
   player.stop(); check(player.meter('snare') === 0 && player.meter('L') === 0, 'meters reset');
   await player.ctx!.close();
   await import('../src/main');
-  const tab = [...document.querySelectorAll<HTMLElement>('.btn')].find(e => e.textContent === 'MIXER');
+  const tab = [...document.querySelectorAll<HTMLElement>('.mtab')].find(e => e.textContent === 'MIXER');
   check(tab, 'MIXER tab exists'); tab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
   for (const c of CATEGORIES) {
     const control = document.querySelector<HTMLElement>(`[aria-label="${c} volume"]`);

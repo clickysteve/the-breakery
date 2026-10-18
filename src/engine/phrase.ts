@@ -28,7 +28,7 @@ import { chopBar, roll } from './chop';
 import { posName } from './meter';
 import type { Rng } from './rng';
 import type { FillKind, StyleDef } from './styles';
-import { clamp, STEPS, type BarRole, type Hit, type Recipe } from './types';
+import { clamp, STEPS, type BarRole, type Hit, type MutationOptions, type MutationStyle, type Recipe } from './types';
 
 const PLANS: Record<number, BarRole[]> = {
   1: ['A'],
@@ -286,9 +286,66 @@ export function developPhrase(cell: Hit[], roles: BarRole[], ctx: DevelopContext
  * MUTATE: a few small variation operations applied to the groove cell itself, so every bar
  * derived from it changes in a related way. Each mutation draws from its own seed.
  */
-export function mutateCell(cell: Hit[], def: StyleDef, recipe: Recipe, rng: Rng, beat: boolean, detail: boolean, timekeeper: 'hat' | 'ride'): Hit[] {
+export function mutateCell(cell: Hit[], def: StyleDef, recipe: Recipe, rng: Rng, beat: boolean, detail: boolean, timekeeper: 'hat' | 'ride', opts?: MutationOptions): Hit[] {
   let out = cell.map((h) => ({ ...h }));
-  if (beat) out = varyBeat(out, def, recipe, 1 + (rng.chance(0.4) ? 1 : 0), rng, false, 'a mutation of the groove', 2);
-  if (detail) out = varyDetail(out, def, 1 + (rng.chance(0.5) ? 1 : 0), rng, timekeeper, 'a mutation of the groove', 1);
-  return tidy(out);
+  if (!opts?.style) {
+    // a plain MUTATE (and every mutation made before MUTATE had options): exactly as it always was
+    if (beat) out = varyBeat(out, def, recipe, 1 + (rng.chance(0.4) ? 1 : 0), rng, false, 'a mutation of the groove', 2);
+    if (detail) out = varyDetail(out, def, 1 + (rng.chance(0.5) ? 1 : 0), rng, timekeeper, 'a mutation of the groove', 1);
+    return tidy(out);
+  }
+  const d = clamp(opts.depth ?? 0.5, 0, 1);
+  const what = `a ${opts.style} mutation of the groove`;
+  const n = (lo: number, span: number) => Math.max(0, Math.round(lo + span * d + rng.range(-0.3, 0.3)));
+  const p = MUTATION_PLAN[opts.style];
+  if (beat && p.beat) out = varyBeat(out, def, recipe, n(p.beat[0], p.beat[1]), rng, p.snare(d), what, p.from);
+  if (detail && p.detail) out = varyDetail(out, def, n(p.detail[0], p.detail[1]), rng, timekeeper, what, p.from);
+  if (p.texture === 'thin' || (opts.style === 'wild' && rng.chance(0.5))) out = thin(out, def, (opts.style === 'wild' ? 0.3 : 0.75) * d + 0.15, rng, beat, detail);
+  else if (p.texture === 'thicken' || opts.style === 'wild') out = thicken(out, def, (opts.style === 'wild' ? 0.3 : 0.7) * d + 0.15, rng, timekeeper, beat, detail, what);
+  out = tidy(out);
+  // SELECTED TRACKS: every other track stays exactly as it was
+  if (opts.cats) {
+    const only = new Set(opts.cats);
+    out = tidy([...out.filter((h) => only.has(h.cat)), ...cell.filter((h) => !only.has(h.cat)).map((h) => ({ ...h }))]);
+  }
+  return out;
+}
+
+/** How each MUTATE style uses the variation operations: [operations at depth 0, more at full depth], from which step, and a texture change. */
+const MUTATION_PLAN: Record<MutationStyle, { beat?: [number, number]; detail?: [number, number]; from: number; snare: (d: number) => boolean; texture?: 'thin' | 'thicken' }> = {
+  musical: { beat: [1, 2], detail: [1, 2], from: 2, snare: () => false },
+  subtle: { detail: [1, 1], from: 8, snare: () => false },
+  rhythmic: { beat: [2, 3], from: 1, snare: (d) => d > 0.5 },
+  fills: { beat: [1, 3], detail: [1, 2], from: 8, snare: () => true },
+  sparse: { detail: [0, 1], from: 4, snare: () => false, texture: 'thin' },
+  dense: { beat: [0, 2], detail: [1, 3], from: 1, snare: () => false, texture: 'thicken' },
+  wild: { beat: [3, 4], detail: [3, 3], from: 0, snare: () => true },
+};
+
+/** SPARSE: take out the decoration (ghosts, percussion, off-beat time, extra kicks), never the downbeat or a backbeat. */
+function thin(hits: Hit[], def: StyleDef, p: number, rng: Rng, beat: boolean, detail: boolean): Hit[] {
+  const kicks = hits.filter((h) => h.cat === 'kick').length;
+  let dropped = 0;
+  return hits.filter((h) => {
+    const extraKick = beat && h.cat === 'kick' && h.step !== 0 && !def.fixedKicks.includes(h.step) && kicks - dropped > 1;
+    const decoration = detail && (h.cat === 'ghost' || h.cat === 'perc' || h.cat === 'open' || ((h.cat === 'hat' || h.cat === 'ride') && h.step % 2 === 1));
+    if (!(extraKick || decoration) || !rng.chance(extraKick ? p * 0.6 : p)) return true;
+    if (extraKick) dropped++;
+    return false;
+  });
+}
+
+/** DENSE: ghosts into the backbeats and time on the off-sixteenths, where there is room. */
+function thicken(hits: Hit[], def: StyleDef, p: number, rng: Rng, timekeeper: 'hat' | 'ride', beat: boolean, detail: boolean, what: string): Hit[] {
+  const out = hits.slice();
+  if (detail) for (let s = 1; s < STEPS; s += 2) {
+    if (def.ghostMax > 0 && !has(out, 'snare', s) && !has(out, 'ghost', s) && (has(out, 'snare', s + 1) || has(out, 'snare', s - 1)) && rng.chance(p))
+      out.push({ cat: 'ghost', step: s, sub: 0, level: def.ghostLevel, role: 'ghost', why: `ghost on ${posName(s)}: ${what}` });
+    if (!has(out, timekeeper, s) && has(out, timekeeper, s - 1) && rng.chance(p * 0.8))
+      out.push({ cat: timekeeper, step: s, sub: 0, level: 0.34, role: 'time', why: `${timekeeper === 'ride' ? 'ride' : 'hat'} on ${posName(s)}: ${what}` });
+  }
+  // a pickup kick into the next beat
+  if (beat) for (const s of [7, 15]) if (!has(out, 'kick', s) && !has(out, 'snare', s) && !has(out, 'snare', (s + 1) % STEPS) && rng.chance(p * 0.5))
+    out.push({ cat: 'kick', step: s, sub: 0, level: 0.7, role: 'pickup kick', why: `pickup kick on ${posName(s)}: ${what}` });
+  return out;
 }

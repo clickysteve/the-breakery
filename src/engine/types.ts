@@ -104,6 +104,8 @@ export interface Recipe {
   rollDynamics: RollDynamics;
   rollPlace: RollPlace;
   rollTargets: RollTarget[];
+  /** ROLL GENERATION (engine 2): false = the ROLLS layer adds no rolls (absent = on). Rolls already in a break are not deleted by it. */
+  rollsOn?: boolean;
 }
 
 /** The 0..1 controls (a missing one is 0: TOMS and ROLLS are 0 in recipes saved before they existed). */
@@ -131,8 +133,23 @@ export interface Seeds {
   mut?: Mutation[];
 }
 
-/** One MUTATE step: its seed, and which layers it may vary (frozen layers are left alone). */
-export interface Mutation {
+/** MUTATE styles: how a mutation varies the groove. */
+export const MUTATION_STYLES = ['musical', 'subtle', 'rhythmic', 'fills', 'sparse', 'dense', 'wild'] as const;
+export type MutationStyle = (typeof MUTATION_STYLES)[number];
+
+/** MUTATE options. A mutation without them (every mutation made before they existed) replays exactly as it was made. */
+export interface MutationOptions {
+  style?: MutationStyle;
+  /** how radically the groove changes, 0..1 */
+  depth?: number;
+  /** how much of the phrase may change, 0..1: the last part of it (FILLS: the fill bars) */
+  range?: number;
+  /** only these tracks change (absent: every track) */
+  cats?: Category[];
+}
+
+/** One MUTATE step: its seed, which layers it may vary (frozen layers are left alone) and its options. */
+export interface Mutation extends MutationOptions {
   seed: number;
   beat: boolean;
   detail: boolean;

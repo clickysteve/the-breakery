@@ -1,18 +1,17 @@
-import { mixerPanel } from './mixerPanel';
 /**
- * PATTERN: the break, and where it is edited by hand. One row per drum category, with SOLO (S)
- * and MUTE (M); each hit is drawn at its PERFORMED position (grid + swing + microtiming) with its
- * height showing velocity. Rows that SOLO / MUTE silence are drawn faint (the events are unchanged).
+ * PATTERN · MIXER. PATTERN: the break, and where it is edited by hand. One row per drum category,
+ * with SOLO (S) and MUTE (M); each hit is drawn at its PERFORMED position (grid + swing +
+ * microtiming) with its height showing velocity. Rows that SOLO / MUTE silence are drawn faint.
  *
- * Editing (DOWNBEAT's grid conventions): click an empty place to add a hit (on the SNAP grid);
- * click a hit to select it and hear it; drag it sideways to move it (by SNAP steps, so a 32nd
- * stays a 32nd); drag from an empty place to paint several; right-click a hit, or press DEL or
- * Delete, to delete it; Escape deselects; ⌘Z / ⇧⌘Z undo and redo. The selected hit's velocity,
- * timing and sample are set in the strip under the grid. Hits placed or changed by hand carry a
- * mark (■ added or moved, □ changed), and their explanation says so.
+ * Editing (gridEdit.ts): click an empty place to add a hit (on the SNAP grid) and click a hit to
+ * delete it; shift+click a hit to select it (velocity, timing, sample, move and copy in the strip
+ * under the grid); drag a hit sideways to move it (by SNAP steps, past a small threshold, so a click
+ * never moves it); drag from an empty place to paint; right-click, Delete or DEL deletes; Escape
+ * deselects; ⌘Z / ⇧⌘Z undo and redo. Hand edits carry a mark (■ added or moved, □ changed).
  *
- * VIEW shows every bar, or 4, 2 or 1 bar at a time (◀ ▶ page), so 32nd and 64th rolls can be seen
- * and edited at their own positions.
+ * ROLLS: a roll whose hits are too close to tell apart is drawn as one outlined group (ROLL ×N);
+ * click it to expand it (a one-bar view, where every hit of it is drawn and edited on its own).
+ * VIEW shows every bar, or 4, 2 or 1 bar at a time (◀ ▶ page).
  */
 import { analyse } from '../engine/analysis';
 import { describeEdits, MANUAL_OFFSET_MS, posLabel, snapTick, tickOf } from '../engine/edits';
@@ -22,6 +21,9 @@ import { CATEGORIES, CATEGORY_LABEL, STEPS, TPB, TPS, type BreakEvent, type Cate
 import { anySolo } from '../app/mix';
 import { SNAP_LABEL, SNAPS } from '../app/app';
 import { esc, el, localPoint, setTip, svgEl, trackDrag } from './dom';
+import { rollGroups, type RollGroup } from '../engine/rolls';
+import { isDrag, pressAction, releaseDeletes, ROLL_GROUP_PX } from './gridEdit';
+import { mixerPanel } from './mixerPanel';
 import { Button, MWindow, NumBox } from './widgets';
 import type { UiContext } from './context';
 
@@ -34,26 +36,13 @@ const ZOOMS = [0, 4, 2, 1] as const;
 
 export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'PATTERN', ...rect });
-  const b = el('div', '', win.body, [0, 0, rect.w - 2, rect.h - 18]);
-  const mixerBody = el('div', '', win.body, [0, 0, rect.w - 2, rect.h - 18]);
-  mixerBody.style.display = 'none';
-  const mixer = mixerPanel(mixerBody, app, rect.w - 2);
-  let showingMixer = false;
-  const tabs = el('div', '', win.el, [95, 0, 130, 15]);
-  tabs.addEventListener('pointerdown', e => e.stopPropagation());
-  const patternTab = new Button(tabs, [0, 0, 64, 14], 'PATTERN', { cls: 'small', onPress: () => showMixer(false) });
-  const mixerTab = new Button(tabs, [66, 0, 60, 14], 'MIXER', { cls: 'small', onPress: () => showMixer(true) });
-  function showMixer(value: boolean) {
-    showingMixer = value; b.style.display = value ? 'none' : '';
-    mixerBody.style.display = value ? '' : 'none'; patternTab.on = !value; mixerTab.on = value;
-    mixer.update();
-  }
-  showMixer(false);
+  const win = new MWindow(parent, { title: 'PATTERN', tabs: ['PATTERN', 'MIXER'], ...rect, onTab: () => draw() });
+  const [b, mixerBody] = win.panes as [HTMLDivElement, HTMLDivElement];
+  const mixer = mixerPanel(mixerBody, app, { w: rect.w - 2, h: rect.h - 18 });
   const W = rect.w - 2;
   const X0 = 70;
   const Y0 = 22;
-  const RH = 15;
+  const RH = 14;
   const GW = W - X0 - 6;
   const GH = CATEGORIES.length * RH;
   const TOP = 10; // grid top inside the svg
@@ -86,17 +75,17 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     }),
   );
   const rowCtl = CATEGORIES.map((c, i) => {
-    const l = el('div', 'label small', b, [6, Y0 + i * RH + 4], SHORT[c]);
+    const l = el('div', 'label small', b, [6, Y0 + i * RH + 3], SHORT[c]);
     l.style.fontSize = '8px';
     setTip(l, CATEGORY_LABEL[c]);
-    const s = new Button(b, [42, Y0 + i * RH + 2, 12, 12], 'S', { cls: 'small sm', tip: `SOLO ${CATEGORY_LABEL[c]}: hear only the soloed rows (several can be soloed; MUTE remains silent). Playback changes at once; the break itself does not change.`, onPress: () => app.toggleSolo(c) });
-    const m = new Button(b, [55, Y0 + i * RH + 2, 12, 12], 'M', { cls: 'small sm', tip: `MUTE ${CATEGORY_LABEL[c]}: silence this row, including when soloed. Playback changes at once; the break itself does not change.`, onPress: () => app.toggleMute(c) });
+    const s = new Button(b, [42, Y0 + i * RH + 1, 12, 12], 'S', { cls: 'small sm', tip: `SOLO ${CATEGORY_LABEL[c]}: hear only the soloed rows (several can be soloed; MUTE remains silent). Playback changes at once; the break itself does not change.`, onPress: () => app.toggleSolo(c) });
+    const m = new Button(b, [55, Y0 + i * RH + 1, 12, 12], 'M', { cls: 'small sm', tip: `MUTE ${CATEGORY_LABEL[c]}: silence this row, including when soloed. Playback changes at once; the break itself does not change.`, onPress: () => app.toggleMute(c) });
     return { l, s, m };
   });
   const svg = svgEl(GW + 2, GH + 22, '', 'patternsvg');
   svg.style.left = X0 + 'px';
   svg.style.top = Y0 - TOP + 'px';
-  svg.setAttribute('aria-label', 'Pattern grid: click an empty place to add a hit, click a hit to select it');
+  svg.setAttribute('aria-label', 'Pattern grid: click an empty place to add a hit, click a hit to delete it, shift+click a hit to edit it');
   b.appendChild(svg);
   const head = el('div', '', b, [X0 + 1, Y0, 1, GH]);
   Object.assign(head.style, { position: 'absolute', background: 'var(--mark-color, #fff)', mixBlendMode: 'var(--mark-blend, difference)', display: 'none', pointerEvents: 'none' });
@@ -150,8 +139,12 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   const redo = new Button(b, [W - 132, r3, 34, 12], 'REDO', { cls: 'small', tip: 'Redo (⇧⌘Z)', onPress: () => app.redo() });
   const clear = new Button(b, [W - 96, r3, 90, 12], 'CLEAR EDITS', { cls: 'small', tip: 'Remove every hand edit of this break: back to the break as generated (⌘Z undoes it)', onPress: () => app.revertAll() });
   const foot = el('div', 'label tiny', b, [6, r3 + 17, W - 12]);
+  const help = el('div', 'label tiny', b, [6, r3 + 27, W - 12], 'CLICK: TOGGLE · SHIFT+CLICK: EDIT · DRAG: MOVE · RIGHT-CLICK: DELETE · CLICK ROLL ×N: EXPAND');
+  setTip(help, 'Click an empty place: add a hit (drag on: paint). Click a hit: delete it. Shift+click a hit: select it to set its velocity, timing and sample, nudge or copy it. Drag a hit sideways: move it by SNAP steps. Right-click (or DEL): delete. A roll drawn as one group: click it to expand it to a one-bar view, where each hit is edited on its own; right-click it to delete the whole roll. ⌘Z undoes any of these.');
 
   let shown: { e: BreakEvent; x: number; w: number; row: number }[] = [];
+  /** rolls drawn as one group: their extent, row and hits */
+  let groups: { g: RollGroup; x0: number; x1: number; row: number }[] = [];
   let view0 = 0;
   let cw = 1;
 
@@ -184,6 +177,17 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     return best;
   }
 
+  /** A roll drawn as one group under a point. */
+  const groupAt = (x: number, row: number) => groups.find((g) => g.row === row && x >= g.x0 - 2 && x <= g.x1 + 2) ?? null;
+
+  /** Expand a grouped roll: a one-bar view of its bar, where each of its hits is drawn and edited. */
+  function expand(g: RollGroup): void {
+    zoom = 1;
+    first = g.bar;
+    draw();
+    app.say(`Roll of ${g.events.length} ${CATEGORY_LABEL[g.cat]} hits expanded: bar ${g.bar + 1}, one bar at a time. Each hit can be edited; ALL shows every bar again.`);
+  }
+
   svg.addEventListener('contextmenu', (ev) => ev.preventDefault());
   svg.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
@@ -191,23 +195,27 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const row = Math.floor((p.y - TOP) / RH);
     if (row < 0 || row >= CATEGORIES.length || p.x < 0 || p.x > GW + 1) return;
     const cat = CATEGORIES[row]!;
-    const hit = hitAt(p.x, row);
+    const group = groupAt(p.x, row);
+    const hit = group ? null : hitAt(p.x, row);
     const bars = app.current.recipe.bars;
-    if (ev.button === 2 || (ev.button === 0 && ev.ctrlKey && navigator.platform.startsWith('Mac'))) {
-      if (hit?.ref) app.deleteHit(hit.ref);
-      return;
-    }
-    if (ev.button !== 0) return;
+    const action = pressAction({ button: ev.button, shift: ev.shiftKey, macCtrl: ev.ctrlKey && navigator.platform.startsWith('Mac'), onHit: !!hit?.ref, onRoll: !!group });
+    if (action === 'none') return;
+    if (action === 'deleteRoll') return app.deleteHits(group!.g.events.map((e) => e.ref!).filter(Boolean), `Deleted a roll of ${group!.g.events.length} ${CATEGORY_LABEL[group!.g.cat]} hits (⌘Z brings it back).`);
+    if (action === 'delete') return app.deleteHit(hit!.ref!);
+    if (action === 'expand') return expand(group!.g);
     if (hit?.ref) {
-      // select, hear it, and drag sideways to move it by SNAP steps
-      app.select(hit.ref);
-      if (hit.sample) void app.player.audition(hit.cat, hit.sample, hit.vel);
+      // shift+click: select it (and hear it) for the editor strip. Either way, a drag past the
+      // threshold moves it by SNAP steps; a plain click that does not drag deletes it on release.
+      if (action === 'select') {
+        app.select(hit.ref);
+        if (hit.sample) void app.player.audition(hit.cat, hit.sample, hit.vel);
+      }
       const t0 = tickOf(hit);
       let ref = hit.ref;
       let at = t0;
       let started = false;
-      trackDrag(ev, svg, ({ dx }) => {
-        if (!started && Math.abs(dx) < 4) return;
+      trackDrag(ev, svg, ({ dx, dy }) => {
+        if (!started && !isDrag(dx, dy)) return;
         const d = Math.round((dx / cw) * TPS / app.snap) * app.snap;
         const to = Math.max(0, Math.min(bars * TPB - 1, t0 + d));
         if (to === at) return;
@@ -219,6 +227,9 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
           at = to;
           ref = app.selected ?? ref;
         }
+      }, ({ ev: up }) => {
+        const q = localPoint(svg, up);
+        if (releaseDeletes(action, started || isDrag(q.x - p.x, q.y - p.y))) app.deleteHit(ref);
       });
       return;
     }
@@ -272,7 +283,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const steps = nb * STEPS;
     cw = GW / steps;
     const sixteenthMs = 60000 / r.bpm / 4;
-    let s = '<defs><pattern id="dots" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--ink)"/></pattern></defs>';
+    let s = '<defs><pattern id="dots" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--ink)"/></pattern><pattern id="rollfill" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--hits)"/><rect x="1" y="1" width="1" height="1" fill="var(--hits)"/></pattern></defs>';
     // beats 2 and 4 shaded, bar lines solid, beats dotted, SNAP lines faint when there is room
     for (let i = 0; i < steps; i += 4) {
       const beat = (i / 4) % 4;
@@ -311,10 +322,34 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
 
     // the hits, at their performed places; a hit is never wider than the gap to the next one in its row
     shown = [];
+    groups = [];
     const inView = br.events.filter((e) => e.bar >= b0 && e.bar < b0 + nb);
     const xOf = (e: BreakEvent) => ((e.bar - b0) * STEPS + e.step + e.sub / TPS + e.swing + e.offsetMs / sixteenthMs) * cw + 1;
+    // rolls too dense to tell their hits apart are drawn as one group (unless one of them is selected)
+    const grouped = new Set<BreakEvent>();
+    for (const g of rollGroups(inView, true)) {
+      if (g.events.length < 3 || g.events.some((e) => e.ref === app.selected)) continue;
+      const xs = g.events.map(xOf).sort((a, b2) => a - b2);
+      const minGap = Math.min(...xs.slice(1).map((x, i) => x - xs[i]!));
+      if (minGap >= ROLL_GROUP_PX) continue;
+      const row = CATEGORIES.indexOf(g.cat);
+      const x0 = xs[0]!;
+      const x1 = Math.max(xs[xs.length - 1]! + 1.5, x0 + 6);
+      groups.push({ g, x0, x1, row });
+      g.events.forEach((e) => grouped.add(e));
+      const y = TOP + row * RH + 2;
+      const h = RH - 3;
+      const tip = `ROLL: ${g.events.length} ${CATEGORY_LABEL[g.cat]} hits in bar ${g.bar + 1} (${posLabel(g.events[0]!)} to ${posLabel(g.events[g.events.length - 1]!)}), velocity ${Math.min(...g.events.map((e) => e.vel))}–${Math.max(...g.events.map((e) => e.vel))}.\nClick: expand it (one bar), to edit each hit · right-click: delete the roll`;
+      s += `<g class="hit rollgroup" data-tip="${esc(tip)}"${app.audible(g.cat) ? '' : ' opacity="0.35"'}><rect x="${(x0 - 1).toFixed(2)}" y="${y}" width="${(x1 - x0 + 2).toFixed(2)}" height="${h}" fill="url(#dots)" fill-opacity="0.45" stroke="var(--hits)" stroke-width="1" stroke-dasharray="1 1"/>`;
+      // subdivision markers along the bottom, where there is room for them
+      if (minGap >= 2) for (const x of xs) s += `<rect x="${x.toFixed(2)}" y="${y + h - 3}" width="1" height="3" fill="var(--hits)"/>`;
+      const label = x1 - x0 >= 42 ? `ROLL ×${g.events.length}` : `×${g.events.length}`;
+      // Silkscreen at 7px: about 5px a character
+      if (x1 - x0 >= label.length * 5 + 1) s += `<rect x="${(x0 + 0.5).toFixed(2)}" y="${y + 1}" width="${label.length * 5 + 1}" height="7" fill="var(--paper)"/><text x="${(x0 + 1).toFixed(2)}" y="${y + 7}" font-size="7" font-family="Silkscreen, monospace" fill="var(--hits)">${label}</text>`;
+      s += '</g>';
+    }
     for (const [row, c] of CATEGORIES.entries()) {
-      const evs = inView.filter((e) => e.cat === c).map((e) => ({ e, x: xOf(e) })).sort((a, b2) => a.x - b2.x);
+      const evs = inView.filter((e) => e.cat === c && !grouped.has(e)).map((e) => ({ e, x: xOf(e) })).sort((a, b2) => a.x - b2.x);
       evs.forEach((v, i) => {
         const gap = i + 1 < evs.length ? evs[i + 1]!.x - v.x : Infinity;
         const w = Math.max(1.5, Math.min(cw * (v.e.sub ? 0.45 : 0.7), 9, gap * 0.75));
@@ -328,10 +363,11 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       const timing = `${e.swing ? ` · swing +${Math.round(e.swing * sixteenthMs)} ms` : ''}${e.offsetMs ? ` · ${e.offsetMs > 0 ? '+' : ''}${e.offsetMs.toFixed(1)} ms` : ''}`;
       const sample = e.sample ? `\nSample: ${app.ingredients.name(e.sample)}${e.sampleWhy ? ` (${e.sampleWhy})` : ''}` : '\nNO SAMPLE (silent)';
       const origin = e.manual ? `\n${ORIGIN[e.manual]}${e.editWhy ? `: ${e.editWhy}` : ''}` : '';
-      const tip = `${CATEGORY_LABEL[e.cat]} · ${posLabel(e)} · velocity ${e.vel}${timing}\n${e.why}${origin}${sample}${app.audible(e.cat) ? '' : '\n(silenced by SOLO / MUTE)'}\nClick: select · drag: move · right-click: delete`;
-      const fill = e.sample ? 'var(--hits)' : 'none';
+      const tip = `${CATEGORY_LABEL[e.cat]}${e.role === 'roll' ? ' ROLL HIT' : ''} · ${posLabel(e)} · velocity ${e.vel}${timing}\n${e.why}${origin}${sample}${app.audible(e.cat) ? '' : '\n(silenced by SOLO / MUTE)'}\nClick: delete · shift+click: edit · drag: move`;
+      // roll hits are drawn dithered, so the main hits stay the strongest marks
+      const fill = !e.sample ? 'none' : e.role === 'roll' ? 'url(#rollfill)' : 'var(--hits)';
       const faint = app.audible(e.cat) ? '' : ' opacity="0.35"';
-      s += `<rect class="hit" data-tip="${esc(tip)}" x="${x.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${h}" fill="${fill}" stroke="var(--hits)" stroke-width="${e.sample ? 0 : 1}" ${e.sample ? '' : 'stroke-dasharray="1 1"'}${faint}/>`;
+      s += `<rect class="hit" data-tip="${esc(tip)}" x="${x.toFixed(2)}" y="${y}" width="${w.toFixed(2)}" height="${h}" fill="${fill}" stroke="var(--hits)" stroke-width="${e.sample && e.role !== 'roll' ? 0 : e.sample ? 0.6 : 1}" ${e.sample ? '' : 'stroke-dasharray="1 1"'}${faint}/>`;
       // hand edits: a filled mark (added or moved) or a hollow one (changed) above the hit
       if (e.manual) {
         const my = Math.max(TOP + row * RH + 1, y - 3);
@@ -377,7 +413,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const e = app.selectedEvent;
     ctl.style.display = e ? '' : 'none';
     none.style.display = e ? 'none' : '';
-    none.textContent = 'CLICK AN EMPTY PLACE: ADD A HIT · CLICK A HIT: SELECT IT · DRAG: MOVE · RIGHT-CLICK OR DEL: DELETE';
+    none.textContent = 'SHIFT+CLICK A HIT TO EDIT ITS VELOCITY, TIMING AND SAMPLE, NUDGE OR COPY IT';
     if (e) {
       const where = posLabel(e);
       info.textContent = `${CATEGORY_LABEL[e.cat]} · ${where} · VEL ${e.vel} · ${e.offsetMs > 0 ? '+' : ''}${Math.round(e.offsetMs)} MS · ${e.manual ? ORIGIN[e.manual] : `GENERATED (${e.role.toUpperCase()})`}`;
@@ -389,7 +425,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       left.disabled = right.disabled = false;
     } else {
       info.textContent = 'SELECTED HIT: NONE';
-      setTip(info, 'Click a hit in the grid to select it: its velocity, timing and sample can then be set here. Escape deselects.');
+      setTip(info, 'Shift+click a hit in the grid to select it: its velocity, timing and sample can then be set here. Escape deselects.');
     }
     del.disabled = dup.disabled = !e;
     snapBtns.forEach((sb, i) => (sb.on = SNAPS[i] === app.snap));
@@ -409,7 +445,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   }
 
   function tick(): void {
-    if (showingMixer) mixer.tick();
+    if (win.tab === 1) mixer.tick();
     const p = app.player.position();
     const pb = app.player.break;
     if (!p) {

@@ -1,12 +1,17 @@
 /**
- * RECIPE: style, engine, tempo, bars, seed (with DICE, history, favourite and MUTATE) and the
- * eight generative controls. Every change re-bakes the same seeds, so you hear what the control
- * does to this break. Every number can be clicked and typed (emmm's numerical fields).
+ * RECIPE · ROLLS · MUTATE, one window with three tabs.
+ *
+ * RECIPE: style, engine, tempo, bars, seed (with DICE, history and favourite), the eight
+ * generative controls and TOM ACTIVITY. Every change re-bakes the same seeds, so you hear what the
+ * control does to this break. Every number can be clicked and typed (emmm's numerical fields).
+ * ROLLS: roll generation (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
  */
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
-import { MAX_BARS, MIN_BARS, STYLES, type Bars, type RecipeKey } from '../engine/types';
-import { label } from './dom';
+import { CATEGORY_LABEL, MAX_BARS, MIN_BARS, STYLES, TOMS, type Bars, type RecipeKey } from '../engine/types';
+import { el, label, setTip } from './dom';
+import { mutateTab } from './mutateTab';
+import { rollsTab } from './rollsTab';
 import { Button, MWindow, NumBox, RangeBar } from './widgets';
 import type { UiContext } from './context';
 
@@ -43,9 +48,11 @@ const BAR_PLAN: Record<number, string> = {
 
 export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'RECIPE', ...rect });
-  const b = win.body;
+  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
+  const [b, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement];
   const W = rect.w - 2;
+  const rolls = rollsTab(rollsPane, ui, W);
+  const mut = mutateTab(mutatePane, ui, W);
 
   // two rows of recipes; the last cell of the second row is the ENGINE toggle
   const perRow = 6;
@@ -89,7 +96,8 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   });
 
   label(b, 105, y2 + 4, 'SEED');
-  const seed = new NumBox(b, [128, y2, 92, 15], {
+  const bx = W - 4 - 24 - 2 - 12 - 1 - 12 - 2 - 26;
+  const seed = new NumBox(b, [128, y2, bx - 2 - 128, 15], {
     get: () => app.seeds.beat,
     set: (v) => app.setSeed(Math.max(0, v)),
     min: 0,
@@ -101,38 +109,37 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     maxLength: 40,
     pxPerUnit: 6,
     label: 'Seed: a number or a name',
-    tip: 'The seed: a number, or any words ("funky chicken", "glasgow 1993"). The same seed, recipe and engine always bake the same break. Click and type, then Return. ↑ ↓ step to neighbouring numbers (not related breaks: use MUT for those). +N = mutations.',
+    tip: 'The seed: a number, or any words ("funky chicken", "glasgow 1993"). The same seed, recipe and engine always bake the same break. Click and type, then Return. ↑ ↓ step to neighbouring numbers (not related breaks: MUTATE makes those). +N = mutations.',
   });
-  const bx = 222;
-  const dice = new Button(b, [bx, y2, 22, 15], 'DICE', { cls: 'small', tip: 'DICE: roll a new named seed for every layer (D)', onPress: () => app.dice() });
-  const back = new Button(b, [bx + 24, y2, 11, 15], '◀', { cls: 'small', tip: 'Back to the previous seed in the history (←)', onPress: () => app.historyBack() });
-  const fwd = new Button(b, [bx + 37, y2, 11, 15], '▶', { cls: 'small', tip: 'Forward in the history (→)', onPress: () => app.historyForward() });
-  const fav = new Button(b, [bx + 50, y2, 20, 15], 'FAV', { cls: 'small', tip: 'Save this break to the favourites (S): recipe, seeds, mutations and sample settings. Inverted when it is one; press again to remove it. Favourites are in the Seeds menu.', onPress: () => app.toggleFavourite() });
-  const mut = new Button(b, [bx + 72, y2, W - bx - 72 - 4, 15], 'MUT', {
-    cls: 'small',
-    tip: 'MUTATE (U): a related variation of this break: a few small changes to the groove itself (a kick moved or doubled, a ghost, a lift), so every bar follows. Frozen layers are kept. ◀ goes back.',
-    onPress: () => app.mutate(),
-  });
+  const dice = new Button(b, [bx, y2, 26, 15], 'DICE', { cls: 'small', tip: 'DICE: roll a new named seed for every layer (D)', onPress: () => app.dice() });
+  const back = new Button(b, [bx + 28, y2, 12, 15], '◀', { cls: 'small', tip: 'Back to the previous seed in the history (←)', onPress: () => app.historyBack() });
+  const fwd = new Button(b, [bx + 41, y2, 12, 15], '▶', { cls: 'small', tip: 'Forward in the history (→)', onPress: () => app.historyForward() });
+  const fav = new Button(b, [W - 4 - 24, y2, 24, 15], 'FAV', { cls: 'small', tip: 'Save this break to the favourites (S): recipe, seeds, mutations and sample settings. Inverted when it is one; press again to remove it. Favourites are in the Seeds menu.', onPress: () => app.toggleFavourite() });
 
+  // the eight controls in two columns, and TOM ACTIVITY (the toms are instruments, so they are part of the recipe)
   const ranges: RangeBar[] = [];
-  CONTROLS.forEach((c, i) => {
-    const col = i < 4 ? 0 : 1;
-    const row = i % 4;
-    const x = 4 + col * Math.floor(W / 2);
-    const y = 58 + row * 18;
-    label(b, x + 2, y + 3, c.label);
+  const colW = Math.floor((W - 16) / 2);
+  const rangeAt = (i: number, key: RecipeKey, text: string, o: Omit<ConstructorParameters<typeof RangeBar>[2], 'get' | 'set' | 'label'>) => {
+    const col = Math.floor(i / 5);
+    const x = 4 + col * (colW + 8);
+    const y = 57 + (i % 5) * 17;
+    label(b, x + 1, y + 3, text);
     ranges.push(
-      new RangeBar(b, [x + 72, y, Math.floor(W / 2) - 80, 14], {
-        get: () => app.recipe[c.key],
+      new RangeBar(b, [x + 74, y, colW - 74, 14], {
+        get: () => app.recipe[key],
         // baking is cheap (about a millisecond), so the break follows the drag
-        set: (v) => app.setRecipe({ [c.key]: v }),
-        format: c.format ?? pct,
-        parse: c.parse,
-        tip: c.tip,
-        label: c.label,
+        set: (v) => app.setRecipe({ [key]: v }),
+        label: text,
+        ...o,
       }),
     );
+  };
+  CONTROLS.forEach((c, i) => rangeAt(i < 4 ? i : i + 1, c.key, c.label, { format: c.format ?? pct, parse: c.parse, tip: c.tip }));
+  rangeAt(4, 'toms', 'TOM ACTIVITY', {
+    format: pct,
+    tip: 'TOM ACTIVITY: how much the high, mid and low toms take part, mostly in fills (descending and rising runs, snare/tom combinations, linear fills, answers to the backbeat). 0 = never. Needs FILLS for tom fills and VARIATION for toms in answer and development bars. Turning it up changes nothing else in the break.',
   });
+  const tomNote = el('div', 'label tiny', b, [4 + colW + 8 + 1, 57 + 4 * 17 + 4, colW - 2]);
 
   function update(): void {
     styleBtns.forEach((btn, i) => {
@@ -147,9 +154,15 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     back.disabled = !app.history.canBack;
     fwd.disabled = !app.history.canForward;
     fav.on = app.isFavourite;
-    mut.disabled = app.recipe.engine === 1;
     dice.on = false;
     ranges.forEach((r) => r.update());
+    const kit = app.ingredients.kit();
+    const have = TOMS.filter((t) => kit[t].length);
+    const tomHits = app.current.events.filter((e) => (TOMS as readonly string[]).includes(e.cat)).length;
+    tomNote.textContent = app.recipe.engine === 1 ? 'ENGINE 1 HAS NO TOMS' : `${tomHits} TOM HIT${tomHits === 1 ? '' : 'S'} · SAMPLES ${have.length}/3`;
+    setTip(tomNote, have.length === 3 ? 'High, mid and low tom samples are loaded (INGREDIENTS). Tom hits follow their MIXER channels and MIDI notes.' : `No sample for ${TOMS.filter((t) => !kit[t].length).map((t) => CATEGORY_LABEL[t]).join(', ')}: those hits are silent until one is loaded (INGREDIENTS), or the demo kit is added.`);
+    if (win.tab === 1) rolls.update();
+    if (win.tab === 2) mut.update();
   }
   function setTipBars(): void {
     bars.el.dataset.tip = `Pattern length, 1–8 bars (now ${app.recipe.bars}: ${BAR_PLAN[app.recipe.bars]}). Click and type, or ↑ ↓.`;

@@ -19,24 +19,10 @@ const ESSENTIAL: Category[] = ['kick', 'snare'];
 export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
   const ing = app.ingredients;
-  const win = new MWindow(parent, { title: 'INGREDIENTS', ...rect });
-  const tabs = el('div', 'row', win.body, [3, 0, 198, 18]);
-  const ingredientsTab = el('button', 'mbutton', tabs, undefined, 'INGREDIENTS');
-  const kitsTab = el('button', 'mbutton', tabs, undefined, 'KITS');
-  const b = el('div', '', win.body, [0, 22, rect.w - 2, rect.h - 40]);
-  const kitBody = el('div', '', win.body, [0, 22, rect.w - 2, rect.h - 40]);
-  for (const node of [tabs, b, kitBody]) node.style.position = 'absolute';
-  tabs.style.display = 'flex';
-  tabs.setAttribute('role', 'tablist');
-  for (const tab of [ingredientsTab, kitsTab]) tab.setAttribute('role', 'tab');
-  ingredientsTab.setAttribute('aria-selected', 'true');
-  kitsTab.setAttribute('aria-selected', 'false');
-  kitBody.hidden = true;
+  const win = new MWindow(parent, { title: 'INGREDIENTS', tabs: ['INGREDIENTS', 'KITS'], ...rect, onTab: () => kp?.update() });
+  const [b, kitBody] = win.panes as [HTMLDivElement, HTMLDivElement];
   const kp = ui.kits ? kitsPanel(kitBody, ui, ui.kits) : null;
-  if (!kp) el('div', 'empty-note', kitBody, undefined, 'Kit storage unavailable. Reload to retry.');
-  ingredientsTab.addEventListener('click', () => { b.hidden = false; kitBody.hidden = true; ingredientsTab.setAttribute('aria-selected', 'true'); kitsTab.setAttribute('aria-selected', 'false'); });
-  kitsTab.addEventListener('click', () => { b.hidden = true; kitBody.hidden = false; ingredientsTab.setAttribute('aria-selected', 'false'); kitsTab.setAttribute('aria-selected', 'true'); kp?.update(); });
-  rect = { ...rect, h: rect.h - 22 };
+  if (!kp) el('div', 'empty-note', kitBody, [8, 8, rect.w - 18], 'Kit storage unavailable. Reload to retry.');
   const W = rect.w - 2;
   let selected: Slot = 'kick';
 

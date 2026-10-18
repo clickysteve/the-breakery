@@ -22,7 +22,6 @@ import { batchWindow } from './ui/batchWindow';
 import { ingredientsWindow } from './ui/ingredientsWindow';
 import { patternWindow } from './ui/patternWindow';
 import { recipeWindow } from './ui/recipeWindow';
-import { rollsWindow } from './ui/rollsWindow';
 import { installTooltips } from './ui/tooltip';
 import { applyPalette } from '@slopfactory/core/palette';
 import { paletteLibrary } from './ui/palette';
@@ -275,11 +274,10 @@ const ui: UiContext = {
 const desk = el('div', '', screen, [0, 0, W, H]);
 desk.style.position = 'absolute';
 const wIng = ingredientsWindow(desk, ui, { x: 5, y: 21, w: 208, h: 444 });
-const wRecipe = recipeWindow(desk, ui, { x: 218, y: 21, w: 322, h: 152 });
-const wBake = bakeWindow(desk, ui, { x: 545, y: 21, w: 170, h: 152 });
-const wPattern = patternWindow(desk, ui, { x: 218, y: 178, w: 497, h: 287 });
-const wRolls = rollsWindow(desk, ui, { x: 720, y: 21, w: 155, h: 158 });
-const wBatch = batchWindow(desk, ui, { x: 720, y: 184, w: 155, h: 281 });
+const wRecipe = recipeWindow(desk, ui, { x: 218, y: 21, w: 322, h: 162 });
+const wBake = bakeWindow(desk, ui, { x: 545, y: 21, w: 170, h: 162 });
+const wPattern = patternWindow(desk, ui, { x: 218, y: 188, w: 497, h: 277 });
+const wBatch = batchWindow(desk, ui, { x: 720, y: 21, w: 155, h: 444 });
 const wPalette = paletteWindow(desk, palettes, { x: 288, y: 60 });
 const wMidi = midiWindow(desk, ui, midi, { x: 222, y: 40 });
 
@@ -298,7 +296,7 @@ async function about(): Promise<void> {
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to select it; drag it sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN.',
+    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -547,7 +545,6 @@ function updateAll(): void {
   wRecipe.update();
   wBake.update();
   wPattern.update();
-  wRolls.update();
   wBatch.update();
   if (wMidi.win.open) wMidi.update();
   statusEl.textContent = app.status || 'Freshly baked breaks.';

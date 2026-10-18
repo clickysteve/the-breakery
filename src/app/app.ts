@@ -5,12 +5,14 @@
  * so each control's effect is heard on the same break; BAKE draws new seeds for every layer that
  * is not frozen; MUTATE varies the current groove a little.
  */
-import { addHit, deleteHit, describeEdits, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
-import { bake, mutate, parseSeed, reseed, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
+import { addHit, deleteHit, describeEdits, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
+import { rollGroups } from '../engine/rolls';
+import { SECTION_DEFS, type Section } from '../engine/sections';
 import { freshSeed } from '../engine/rng';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, TPS, type Break, type Category, type Engine, type Layer, type Recipe, type Seeds, type Style } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, LAYERS, MUTATION_STYLES, TPS, type Break, type Category, type Engine, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -22,6 +24,29 @@ export const BATCH_SIZE = 8;
 export const SNAPS = [12, 6, 3, 8, 4] as const;
 export const SNAP_LABEL: Record<number, string> = { 12: '1/16', 6: '1/32', 3: '1/64', 8: '1/16T', 4: '1/32T' };
 const UNDO_LIMIT = 50;
+
+/** The MUTATE tab's settings (what the next MUTATE does). */
+export interface MutateSettings {
+  style: MutationStyle;
+  depth: number;
+  range: number;
+  target: 'all' | 'selected';
+  /** the tracks MUTATE may change when target is 'selected' */
+  cats: Category[];
+}
+export const defaultMutate = (): MutateSettings => ({ style: 'musical', depth: 0.5, range: 1, target: 'all', cats: ['kick', 'snare'] });
+export function sanitiseMutate(v: unknown): MutateSettings {
+  const o = (v && typeof v === 'object' ? v : {}) as Partial<MutateSettings>;
+  const d = defaultMutate();
+  const unit = (x: unknown, f: number) => (Number.isFinite(Number(x)) && x !== null ? Math.max(0, Math.min(1, Number(x))) : f);
+  return {
+    style: (MUTATION_STYLES as readonly string[]).includes(String(o.style)) ? o.style! : d.style,
+    depth: unit(o.depth, d.depth),
+    range: unit(o.range, d.range),
+    target: o.target === 'selected' ? 'selected' : 'all',
+    cats: Array.isArray(o.cats) ? CATEGORIES.filter((c) => o.cats!.includes(c)) : d.cats,
+  };
+}
 const STATE_KEY = 'breakery.state.v1';
 const HISTORY_KEY = 'breakery.history.v1';
 const FAVOURITES_KEY = 'breakery.favourites.v1';
@@ -42,6 +67,8 @@ interface Saved {
   keepEdits?: boolean;
   /** grid for placing and moving hits */
   snap?: number;
+  /** the MUTATE tab's settings */
+  mutate?: MutateSettings;
 }
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
@@ -87,6 +114,8 @@ export class App {
   selected: string | null = null;
   /** grid for placing and moving hits, in grid ticks */
   snap = 12;
+  /** what MUTATE does (the MUTATE tab) */
+  mutation: MutateSettings = defaultMutate();
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private baseline = '';
@@ -107,6 +136,7 @@ export class App {
     if (!fromUrl) this.edits = sanitiseEdits(s?.edits, CATEGORIES);
     this.keepEdits = s?.keepEdits === true;
     this.snap = (SNAPS as readonly number[]).includes(Number(s?.snap)) ? Number(s!.snap) : 12;
+    this.mutation = sanitiseMutate(s?.mutate);
     this.history = SeedHistory.from(readJson(HISTORY_KEY));
     const favs = readJson(FAVOURITES_KEY);
     this.favourites = Array.isArray(favs) ? favs.map(sanitiseFavourite).filter((f): f is Favourite => !!f) : [];
@@ -137,7 +167,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -290,24 +320,109 @@ export class App {
     this.changed(false);
   }
 
-  /** MUTATE: a related variation of this break (the layers that are not frozen). */
+  /** MUTATE's options from the MUTATE tab; none for the plain settings, so a plain MUTATE replays exactly as before. */
+  get mutationOptions(): MutationOptions | undefined {
+    const o = this.mutation;
+    if (o.style === 'musical' && o.depth === 0.5 && o.range === 1 && o.target === 'all') return undefined;
+    return { style: o.style, depth: o.depth, range: o.range, ...(o.target === 'selected' ? { cats: [...o.cats] } : {}) };
+  }
+
+  /** Change the MUTATE tab's settings (they apply to the next MUTATE; the break is unchanged). */
+  setMutation(patch: Partial<MutateSettings>): void {
+    this.mutation = sanitiseMutate({ ...this.mutation, ...patch });
+    this.changed();
+  }
+
+  /** MUTATE: a related variation of this break (the layers that are not frozen), as the MUTATE tab sets it. */
   mutate(): void {
-    const next = mutate(this.seeds, this.frozen);
+    const o = this.mutationOptions;
+    if (o?.cats && !o.cats.length) return this.say('MUTATE: choose at least one track, or ALL TRACKS.');
+    const n = (this.seeds.mut?.length ?? 0) + 1;
+    const how = o ? `${o.style!.toUpperCase()} at ${Math.round(o.depth! * 100)}% depth${o.range! < 1 ? `, the last ${Math.round(o.range! * 100)}% of the phrase` : ''}${o.cats ? `, ${o.cats.length} track${o.cats.length === 1 ? '' : 's'}` : ''}` : 'the groove varied a little';
+    this.mutateWith(o, `Mutation ${n}: ${how}`);
+  }
+
+  /** CREATE RELATED SECTION: a section of the same tune from this break (a mutation, and for some sections a recipe change). */
+  createSection(kind: Section): void {
+    const d = SECTION_DEFS[kind];
+    const from = this.seedText;
+    this.mutateWith({ ...d.mutation }, `${d.label}: a related section made from ${from}`, d.recipe(this.recipe));
+  }
+
+  private mutateWith(opts: MutationOptions | undefined, what: string, patch: Partial<Recipe> = {}): boolean {
+    const next = mutate(this.seeds, this.frozen, undefined, opts ? sanitiseMutationOptions(opts) : undefined);
     if (!next) {
       this.say('Nothing to mutate: BEAT and DETAIL are both frozen.');
-      return;
+      return false;
     }
     if (this.recipe.engine === 1) {
       this.say('MUTATE needs ENGINE 2 (engine 1 is kept exactly as released).');
-      return;
+      return false;
     }
     const note = this.leaveEdits();
+    this.recipe = sanitiseRecipe({ ...this.recipe, ...patch });
     this.seeds = next;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Mutation ${next.mut!.length}: the groove varied a little${this.frozen.beat ? ' (kick and snare frozen)' : this.frozen.detail ? ' (detail frozen)' : ''}. ← goes back.${note}`;
+    this.status = `${what}${this.frozen.beat ? ' (kick and snare frozen)' : this.frozen.detail ? ' (detail frozen)' : ''}. ← goes back.${note}`;
     this.changed();
+    return true;
+  }
+
+  // ---------------------------------------------------------------- rolls
+
+  /** The rolls in the current pattern: whole rolls (a roll round the toms is one), and their hits. */
+  get rollCount(): { rolls: number; hits: number } {
+    const g = rollGroups(this.current.events);
+    return { rolls: g.length, hits: g.reduce((n, x) => n + x.events.length, 0) };
+  }
+
+  /**
+   * ROLL GENERATION on or off. Off: new breaks get no rolls from ROLLS, and the roll hits already in
+   * this pattern are KEPT (as hits placed by hand); CLEAR ROLLS deletes them. On again: kept hits
+   * the generator plays at the same place again are not doubled. Undoable.
+   */
+  setRollsOn(on: boolean): void {
+    if ((this.recipe.rollsOn !== false) === on) return;
+    if (!on) {
+      const before = this.current.events.filter((e) => e.role === 'roll' && e.manual !== 'added' && e.manual !== 'moved');
+      this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: false });
+      const after = this.bakeWith(this.seeds).events;
+      let edits = this.edits;
+      let kept = 0;
+      for (const e of before) {
+        if (after.some((x) => x.cat === e.cat && hitKey(x) === hitKey(e))) continue; // still there (a fill's roll)
+        const r = addHit(edits, after, { cat: e.cat, bar: e.bar, step: e.step, sub: e.sub, vel: e.vel, offsetMs: e.offsetMs, role: 'roll', ...(e.pinned ? { sample: e.pinned } : {}) });
+        if (r.edits !== edits) kept++;
+        edits = r.edits;
+      }
+      this.edits = edits;
+      this.status = `ROLL GENERATION OFF: new breaks get no rolls.${kept ? ` The ${kept} roll hit${kept === 1 ? '' : 's'} already here ${kept === 1 ? 'is' : 'are'} kept; CLEAR ROLLS deletes them.` : ''}`;
+    } else {
+      this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: true });
+      const gen = new Set(this.bakeWith(this.seeds, this.recipe, null).events.filter((e) => e.role === 'roll').map((e) => hitKey(e)));
+      const added = this.edits.added.filter((m) => !(m.role === 'roll' && !m.from && gen.has(hitKey(m)) && !this.edits.removed.includes(hitKey(m))));
+      if (added.length !== this.edits.added.length) this.edits = { ...this.edits, added };
+      this.status = 'ROLL GENERATION ON: rolls follow the ROLLS settings.';
+    }
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+  }
+
+  /** CLEAR ROLLS: delete every roll hit in this pattern (generated, from fills, or kept). Undoable; ROLL GENERATION is unchanged. */
+  clearRolls(): void {
+    const refs = this.current.events.filter((e) => e.role === 'roll' && e.ref).map((e) => e.ref!);
+    if (!refs.length) return this.say('There are no rolls in this pattern.');
+    this.deleteHits(refs, `Deleted ${refs.length} roll hit${refs.length === 1 ? '' : 's'} (⌘Z brings them back).${this.recipe.rollsOn === false ? '' : ' ROLL GENERATION is still on: new breaks get new rolls.'}`);
+  }
+
+  /** Delete several hits as one action (one undo step). */
+  deleteHits(refs: string[], say?: string): void {
+    let edits = this.edits;
+    for (const r of refs) if (findRef(this.current.events, r)) edits = deleteHit(edits, r);
+    if (edits === this.edits) return;
+    this.commit({ edits, ref: null }, !!this.selected && refs.includes(this.selected), { say: say ?? `Deleted ${refs.length} hit${refs.length === 1 ? '' : 's'}.` });
   }
 
   /** A break from the history or the favourites, exactly as it was: with its own hand edits. */
