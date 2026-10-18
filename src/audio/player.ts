@@ -9,7 +9,7 @@
  */
 import { Mixer, NotePlayer } from '@slopfactory/core/audio';
 import { CATEGORIES, type Break } from '../engine/types';
-import { emptyMix, type MixState } from '../app/mix';
+import { emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
 import type { Ingredients } from './ingredients';
 import { eventSeconds, hatChoke, ROOT_PITCH } from './timeline';
 
@@ -17,7 +17,7 @@ export type SwitchMode = 'bar' | 'loop' | 'immediate';
 const LOOKAHEAD = 0.15;
 const TICK_MS = 25;
 export const LIVE_SAMPLE_RATE = 44100;
-export const DEFAULT_LEVEL = 0.45;
+export const DEFAULT_LEVEL = 1;
 
 interface Scheduled {
   sec: number;
@@ -43,7 +43,29 @@ export class Player {
   ctx: AudioContext | null = null;
   private mixer: Mixer | null = null;
   private notes: NotePlayer | null = null;
-  /** previews (INGREDIENTS ▶, clicking a hit) bypass solo/mute: a second, ungated mixer */
+  private meters = new Map<string, { nodes: AnalyserNode[]; data: Float32Array<ArrayBuffer>; peak: number }>();
+  private masterSplit: ChannelSplitterNode | null = null;
+  private attachMeter(id: string, source: AudioNode, output?: number): void {
+    const nodes: AnalyserNode[] = [];
+    const split = output === undefined ? this.ctx!.createChannelSplitter(2) : null;
+    if (split) source.connect(split);
+    for (let c = 0; c < (split ? 2 : 1); c++) {
+      const node = this.ctx!.createAnalyser(); node.fftSize = 1024;
+      (split ?? source).connect(node, split ? c : output!); nodes.push(node);
+    }
+    this.meters.set(id, { nodes, data: new Float32Array(1024), peak: 0 });
+  }
+  meter(id: string): number {
+    const m = this.meters.get(id); if (!m) return 0;
+    if (!this.playing) return m.peak = 0;
+    let peak = 0;
+    for (const node of m.nodes) {
+      node.getFloatTimeDomainData(m.data);
+      for (const v of m.data) peak = Math.max(peak, Math.abs(v));
+    }
+    return m.peak = Math.max(peak, m.peak * 0.85);
+  }
+  /** Ingredient and hit previews bypass the transport's channel mix. */
   private previewMixer: Mixer | null = null;
   private preview: NotePlayer | null = null;
   private ticker: { stop(): void } | null = null;
@@ -83,6 +105,10 @@ export class Player {
       this.mixer = new Mixer(this.ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
       this.mixer.output.connect(this.ctx.destination);
       this.applyMix();
+      for (const c of CATEGORIES) this.attachMeter(c, this.mixer.processedTap(c));
+      this.masterSplit = this.ctx.createChannelSplitter(2);
+      this.mixer.output.connect(this.masterSplit);
+      this.attachMeter('L', this.masterSplit, 0); this.attachMeter('R', this.masterSplit, 1);
       this.notes = new NotePlayer(this.ctx, this.mixer, (_voice, note) => this.ingredients.instrument(note.instrument), { maxPerVoice: 16, choke: hatChoke });
       this.previewMixer = new Mixer(this.ctx, { voices: [...CATEGORIES], masterGain: this.level, fxAvailable: false });
       this.previewMixer.output.connect(this.ctx.destination);
@@ -99,20 +125,22 @@ export class Player {
   }
 
   setLevel(v: number): void {
+    v = safeGain(v);
     this.level = v;
     this.mixer?.setMasterGain(v);
     this.previewMixer?.setMasterGain(v);
   }
 
-  /** SOLO / MUTE per category (Core's mixer: any solo wins; otherwise muted voices are silent). */
+  /** One authoritative mix; gates are resolved with mute priority before passing to Core. */
   setMix(mix: MixState): void {
-    this.mix = JSON.parse(JSON.stringify(mix)) as MixState;
+    this.mix = sanitiseMix(mix);
     this.applyMix();
   }
 
   private applyMix(): void {
     if (!this.mixer) return;
-    for (const c of CATEGORIES) this.mixer.setStrip(c, { mute: this.mix[c].mute, solo: this.mix[c].solo });
+    const strips = mixerStrips(this.mix);
+    for (const c of CATEGORIES) this.mixer.setStrip(c, strips[c]!);
   }
 
   private build(b: Break): void {
@@ -171,6 +199,7 @@ export class Player {
   update(b: Break): void { this.setBreak(b); }
 
   stop(): void {
+    for (const meter of this.meters.values()) meter.peak = 0;
     this.ticker?.stop();
     this.ticker = null;
     if (this.ctx && this.notes) this.notes.stopAll(this.ctx.currentTime);

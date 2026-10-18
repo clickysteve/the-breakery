@@ -61,15 +61,15 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
 
   label(b, 6, 120, 'LEVEL');
   const level = new RangeBar(b, [40, 117, W - 44, 13], {
-    get: () => app.player.level,
+    get: () => app.player.level / 1.5,
     set: (v) => {
-      app.player.setLevel(v);
-      app.save();
+      app.player.setLevel(v * 1.5);
+      app.changed();
     },
-    format: (v) => `${v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-∞'} dB`,
-    parse: (t) => (/^-?\d+(\.\d+)?$/.test(t) ? Math.min(1, Math.pow(10, Math.min(0, Number(t)) / 20)) : null),
-    editText: (v) => (v > 0 ? (20 * Math.log10(v)).toFixed(1) : '-60'),
-    tip: 'Output level, for playback and TAKEAWAY alike. Type a value in dB (0 = full scale).',
+    format: (v) => `${v > 0 ? (20 * Math.log10(v * 1.5)).toFixed(1) : '-∞'} dB`,
+    parse: (t) => (/^-?\d+(\.\d+)?$/.test(t) ? Math.min(1, Math.pow(10, Number(t) / 20) / 1.5) : null),
+    editText: (v) => (v > 0 ? (20 * Math.log10(v * 1.5)).toFixed(1) : '-60'),
+    tip: 'Output level, for playback and TAKEAWAY alike. Type a value in dB (0 = unity gain).',
     label: 'Level',
   });
 

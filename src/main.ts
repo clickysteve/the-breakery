@@ -10,7 +10,7 @@ import { App, BATCH_SIZE } from './app/app';
 import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredients';
 import { audibleCategories, mixActive } from './app/mix';
 import { entryLabel } from './app/seeds';
-import { CATEGORIES, CATEGORY_LABEL } from './engine/types';
+import { CATEGORY_LABEL } from './engine/types';
 import { Player } from './audio/player';
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
@@ -177,7 +177,7 @@ function doMidiTakeaway(): void {
 }
 
 async function doTakeaway(): Promise<void> {
-  const o: TakeawayOptions = { ...app.takeawayOpts };
+  const o: TakeawayOptions = { ...app.takeawayOpts, mix: 'audible' };
   const r = app.current.recipe;
   const ok = await openDialog<boolean>(
     screen,
@@ -199,24 +199,7 @@ async function doTakeaway(): Promise<void> {
         el('span', '', l, undefined, text);
         setTip(l, tip);
       }
-      const rowMix = el('div', 'row', box);
-      const silenced = CATEGORIES.filter((c) => !app.audible(c));
-      const active = mixActive(app.mix);
-      if (!active) o.mix = 'full';
-      for (const [v, text, tip] of [
-        ['full', 'FULL MIX', 'Every drum category, whatever SOLO and MUTE say'],
-        ['audible', 'AUDIBLE MIX', active ? `Only what you hear now: without ${silenced.map((c) => CATEGORY_LABEL[c]).join(', ')}. Stems and MIDI follow; files are named _audible.` : 'Only what you hear (nothing is soloed or muted now, so the same as FULL MIX)'],
-      ] as const) {
-        const l = el('label', '', rowMix);
-        const i = el('input', '', l);
-        i.type = 'radio';
-        i.name = 'tmix';
-        i.checked = o.mix === v;
-        i.disabled = v === 'audible' && !active;
-        i.addEventListener('change', () => (o.mix = v));
-        el('span', '', l, undefined, text);
-        setTip(l, tip);
-      }
+      el('div', 'row', box, undefined, 'Mix and stems follow channel level, pan, MUTE and SOLO.');
       const row2 = el('div', 'row', box);
       el('span', '', row2, undefined, 'Tail');
       const sel = el('select', 'mselect', row2);
@@ -232,7 +215,12 @@ async function doTakeaway(): Promise<void> {
       cb.checked = o.stems;
       cb.addEventListener('change', () => (o.stems = cb.checked));
       el('span', '', l, undefined, '+ STEMS (ZIP)');
-      setTip(l, 'Also one WAV per drum category, the same length and gain as the mix, in a ZIP');
+      setTip(l, 'Also one aligned stereo WAV per drum category in a ZIP. DRY STEMS bypasses master gain.');
+      const dryLabel = el('label', '', el('div', 'row', box));
+      const dry = el('input', '', dryLabel); dry.type = 'checkbox'; dry.checked = o.dryStems ?? true;
+      dry.addEventListener('change', () => o.dryStems = dry.checked);
+      el('span', '', dryLabel, undefined, 'DRY STEMS (bypass master gain)');
+      setTip(dryLabel, 'Channel gain, pan and mute/solo are preserved. All category stems have identical lengths, including silent channels.');
       const lm = el('label', '', row2);
       const cm = el('input', '', lm);
       cm.type = 'checkbox';
@@ -249,7 +237,7 @@ async function doTakeaway(): Promise<void> {
   app.say('Rendering…');
   try {
     const only = o.mix === 'audible' ? audibleCategories(app.mix) : undefined;
-    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only);
+    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
       const mid = midiTakeaway(app.current, only);

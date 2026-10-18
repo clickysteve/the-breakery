@@ -9,15 +9,16 @@
  * Optionally one stem per drum category as well (a ZIP), all the same length and gain, and a
  * MIDI file of the break (midi/breakMidi.ts; inside the ZIP when there are stems).
  *
- * Mix: FULL MIX renders every category whatever SOLO and MUTE say; AUDIBLE MIX renders only what
- * you hear (the same precedence as playback, app/mix.ts) and names the files "_audible". Stems
- * and the MIDI file follow the same choice, so a ZIP is always self-consistent.
+ * Audio exports always respect mixer mute/solo, channel gain/pan and master gain.
+ * Stems include every category (silent where muted), retaining all events for choking.
+ * Dry stems bypass master gain and safety attenuation; excessive dry levels are rejected.
  *
  * Clipping: if the mix would exceed full scale, every file is turned down by the same amount
  * to -1 dBFS and the result says so. Otherwise nothing is normalised.
  */
 import { createZip, encodeWav16, fileName, levelStats } from '@slopfactory/core/export';
 import { EXPORT_SAMPLE_RATE, renderTimeline } from '@slopfactory/core/render';
+import { audibleCategories, emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Break, type Category } from '../engine/types';
 import { breakMidi } from '../midi/breakMidi';
@@ -30,11 +31,12 @@ export interface TakeawayOptions {
   stems: boolean;
   /** also a Standard MIDI File of the break */
   midi: boolean;
-  /** every category, or only those SOLO / MUTE leave audible */
+  dryStems?: boolean;
+  /** Legacy filename/MIDI selection; audio always follows mixer gates. */
   mix: 'full' | 'audible';
 }
 
-export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false, midi: false, mix: 'full' });
+export const defaultTakeaway = (): TakeawayOptions => ({ mode: 'tail', tailSeconds: 2, stems: false, midi: false, dryStems: true, mix: 'full' });
 
 export interface TakeawayResult {
   name: string;
@@ -66,12 +68,16 @@ export function midiTakeaway(b: Break, only?: readonly Category[]): { name: stri
   return { name: takeawayName(b, { mode: 'tail', mix: only ? 'audible' : 'full' }, 'mid'), bytes, type: 'audio/midi', notes };
 }
 
-/** `audibleCats`: the categories SOLO / MUTE leave audible (used when opts.mix is 'audible'). */
-export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[]): Promise<TakeawayResult> {
-  const only = opts.mix === 'audible' ? audibleCats : undefined;
-  const timeline = breakTimeline(b, only);
-  if (!timeline.events.length) throw new Error(only ? 'Nothing to render: every category with a sample is muted (or not soloed). Choose FULL MIX, or change SOLO / MUTE.' : 'Nothing to render: no hit in this break has a sample. Load some INGREDIENTS first.');
-  const used = CATEGORIES.filter((c) => timeline.events.some((e) => e.voice === c));
+/** Optional category mask for legacy callers; channel gain/pan comes from the mixer snapshot. */
+export async function takeaway(b: Break, ingredients: Ingredients, opts: TakeawayOptions, level: number, onProgress?: (f: number) => void, audibleCats?: readonly Category[], mix: MixState = emptyMix()): Promise<TakeawayResult> {
+  const dryStems = opts.dryStems ?? true;
+  const only = audibleCats ?? audibleCategories(sanitiseMix(mix));
+  const timeline = breakTimeline(b);
+  const strips = mixerStrips(sanitiseMix(mix));
+  // Keep all events for shared choke groups and frame-identical silent stems.
+  for (const c of CATEGORIES) strips[c]!.mute ||= !only.includes(c);
+  if (!timeline.events.length) throw new Error('Nothing to render: no hit in this break has a sample. Load some INGREDIENTS first.');
+  const used = [...CATEGORIES];
   const tail = opts.mode === 'loop' ? Math.max(1, opts.tailSeconds) : Math.max(0, Math.min(10, opts.tailSeconds));
   const res = await renderTimeline({
     timeline,
@@ -79,7 +85,8 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
     tailSeconds: tail,
     master: true,
     stems: opts.stems ? used.map((voice) => ({ voice, processed: false })) : [],
-    masterGain: level,
+    strips,
+    masterGain: safeGain(level),
     resolve: (_voice, note) => ingredients.instrument(note.instrument),
     choke: hatChoke,
     maxPerVoice: 16,
@@ -89,14 +96,22 @@ export async function takeaway(b: Break, ingredients: Ingredients, opts: Takeawa
   let outputs = res.outputs.map((o) => ({ voice: o.voice, channels: o.channels as Float32Array[] }));
   if (opts.mode === 'loop') outputs = outputs.map((o) => ({ ...o, channels: o.channels.map((c) => foldLoop(c, loopFrames)) }));
 
-  // one gain for every file, so stems still add up to the master
+  // Core taps precede master gain. Dry stems keep channel gain/pan only.
+  if (!dryStems) for (const o of outputs.slice(1)) for (const c of o.channels) for (let i = 0; i < c.length; i++) c[i] = c[i]! * safeGain(level);
+
+  // One safety attenuation preserves stem summation (dry stems bypass master attenuation).
   const master = outputs[0]!;
   const stats = levelStats(master.channels);
   let reducedDb = 0;
-  if (stats.peak > 0.98) {
-    const g = 0.891 / stats.peak;
+  const highestPeak = dryStems ? stats.peak : Math.max(...outputs.map(o => levelStats(o.channels).peak));
+  if (highestPeak > 0.98) {
+    const g = 0.891 / highestPeak;
     reducedDb = -20 * Math.log10(g);
-    for (const o of outputs) for (const c of o.channels) for (let i = 0; i < c.length; i++) c[i] = c[i]! * g;
+    for (const o of (dryStems ? outputs.slice(0, 1) : outputs)) for (const c of o.channels) for (let i = 0; i < c.length; i++) c[i] = c[i]! * g;
+  }
+  if (dryStems) {
+    const peak = Math.max(0, ...outputs.slice(1).map(o => levelStats(o.channels).peak));
+    if (peak > 0.98) throw new Error('Dry stems exceed WAV headroom. Lower channel levels and export again.');
   }
   const peakDb = levelStats(master.channels).peakDb;
   const frames = master.channels[0]!.length;
