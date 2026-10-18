@@ -18,6 +18,8 @@ import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
 import { audible, safeGain, safePan, sanitiseMix, type MixState } from './mix';
+import { OutputChain, type ChainConfig } from '@slopfactory/core/engines';
+import { OUTPUT_ENGINES } from '../audio/output';
 import { diceName, entryKey, entryLabel, FAVOURITES_MAX, sanitiseFavourite, SeedHistory, type Favourite, type SeedEntry } from './seeds';
 
 export const BATCH_SIZE = 8;
@@ -70,6 +72,8 @@ interface Saved {
   snap?: number;
   /** the MUTATE tab's settings */
   mutate?: MutateSettings;
+  /** the OUTPUT tab: the master output chain (Slop Factory Core chain configuration) */
+  output?: ChainConfig;
 }
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
@@ -117,6 +121,11 @@ export class App {
   snap = 12;
   /** what MUTATE does (the MUTATE tab) */
   mutation: MutateSettings = defaultMutate();
+  /**
+   * OUTPUT: the master output chain. App settings like the mixer: saved, never part of the break
+   * or of undo. Every change is heard at once and saved.
+   */
+  output: OutputChain;
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private baseline = '';
@@ -138,6 +147,12 @@ export class App {
     this.keepEdits = s?.keepEdits === true;
     this.snap = (SNAPS as readonly number[]).includes(Number(s?.snap)) ? Number(s!.snap) : 12;
     this.mutation = sanitiseMutate(s?.mutate);
+    this.output = new OutputChain(OUTPUT_ENGINES, s?.output);
+    player.setOutput(this.output.config);
+    this.output.subscribe((c) => {
+      player.setOutput(c);
+      this.changed();
+    });
     this.history = SeedHistory.from(readJson(HISTORY_KEY));
     const favs = readJson(FAVOURITES_KEY);
     this.favourites = Array.isArray(favs) ? favs.map(sanitiseFavourite).filter((f): f is Favourite => !!f) : [];
@@ -168,7 +183,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }

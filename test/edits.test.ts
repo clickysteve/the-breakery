@@ -274,7 +274,7 @@ function memoryStorage(): Storage {
 function makeApp(): App {
   const k = kit();
   const ingredients = { kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '—' };
-  const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
+  const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setOutput() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
   const app = new App(ingredients as never, player as never, localStorage.getItem('breakery.state.v1') ? undefined : '4242');
   // a known break (the App starts from a random seed): hats keep time, and there is room to edit
 

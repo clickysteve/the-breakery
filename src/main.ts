@@ -275,13 +275,13 @@ async function doTakeaway(): Promise<void> {
   try {
     const only = o.mix === 'audible' ? audibleCategories(app.mix) : undefined;
     const map = midi.fileMapping();
-    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix, map);
+    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix, map, app.output.config);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
       const mid = midiTakeaway(app.current, only, map, naming);
       download(mid.name, mid.bytes, mid.type);
     }
-    app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}).`);
+    app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}${res.outputSkipped ? '; OUTPUT could not run in this browser, so the master is unprocessed' : ''}).`);
   } catch (e) {
     app.say('TAKEAWAY failed.');
     alertBox(`The render failed: ${e instanceof Error ? e.message : String(e)}`);
