@@ -10,9 +10,10 @@ into the top of the loop. Then you take it away as a WAV, to sample, slice and r
 sampler or DAW.
 
 It is not a step sequencer. You guide it (recipe, tempo, length, density, syncopation, ghosts,
-swing, humanise, variation, fills) and it composes: one to eight bars built as a phrase, with a
-groove, an answer, development, fills and a turnaround, and in the UK breakbeat recipes chopped,
-resequenced bars and rolls.
+swing, humanise, variation, fills, toms, rolls) and it composes: one to eight bars built as a
+phrase, with a groove, an answer, development, fills and a turnaround, tom fills, rolls that lead
+into the accents, and in the UK breakbeat recipes chopped, resequenced bars. Then you can take
+over: every hit can be added, moved, deleted or changed by hand.
 
 <https://breakery.allmyfriendsaresynths.com/>
 
@@ -20,13 +21,15 @@ resequenced bars and rolls.
 
 | | |
 |---|---|
-| **INGREDIENTS** | Your sample library: KICK, SNARE, GHOST, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. |
+| **INGREDIENTS** | Your sample library: KICK, SNARE, GHOST, HIGH TOM, MID TOM, LOW TOM, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. |
 | **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), ENGINE 1/2, BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, MUTATE, and eight controls. |
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
-| **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, when baking again. |
-| **PATTERN** | See every hit and why it is there; SOLO and MUTE each drum. |
+| **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, or your hand EDITS, when baking again. |
+| **ROLLS · TOMS** | Rolls (amount, length, speed 1/16–1/64 and triplets, shape, where, which drums) and the toms' part in fills. |
+| **PATTERN** | See every hit and why it is there; edit hits by hand (add, select, move, delete, velocity, timing, sample) with undo; SOLO and MUTE each drum. |
 | **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
+| **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, or your own. |
 
 OVERBAKE (destructive mutation) and BREED are planned; see *Next steps*.
 
@@ -97,8 +100,31 @@ from any folder of any static server). `npm run evaluate` regenerates
    Hover a hit to see why it is there ("ghost on 1a: anticipates the backbeat on 2") and why it
    plays its sample; click it to hear it. **S** and **M** beside each row SOLO and MUTE that drum,
    at once, without changing the break (if any row is soloed, only soloed rows play: SOLO wins over
-   MUTE). Patterns longer than four bars can be viewed whole or four bars at a time.
-5. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
+   MUTE). **VIEW** shows every bar, or 4, 2 or 1 bar at a time (◀ ▶ to page), close enough to
+   see and edit 64th-note rolls.
+5. **Edit by hand.** Click an empty place in the PATTERN to add a hit (on the **SNAP** grid:
+   1/16, 1/32, 1/64, 1/16T, 1/32T); click a hit to select it (and hear it); drag it sideways to
+   move it (a 32nd stays a 32nd: moves keep a hit's offset from the grid); drag from an empty
+   place to paint several; right-click a hit, press Delete or Backspace, or **DEL**, to delete it;
+   Escape deselects. The strip under the grid sets the selected hit's **VEL** (1–127), **TIME**
+   (± ms against its place and swing), **SAMPLE** (any loaded sample, or its category's PICK
+   mode), and has ◀ ▶ (move by a SNAP step; ← → too), **DUP**, **DEL** and **REVERT** (back to the
+   generated hit). ⌘Z / ⇧⌘Z undo and redo every edit; **CLEAR EDITS** removes them all. Hits you
+   placed or moved carry a ■, hits you changed a □, and their explanation says what you did.
+   Edits are part of the break: playback (at once), TAKEAWAY, stems and MIDI all use them.
+   **Recipe, sample and length changes keep your edits** (re-applied to the re-baked break; edits
+   in bars beyond a shorter length are kept for when it grows again). **A new break** (BAKE,
+   BATCH, a seed, DICE, MUTATE, the history) starts unedited, and your edits stay with the old
+   break in the history (◀ returns to it) and in a favourite; **FREEZE EDITS** (E) carries them
+   onto new breaks instead.
+6. **Rolls and toms.** **ROLLS · TOMS**: **AMOUNT** (how many rolls), **LENGTH** (hits per roll),
+   **SPEED** (1/16, 1/16T, 1/32, 1/32T, 1/64), **SHAPE** (EVEN, CRESCENDO, DECRESCENDO, ALTERNATING,
+   HUMAN), **PLACE** (BEFORE ACCENT, PHRASE END, FILLS, ANYWHERE) and the drums that may roll
+   (SNR, HAT, PRC, TOM, KCK). Every roll leads into something (a backbeat, the loop point, a tom
+   fill, a beat) and its strokes are real hits you can edit one by one. **TOMS** sets how much the
+   toms join the fills: descending and rising runs, snare/tom combinations, linear fills,
+   answers to the backbeat. Without tom samples, tom hits are silent (the demo kit has toms).
+7. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
    bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
    renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
    `_audible`; stems and MIDI follow the same choice). *+ Stems*
@@ -106,12 +132,18 @@ from any folder of any static server). `npm run evaluate` regenerates
    `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
    (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
    the break (inside the ZIP when there are stems, otherwise as a second download).
-6. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
+8. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
    (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
-   38, closed hat 42, open hat 46, crash 49, ride 51, perc 39), one named track per drum, with
+   38, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride 51, perc
+   39), one named track per drum, with
    the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
+9. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
+   instruments (it lives in Slop Factory Core). Choose a palette, or edit any colour (a built-in
+   palette is copied first), rename, duplicate, delete, import and export palette files (emmm and
+   DOWNBEAT palettes import too), or go back to Atari, the original black and white. Remembered
+   in this browser; never part of a break.
 
 `?seed=12345` or `?seed=funky%20chicken` in the address sets the seed. Keys: **BREAKERY ▸ Keys…**.
 
@@ -135,7 +167,12 @@ A layered generator, deterministic from seeds (engine 2):
 5. **Performance**: velocity by role and accent cycle; Linn-style swing (subtle by default, as
    measured in classic breaks); consistent per-drum tendencies (the snare laid back more on 2 than
    on 4, never early; hats ahead; accents a touch late) with small *correlated* drifts, not jitter.
-6. **Sample selection** per category (PICK).
+6. **Toms**: tom fills in the turnaround and half-way fill (re-voicing a snare run, or their
+   own figure), sometimes in development and answer bars; after the performance and from their
+   own streams, so they change no other hit.
+7. **Rolls**: runs of strokes at their own subdivision, each leading into an anchor, at most one
+   a bar, never in the first groove bar; also after the performance, so they change no other hit.
+8. **Sample selection** per category (PICK), then your **hand edits**.
 
 Why each of these choices: [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). How the
 code is organised: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -151,19 +188,29 @@ GitHub Pages (`clickysteve.github.io`).
 One-time setup: **Settings ▸ Pages ▸ Source: GitHub Actions**, and the custom domain set to
 `breakery.allmyfriendsaresynths.com` (with HTTPS enforced once the certificate is issued).
 
-Shared audio infrastructure comes from
+Shared audio infrastructure and the palettes come from
 [Slop Factory Core](https://github.com/clickysteve/slopfactory-core) (sampler, mixer, offline
-renderer, WAV/ZIP export, sample storage), pinned to a commit in `package.json`; the interface
-follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
+renderer, WAV/ZIP export, sample storage, palettes and the palette editor), pinned to a commit
+in `package.json`; the interface follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit
+look, and the grid editing follows DOWNBEAT's conventions (click to add, right-click to delete,
+drag, ⌘Z).
 
 ## Current limitations
 
-* **Engine 2 is not yet evaluated by ear.** The first release was liked by its user; engine 2's
-  changes are checked by tests and by comparing structure with engine 1 and random patterns
-  ([docs/EVALUATION.md](docs/EVALUATION.md)), but its listening tests have not been run.
+* **Engine 2 is not yet evaluated by ear**, and neither are rolls and tom fills. They are
+  checked by tests and by inspecting generated patterns ([docs/EVALUATION.md](docs/EVALUATION.md)),
+  but their listening tests have not been run.
 * Changing engines changes the break: engine 2 bakes different breaks from the same seeds. Breaks
   saved before engine 2 open with engine 1 and reproduce exactly.
-* 4/4 only; sixteenth grid with 32nd and faster roll subdivisions; no toms.
+* 4/4 only. Hits sit on a grid of 12 ticks per sixteenth (so 1/32, 1/64 and 16th and 32nd
+  triplets, not quintuplets).
+* Toms never borrow another drum's sound: with no tom samples, tom hits are silent. A visitor
+  with the demo kit gets its three new toms once; anyone else loads toms (or **DEMO**).
+* Hand edits are positional. A change to a generated hit whose seed or recipe no longer makes
+  that hit is kept but inactive (the status line says so). Moving a hit keeps its category (no
+  dragging between rows). Undo covers hand edits, not recipe changes (◀ ▶ the history does).
+* While playing, an edit is heard from the next hit not yet scheduled: a hit deleted within the
+  next 150 ms may still sound once.
 * Chops rearrange hits, not audio: no slice tails, pitch, time-stretch or resampling.
 * Recipe values are hand-set hypotheses; some genre rules are not from reliable sources (see
   the research notes, §7).
@@ -173,13 +220,15 @@ follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit look.
   and SNARE and GHOST share GM note 38 (on separate tracks); hits on the same note at the same
   tick are written once.
 * No OVERBAKE, BREED, slicing, pitch or effects.
-* Desktop-first: the fixed screen scales to fit; phones work best in landscape.
+* Desktop-first: the fixed screen (now 880 × 470, for the ROLLS · TOMS and BATCH column)
+  scales to fit; phones work best in landscape (in portrait it is small).
 
 ## Next steps
 
 1. Run the listening tests (docs/EVALUATION.md §4: engine 1 vs 2, timing, long patterns,
-   recipes, sample modes, MUTATE) with a real kit and tune from them.
-2. Toms and a richer fill vocabulary; calibrate tendencies from the Groove MIDI Dataset.
+   recipes, sample modes, MUTATE, rolls, toms, editing) with a real kit and tune from them.
+2. Calibrate fill, tom and roll tendencies from the Groove MIDI Dataset; flams and drags as
+   their own gestures; dragging a hit to another row (change its drum).
 3. BREED two favourites; a MUTATE strength measured by rhythmic edit distance.
 4. Audio slicing (OVERBAKE): play chopped events as slices of the rendered break, at its known
    hit times, with tails, pitch and time-stretch.

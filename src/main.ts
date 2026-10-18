@@ -464,7 +464,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const n = Number(e.key);
-  const sel = app.selectedEvent;
+  // a focused number box, range bar or other entry control keeps Delete, Backspace and the arrows for itself
+  const sel = t.closest?.('.num, .range, [role="slider"], [role="spinbutton"], [role="textbox"]') ? undefined : app.selectedEvent;
   if (sel && (e.key === 'Delete' || e.key === 'Backspace')) app.deleteHit();
   else if (sel && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (t === document.body || t.classList.contains('btn') || t.closest('.patternsvg'))) app.nudge((e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 48 : app.snap));
   else if (sel && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && (t === document.body || t.classList.contains('btn'))) app.setHitVelocity(sel.vel + (e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 1 : 5));

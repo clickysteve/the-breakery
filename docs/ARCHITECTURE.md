@@ -6,8 +6,9 @@ RECIPE + SEEDS ──────────┤
                          ▼
                    engine/generate.ts  (pure TypeScript, no DOM, no audio)
    engine 2: phrase plan → foundation → support → [mutations] → phrase development
-             (answers, development, chops, fills) → performance → sample selection
-   engine 1 (v1/, frozen): the first release's generator, then the same sample selection
+             (answers, development, chops, fills) → performance → AUTO samples
+             → TOMS → ROLLS → hand EDITS → PICK modes and hand-chosen samples
+   engine 1 (v1/, frozen): the first release's generator, then AUTO samples → hand EDITS → PICK
                          │
                          ▼  Break = structured events
           ┌──────────────┼───────────────┐
@@ -27,11 +28,11 @@ RECIPE + SEEDS ──────────┤
 
 | Folder | What | Depends on |
 |---|---|---|
-| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and rolls), `performance` (Layer C), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
+| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, and `FLOURISH`: each recipe's toms and rolls), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
 | `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (sample library, storage, folder import, loudness), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
 | `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF). | audio/timeline, engine |
-| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence). | engine, audio |
-| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window. | app |
+| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence). | engine, audio |
+| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `rollsWindow` is ROLLS · TOMS), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window). | app, Core palette |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
 ## The event model
@@ -41,7 +42,7 @@ A `Break` holds the recipe, the seeds, the phrase plan, the performer's feel and
 
 | Field | Meaning |
 |---|---|
-| `cat` | drum category (kick, snare, ghost, hat, open, ride, crash, perc) |
+| `cat` | drum category (kick, snare, ghost, htom, mtom, ltom, hat, open, ride, crash, perc) |
 | `bar`, `step`, `sub` | grid position: bar, sixteenth (0–15), ticks after the step (12 per sixteenth: 6 = a 32nd) |
 | `level` | the score's nominal dynamic (0–1), before performance |
 | `vel` | performed velocity, 1–127 |
@@ -49,11 +50,54 @@ A `Break` holds the recipe, the seeds, the phrase plan, the performer's feel and
 | `offsetMs` | microtiming, milliseconds |
 | `role`, `why` | what the hit does musically and why it was placed (shown on hover; kept for slicing and MIDI) |
 | `sample` | the sample id, or null (silent) |
+| `ref` | identity for editing: the generated hit's key `cat\|bar\|step\|sub`, or `m:<id>` for a hand-placed hit |
+| `manual`, `editWhy`, `pinned` | edited by hand (`added`, `moved` or `edited`), what was changed, and a sample chosen by hand |
 
 The grid position (the *score*) and swing/microtiming/velocity (the *groove*) are kept apart,
 as in the Groove MIDI Dataset's representation, so later features can freeze, compare or breed
 them separately. `GM_NOTE` in `types.ts` maps categories to General MIDI drum notes, used by the
 MIDI file export and, later, MIDI output.
+
+## Hand edits
+
+`edits.ts` keeps the user's edits as a LAYER over the generated events, not baked into them, so
+the generator stays deterministic. The layer is positional: generated hits it removes or changes
+(by key), and hits added by hand (a moved generated hit is a removal plus a hand-placed copy that
+remembers what it was). `bake(…, edits)` applies it after the AUTO sample choice (whose
+sequential stream must not shift when a hit is added) and before the PICK modes, so playback,
+TAKEAWAY, stems, MIDI and the pattern view all use the edited events. Hand-placed hits take swing
+from the recipe; their timing field is microtiming on top.
+
+The App keeps the layer with the current break: re-baking the same seeds (recipe, samples, length,
+engine) re-applies it; edits that no longer find their hit, or lie beyond a shorter length, are
+kept and reported. A new break (BAKE, BATCH, a seed, MUTATE, the history) starts unedited, and the
+old break keeps its edits in its history entry (and favourite); FREEZE EDITS carries the layer
+onto new breaks instead. Undo and redo are snapshots of the layer (and the selection); a drag is
+one step; quick changes of one number coalesce. Live playback takes an edit at once
+(`Player.update`), from the next hit not yet scheduled.
+
+## Toms and rolls
+
+`toms.ts` and `rolls.ts` (engine 2) run AFTER the performance and the AUTO sample choice, each
+from its own streams (the BEAT seed for what and where, the FEEL seed for how), so they never
+change another hit's velocity, timing or sample; at 0 they add nothing and draw nothing, and every
+recipe saved before them (no TOMS or ROLLS field = 0) bakes exactly as before
+(`test/engine2.test.ts` checks 132 reference breaks). Tom fills re-voice a generated snare run or
+play their own figure in fill bars, keep the backbeat, and decide once for every answer bar. A
+roll is N strokes exactly SPEED ticks apart ending one stroke before its anchor (swing moves the
+roll as a whole); it never crosses a bar line or runs over a backbeat, downbeat kick, crash, tom
+fill or another roll, and the hands it needs stop timekeeping and ghosts under it. The toms are
+three categories like any other (samples, PICK modes, solo/mute, stems, MIDI notes 50/47/45) with
+no fallback.
+
+## Palettes
+
+Colour palettes come from Slop Factory Core (`@slopfactory/core/palette`, Core 0.3.0): the
+model, presets, palette files, preferences and editor that the first instrument had, made
+generic. `src/ui/palette.ts` declares The Breakery's roles (Core's shared six plus HITS and HAND
+EDITS) and uses the shared presets; `applyPalette` writes one style sheet of CSS custom
+properties, which everything on the screen draws with (a test checks the interface has no colours
+of its own). Preferences live in `breakery.palette.*`, never in a break.
 
 ## Seeds and determinism
 
@@ -61,9 +105,9 @@ Every random decision draws from a named stream derived from one of four layer s
 
 | Seed | Streams | FREEZE keeps |
 |---|---|---|
-| `beat` | foundation, kick/snare variation, chops, fills, crash placement | kick and snare pattern (FREEZE BEAT; RHYTHM = beat + detail + feel) |
+| `beat` | foundation, kick/snare variation, chops, fills, crash placement, tom fills, rolls | kick and snare pattern, tom fills and rolls (FREEZE BEAT; RHYTHM = beat + detail + feel) |
 | `detail` | timekeeper plan, ghosts, lifts, percussion, their variation | supporting voices |
-| `feel` | performance | timing and dynamics tendencies |
+| `feel` | performance, and how tom fills and rolls are played | timing and dynamics tendencies |
 | `kit` | sample selection (AUTO's main sample and alternates; RANDOM, ALTERNATE, PER BAR …) | sample choices (FREEZE SAMPLES) |
 
 The rhythm never depends on the loaded samples (fallbacks and sample selection are resolved after

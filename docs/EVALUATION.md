@@ -10,10 +10,15 @@ listening tests that matter.
 the code was written with Claude (an AI assistant), which cannot listen to audio. Every musical
 change is a hypothesis until §4 is done.
 
-## 1. What is tested automatically (`npm test`, 98 tests)
+## 1. What is tested automatically (`npm test`, 165 tests)
 
 | File | Area | Checks |
 |---|---|---|
+| `engine2.test.ts` | Reproducibility | **Engine 2 breaks saved before TOMS and ROLLS** (no such fields = 0) reproduce exactly: 132 reference breaks (every recipe, 1/2/4/8 bars, with a mutation, high FILLS), also with tom samples loaded (`test/fixtures/engine2-golden.json`). |
+| `edits.test.ts` | Hand editing | Add (honest explanation, swing from the recipe, a sample), add onto an existing hit selects it, delete, move (remembers what it was; REVERT puts it back), refusal onto another hit, velocity/timing/sample with limits, a missing chosen sample, adding never changes another hit's AUTO sample, duplicate, determinism; snapping inside the pattern on every grid; hits beyond a shorter length kept and back when it grows; recipe changes re-apply edits and report inactive ones; damaged stored edits cleaned; the timeline (playback, WAV, stems) and the MIDI file follow every kind of edit, a hand-placed 64th exact. App: undo/redo of every operation, a drag and a dragged number are one step each, redo cleared by a new edit, recipe and length changes keep edits, BAKE leaves them in the history (◀ restores), FREEZE EDITS carries them through BAKE, BATCH, MUTATE and seeds, favourites keep them, a reload restores them, nudging stays in the pattern. |
+| `toms.test.ts` | Toms | Three categories, GM notes, demo sounds; names and folders suggest them (a plain "tom" is left to choose); solo/mute and AUDIBLE MIX; TOMS 0 adds none; toms only in fill, development and answer bars, the same in every answer bar; never more than eight a bar, under one a bar on average at the defaults; no other hit changes; descending and rising runs go the right way; FILLS 0 and VARIATION 0 mean none; the recipe matters; deterministic and kept by FREEZE BEAT; none in engine 1; silent without samples (and the rhythm the same); every PICK mode; timeline, stems and MIDI; editable by hand; old recipes load with TOMS 0. |
+| `rolls.test.ts` | Rolls | ROLLS 0 or no target: none; every SPEED keeps its subdivision exactly in the grid and in time (swing included); each roll ends one stroke before an anchor, inside one bar; never over a backbeat, downbeat kick, crash or tom fill; the first bar and groove bars untouched, one roll a bar, answer bars alike; no other hit changes; the recipe matters; targets respected and tom rolls descend into the top; deterministic and kept by FREEZE BEAT; bar lengths; the five dynamics shapes; faster rolls softer; roll hits edited one by one; exact in the timeline and the MIDI file (64ths 60 ticks apart); roll settings cleaned. |
+| `palette.test.ts` | Palettes | Core's shared presets with Atari (the original look) the default and equal to the style sheet's colours; every preset reads well with The Breakery's roles; custom palettes copied, kept and restored; emmm and DOWNBEAT palette files import; no colours of its own anywhere in the interface; palettes never change a break. (Core's own palette tests cover the model, files and preferences.) |
 | `engine1.test.ts` | Reproducibility | **Engine 1 is frozen**: 120 reference breaks baked by the first release (all four recipes, 1/2/4 bars, random recipes and tempi, with and without a kit) are reproduced exactly: events, velocities, swing, microtiming, roles, plans and sample choices (`test/fixtures/engine1-golden.json`). Recipes without an engine field load as engine 1. Engine 2 gives different breaks from the same seeds. |
 | `engine.test.ts` | Engine 2 (the original suite, now run on engine 2) | Determinism; validity fuzz over 400 random recipes; backbeat on 2 and 4; downbeat kick; ghosts soft and nearer the snare accents than random; kicks never on a backbeat in groove bars (a layered floor kick aside); open hats replace closed; later bars related; phrase plans; each control has its effect; freeze; sanitising (bars clamped 1–8, engine rules). |
 | `features.test.ts` | Pattern length | Every recipe × every length 1–8: valid events inside their bars, every bar used, phrase plan per length; loop length, Core timeline length and MIDI length exact; no event after the loop point beyond the microtiming cap; groove bars identical to bar 1 and answers identical to each other in 8 bars; half-way fills present; no fills with FILLS 0; an 8-bar bake under 25 ms. |
@@ -56,6 +61,21 @@ New in this release, checked through the app and `window.breakery`:
   automation cannot drag a directory. The picker uses `webkitdirectory`, the drop uses
   `webkitGetAsEntry`, both widely supported; please try both once.)
 * No console errors.
+
+### Hand editing, rolls, toms and palettes (Chromium, 18 October 2026)
+
+Checked in the development build with the demo kit: clicking an empty place adds a hit (selected,
+heard, ■ marked); dragging it moves it by SNAP steps; Delete removes it; ⌘Z and ⇧⌘Z undo and redo
+(a drag is one step); right-clicking a generated snare deletes it without the browser's menu;
+typing a velocity into VEL changes the hit; edits survive a reload; while playing, an added hit
+joins the live schedule at once and a deleted one leaves it. Backspace in a focused number box
+never deletes the selected hit. 1/64 tom rolls show at their own places in the one-bar view.
+ROLLS controls re-bake the break; the demo toms were added once to a browser that had the demo
+kit. Every palette preset was applied (Amber, Green Screen, C64, Rave, Paper in screenshots):
+windows, menus, dialogs, the grid, hits, the selected-hit strip and the dithered fills all follow;
+editing a built-in made a copy; the choice survived a reload; Back to Atari restored the original
+colours exactly. Tablet and phone sizes scale the whole screen (small on a phone in portrait).
+**Not listened to by a musician yet** (section 4, G–I).
 
 ## 3. Structure versus chance, and engine 1 versus engine 2 (`npm run evaluate`)
 
@@ -118,6 +138,23 @@ use the quietest sample); **E3** TAKEAWAY matches playback (export and listen in
 
 **F. MUTATE.** On three breaks you like, press MUT five times, scoring after each: **F1** still the
 same break; **F2** a variation worth keeping. Then ◀ back.
+
+**G. Rolls.** With a real kit, on five JUNGLE, five D&B and five FUNK seeds, ROLLS at 30 %, 60 %
+and 100 % (default SPEED, SHAPE and PLACE): **G1** the rolls lead somewhere (into the backbeat or
+the top) rather than sounding scattered; **G2** the groove survives (the first bars still sound like
+the break); **G3** 1/64 rolls sound like rolls, not a buzz or a roar, and the export does not clip.
+Then try each SHAPE and PLACE on one seed: is each audible and useful?
+
+**H. Toms.** With tom samples (the demo kit's, then real ones), five FUNK and five HALF-TIME
+seeds at TOMS 30 % and 80 %: **H1** the tom fills sound like a drummer going round the kit;
+**H2** they do not take over; **H3** a re-voiced snare run keeps the fill's shape. Then remove the
+tom samples: does anything sound broken (fills with holes where toms were)?
+
+**I. Editing.** On a break you like, make it yours: delete a snare, add a kick, move a hat, soften a
+ghost, push a snare late by 10 ms, give one hit another sample; then change DENSITY and SWING,
+BAKE (with and without FREEZE EDITS) and come back with ◀. **I1** every edit is heard at once and
+exported; **I2** nothing you did disappears without you asking; **I3** the gestures (click, drag,
+right-click, Delete, ⌘Z) never surprised you.
 
 Record listener, kit, date, scores and notes, and add the summary here, including failures.
 
