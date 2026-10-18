@@ -20,8 +20,13 @@ RECIPE + SEEDS ──────────┤
               ▼                     ▼                    ▼
        audio/player.ts        audio/takeaway.ts     midi/breakMidi.ts
        live: Core Mixer +     offline: Core         eventTick → 960 PPQ,
-       NotePlayer, look-ahead renderTimeline        GM_NOTE, channel 10
+       NotePlayer, look-ahead renderTimeline        per-track channel/note
        scheduling             → WAV / ZIP           → midi/smf.ts → .mid
+         │      ▲
+         ▼      │ pulses (EXTERNAL clock)
+       midi/router.ts → MidiOutput per device → Web MIDI out (notes, clock)
+       app/midi.ts ← midi/access.ts ← Web MIDI in (notes → LiveSamplePicker → Player.live;
+                                                  clock → midi/clockIn.ts)
 ```
 
 ## Modules
@@ -30,9 +35,9 @@ RECIPE + SEEDS ──────────┤
 |---|---|---|
 | `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, and `FLOURISH`: each recipe's toms and rolls), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
 | `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (sample library, storage, folder import, loudness), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
-| `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF). | audio/timeline, engine |
-| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence). | engine, audio |
-| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `rollsWindow` is ROLLS · TOMS), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window). | app, Core palette |
+| `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF), `messages` (builders and parsing), `output` (note-safe output per device), `router` (live hits → timestamped notes, queued note-offs, clock out), `routing` (per-track settings, defaults, input matching), `clockIn` (external clock follower), `access` (Web MIDI wrapper). Built on Core's MIDI interfaces. | audio/timeline, engine, Core midi types |
+| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence); `midi.ts` (MidiRig: MIDI settings, devices, input, clock source). | engine, audio, midi |
+| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `rollsWindow` is ROLLS · TOMS; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window). | app, Core palette |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
 ## The event model
@@ -56,7 +61,7 @@ A `Break` holds the recipe, the seeds, the phrase plan, the performer's feel and
 The grid position (the *score*) and swing/microtiming/velocity (the *groove*) are kept apart,
 as in the Groove MIDI Dataset's representation, so later features can freeze, compare or breed
 them separately. `GM_NOTE` in `types.ts` maps categories to General MIDI drum notes, used by the
-MIDI file export and, later, MIDI output.
+MIDI file and live MIDI out (as the default per-track mapping, midi/routing.ts).
 
 ## Hand edits
 
@@ -155,12 +160,33 @@ MIX filters the timeline and MIDI by the same rule. Previews use a second, ungat
 * **MIDI file.** `midi/breakMidi.ts` takes each event's Core tick from `eventTick` (the same
   function as the audio) and divides by 100 to 960 PPQ, so swing and microtiming survive to
   about 0.6 ms. Type 1: a conductor track (name, tempo, 4/4), then one track per drum category
-  that plays, named after it, all on channel 10 with `GM_NOTE` keys and the performed `vel`.
-  Notes last a 64th, or end a tick before the same key's next note-on (snare and ghost share
-  note 38 across tracks); hits on the same key and tick are merged at the louder velocity.
+  that plays, named after it, on each track's channel and note from the MIDI window (GM drums,
+  channel 10 and `GM_NOTE`, by default) with the performed `vel`. Notes last a 64th, or end a
+  tick before the same channel and key's next note-on (snare and ghost share note 38 across
+  tracks); hits on the same channel, key and tick are merged at the louder velocity.
   `midi/smf.ts` is DOWNBEAT's writer (itself grown from emmm's), so the Slop Factory apps write
   the same files; Core has MIDI interfaces only, no SMF yet. Its reader backs the round-trip
   tests. TAKEAWAY's *+ MIDI* adds the file to the ZIP with stems, or downloads it beside the WAV.
+* **Live MIDI.** Slop Factory Core's `@slopfactory/core/midi` has interfaces only (no shared
+  implementation yet: its `docs/MIDI-ROADMAP.md`), so The Breakery implements them with the
+  code the roadmap names as the starting points: DOWNBEAT's message builders, note-safe
+  `MidiOutput`, Web MIDI wrapper (grown for several devices) and pulse estimator, behind Core's
+  `MidiOutputPort`, `MidiInputPort`, `MidiPortInfo` and `ClockFollower`, ready to move into Core.
+  The `Player` schedules on *song time*: the audio clock itself with the internal clock, or a
+  mapping that each external clock pulse re-anchors; every hit it schedules also goes to `MidiRouter` stamped in `performance.now()` time through
+  `getOutputTimestamp()` (smoothed), so MIDI is heard with the audio. Note-offs wait in a queue
+  until everything before them is scheduled; each device's `MidiOutput` releases a key only when
+  every note holding it has ended, retriggers held keys, and on stop drops queued messages
+  (`clear()`, where the browser has it) or stamps its note-offs after everything queued.
+* **External clock.** `ExternalClock` is pulse-locked (DOWNBEAT's and ANVIL's choice): pulse n
+  is quarter n/24 from the start of the song and anchors the player's song time, with the measured
+  pulse period placing what lies between pulses; the look-ahead is capped at 12 pulses past the
+  last one, so a clock that stops stops the music. Start, Stop, Continue and Song Position drive
+  the transport; a silent clock is LOST after 500 ms. With the internal clock the player can send
+  F8 at 24 per quarter at the playing tempo, Start and Stop.
+* **MIDI in.** Every connected input is heard; `inputTargets` maps device, channel (or OMNI) and
+  note to tracks, and `LiveSamplePicker` (engine/samples.ts) applies the track's PICK mode hit by
+  hit. Live hits go through the main mixer at once (SOLO and MUTE apply).
 * **Velocity → level** is Core's 1.5-power curve (ghosts at velocity 30 play about −19 dB).
 * **Samples** are decoded by Core (WAV/AIFF by Good Bits' parsers, other formats by the
   browser), stored as original bytes in IndexedDB by Core's content-addressed store, and never
@@ -174,8 +200,8 @@ MIX filters the timeline and MIDI by the same rule. Previews use a second, ungat
 * **OVERBAKE / audio slicing**: every hit's exact time is known (`eventSeconds`), so slice points
   come for free; `chop.ts` already resequences events, and an audio engine could play the chopped
   events as slices of a rendered break (with tails, pitch and stretch).
-* **MIDI output**: the file export already turns events into GM notes with `eventTick`; live
-  output would send the same notes, and MIDI clock would drive `Player.loopStart`. Nothing in the engine depends on audio, so MIDI output can replace or
-  accompany the sampler.
+* **Shared MIDI in Core**: `src/midi/` (except `breakMidi`) is written against Core's MIDI
+  interfaces so it can move into Core as roadmap steps 1–5 (messages, access, output, clock,
+  clock-in) and be adopted by the other instruments.
 * **Output processing**: Core's Good Bits output stage (12-bit, cassette, …) is available to the
   same Mixer/render path with an AudioWorklet URL; it is deliberately off for now.

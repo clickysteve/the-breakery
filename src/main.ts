@@ -1,12 +1,14 @@
 /**
  * The Breakery: application entry. Builds the 1-bit screen (the Slop Factory look shared with
  * emmm), its menus and windows, keyboard commands and drag-and-drop, and connects them to the
- * App (state), the Ingredients (samples), the Player (live audio) and TAKEAWAY (export).
+ * App (state), the Ingredients (samples), the Player (live audio), MIDI (app/midi.ts) and
+ * TAKEAWAY (export).
  */
 import './ui/style.css';
 import { IndexedDbSampleStore } from '@slopfactory/core/storage';
 import { KitManager } from './app/kits';
 import { App, BATCH_SIZE } from './app/app';
+import { MidiRig } from './app/midi';
 import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredients';
 import { audibleCategories, mixActive } from './app/mix';
 import { entryLabel } from './app/seeds';
@@ -25,6 +27,8 @@ import { installTooltips } from './ui/tooltip';
 import { applyPalette } from '@slopfactory/core/palette';
 import { paletteLibrary } from './ui/palette';
 import { paletteWindow } from './ui/paletteWindow';
+import { midiWindow } from './ui/midiWindow';
+import { isGmMapping } from './midi/routing';
 import type { UiContext } from './ui/context';
 
 const W = 880;
@@ -64,6 +68,7 @@ const player = new Player(ingredients);
 await ingredients.restore().catch(() => ingredients.loadDemo());
 const params = new URLSearchParams(location.search);
 const app = new App(ingredients, player, params.get('seed') ?? undefined);
+const midi = new MidiRig(app);
 
 let kits: KitManager | null = null;
 try {
@@ -165,15 +170,17 @@ async function droppedEntries(dt: DataTransfer): Promise<ImportEntry[]> {
 }
 
 async function togglePlay(): Promise<void> {
-  if (player.playing) player.stop();
+  if (midi.external) midi.playExternal();
+  else if (player.playing) player.stop();
   else if (!(await player.play(app.current))) alertBox('This browser did not start audio. Click again, or check that the page is allowed to play sound.');
   app.changed(false);
 }
 
 function doMidiTakeaway(): void {
-  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined);
+  const map = midi.fileMapping();
+  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined, map);
   download(mid.name, mid.bytes, mid.type);
-  app.say(`Took away ${mid.name} (${mid.notes} note${mid.notes === 1 ? '' : 's'}, ${app.current.recipe.bpm} BPM, GM drums on channel 10).`);
+  app.say(`Took away ${mid.name} (${mid.notes} note${mid.notes === 1 ? '' : 's'}, ${app.current.recipe.bpm} BPM, ${isGmMapping(map) ? 'GM drums on channel 10' : 'channels and notes from the MIDI window'}).`);
 }
 
 async function doTakeaway(): Promise<void> {
@@ -227,7 +234,7 @@ async function doTakeaway(): Promise<void> {
       cm.checked = o.midi;
       cm.addEventListener('change', () => (o.midi = cm.checked));
       el('span', '', lm, undefined, '+ MIDI');
-      setTip(lm, 'Also a MIDI file of the break (General MIDI drums, channel 10, swing and microtiming kept), in the ZIP with stems or as a second download');
+      setTip(lm, 'Also a MIDI file of the break (General MIDI drums on channel 10, or the channels and notes set in the MIDI window; swing, microtiming and rolls kept), in the ZIP with stems or as a second download');
     },
     320,
   );
@@ -237,10 +244,11 @@ async function doTakeaway(): Promise<void> {
   app.say('Rendering…');
   try {
     const only = o.mix === 'audible' ? audibleCategories(app.mix) : undefined;
-    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix);
+    const map = midi.fileMapping();
+    const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix, map);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
-      const mid = midiTakeaway(app.current, only);
+      const mid = midiTakeaway(app.current, only, map);
       download(mid.name, mid.bytes, mid.type);
     }
     app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}).`);
@@ -250,7 +258,7 @@ async function doTakeaway(): Promise<void> {
   }
 }
 
-(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, takeaway, importEntries, palettes }; // for debugging and automation
+(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, midi, takeaway, importEntries, palettes }; // for debugging and automation
 
 const ui: UiContext = {
   app,
@@ -273,6 +281,7 @@ const wPattern = patternWindow(desk, ui, { x: 218, y: 178, w: 497, h: 287 });
 const wRolls = rollsWindow(desk, ui, { x: 720, y: 21, w: 155, h: 158 });
 const wBatch = batchWindow(desk, ui, { x: 720, y: 184, w: 155, h: 281 });
 const wPalette = paletteWindow(desk, palettes, { x: 288, y: 60 });
+const wMidi = midiWindow(desk, ui, midi, { x: 222, y: 40 });
 
 // ------------------------------------------------------------------ menus
 interface MenuItem {
@@ -284,12 +293,12 @@ interface MenuItem {
 }
 async function about(): Promise<void> {
   alertBox(
-    `<b>THE BREAKERY</b> · freshly baked breaks.<br><br>A generative breakbeat instrument from the Slop Factory. Bring one-shot samples (INGREDIENTS), set a RECIPE, BAKE: The Breakery composes an original drum performance of one to eight bars, built as a phrase (groove, answer, development, fills, turnaround) with musically related kicks, snares, ghost notes, hats, tom fills and rolls, and a coherent feel. Eleven recipes, from FUNK to BREAKCORE. Then edit any hit by hand in the PATTERN (⌘Z undoes). TAKEAWAY renders it to WAV for your sampler, or to a MIDI file for your drum machine or DAW. Colours: BREAKERY ▸ Palette…<br><br>Everything runs in your browser. Samples never leave it. No accounts, no tracking.<br><br><a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · <a href="${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md" target="_blank" rel="noopener">research notes</a>`,
+    `<b>THE BREAKERY</b> · freshly baked breaks.<br><br>A generative breakbeat instrument from the Slop Factory. Bring one-shot samples (INGREDIENTS), set a RECIPE, BAKE: The Breakery composes an original drum performance of one to eight bars, built as a phrase (groove, answer, development, fills, turnaround) with musically related kicks, snares, ghost notes, hats, tom fills and rolls, and a coherent feel. Eleven recipes, from FUNK to BREAKCORE. Then edit any hit by hand in the PATTERN (⌘Z undoes). TAKEAWAY renders it to WAV for your sampler, or to a MIDI file for your drum machine or DAW. MIDI plays it out live to your hardware, plays the samples from your pads or sequencer, and follows an external clock (MIDI ▸ MIDI Settings…). Colours: BREAKERY ▸ Palette…<br><br>Everything runs in your browser. Samples never leave it. No accounts, no tracking.<br><br><a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · <a href="${REPO}/blob/main/docs/BREAKBEAT_RESEARCH.md" target="_blank" rel="noopener">research notes</a>`,
   );
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to select it; drag it sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN.',
+    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to select it; drag it sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN.',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -344,6 +353,19 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       { label: `Engine ${app.recipe.engine === 1 ? 2 : 1}`, action: () => app.setEngine(app.recipe.engine === 1 ? 2 : 1) },
       { sep: true },
       { label: 'Clear Solo / Mute', action: () => app.clearMix() },
+    ],
+  },
+  {
+    title: 'MIDI',
+    items: () => [
+      { label: 'MIDI Settings…', checked: () => wMidi.win.open, action: () => wMidi.toggle() },
+      { label: midi.ready ? 'Turn MIDI Off' : 'Turn MIDI On', action: () => (midi.ready ? midi.disable() : void midi.enable()) },
+      { sep: true },
+      { label: 'Internal Clock', checked: () => midi.settings.clock === 'internal', action: () => midi.setClock('internal') },
+      { label: 'External MIDI Clock', checked: () => midi.settings.clock === 'external', action: () => midi.setClock('external') },
+      { sep: true },
+      { label: 'Panic (All Notes Off)', action: () => midi.panic() },
+      { label: 'Takeaway MIDI File', key: 'M', action: doMidiTakeaway },
     ],
   },
   {
@@ -527,6 +549,7 @@ function updateAll(): void {
   wPattern.update();
   wRolls.update();
   wBatch.update();
+  if (wMidi.win.open) wMidi.update();
   statusEl.textContent = app.status || 'Freshly baked breaks.';
   setTip(statusEl, app.status);
 }
@@ -541,6 +564,7 @@ updateAll();
 function frame(): void {
   wBake.tick();
   wPattern.tick();
+  wMidi.tick();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
