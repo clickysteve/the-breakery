@@ -15,7 +15,9 @@ import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecip
 import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from '../engine/chopper';
 import { rollGroups } from '../engine/rolls';
 import { SECTION_DEFS, type Section } from '../engine/sections';
-import { freshSeed } from '../engine/rng';
+import { freshSeed, hashString, stream } from '../engine/rng';
+import { defaultWildcard, sanitiseWildcard, WILDCARD_LABEL, wildcardMix, wildcardOutput, wildcardRecipe, type WildcardCategory, type WildcardSettings } from '../engine/wildcard';
+import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
@@ -23,7 +25,7 @@ import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
 import { audible, safeGain, safePan, sanitiseMix, type MixState } from './mix';
-import { OutputChain, type ChainConfig } from '@slopfactory/core/engines';
+import { OutputChain, presetsFor, type ChainConfig } from '@slopfactory/core/engines';
 import { OUTPUT_ENGINES } from '../audio/output';
 import { diceName, entryKey, entryLabel, FAVOURITES_MAX, sanitiseFavourite, SeedHistory, type Favourite, type SeedEntry } from './seeds';
 
@@ -81,7 +83,19 @@ interface Saved {
   output?: ChainConfig;
   /** ROLL GENERATION: the user's preference (absent: off for a new user; a state saved before it keeps what its break had) */
   rollGeneration?: boolean;
+  /** TEMPO LOCK: the tempo stays through recipe changes, RANDOM RECIPE, WILDCARD and REGEN */
+  tempoLock?: boolean;
+  /** WILDCARD: which categories it changes */
+  wildcard?: WildcardSettings;
 }
+
+/** What an undo step of WILDCARD also restores (the mixer and the output chain are otherwise never part of undo). */
+interface Extras {
+  mix: MixState;
+  output: ChainConfig;
+}
+const withExtras = (snap: string, extras: Extras): string => JSON.stringify({ ...JSON.parse(snap), extras });
+const hasExtras = (snap: string): boolean => 'extras' in (JSON.parse(snap) as object);
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
 
@@ -146,6 +160,14 @@ export class App {
    */
   rollGeneration = false;
   /**
+   * TEMPO LOCK, the user's preference (saved, never part of undo): when on, nothing but the BPM box
+   * changes the tempo (choosing a recipe, RANDOM RECIPE and WILDCARD keep it). BAKE never changes
+   * the tempo either way. With an EXTERNAL MIDI clock the clock sets the tempo whatever this says.
+   */
+  tempoLock = false;
+  /** WILDCARD's categories (a preference: saved, never part of undo, kept through recipe changes) */
+  wildcardSettings: WildcardSettings = defaultWildcard();
+  /**
    * OUTPUT: the master output chain. App settings like the mixer: saved, never part of the break
    * or of undo. Every change is heard at once and saved.
    */
@@ -161,6 +183,8 @@ export class App {
     const fromUrl = initialSeed !== undefined ? parseSeed(initialSeed) : null;
     // ROLL GENERATION: off for a new user; a state saved before the preference existed keeps what its break had
     this.rollGeneration = typeof s?.rollGeneration === 'boolean' ? s.rollGeneration : s?.recipe ? s.recipe.rollsOn !== false : false;
+    this.tempoLock = s?.tempoLock === true;
+    this.wildcardSettings = sanitiseWildcard(s?.wildcard);
     // a saved break (LEGACY too) reproduces as it was; a seed from a link is a new break, baked by the current GROOVE
     this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : this.fresh(defaultRecipe('funk', 2));
     if (fromUrl) this.recipe = this.fresh(current(this.recipe));
@@ -216,7 +240,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -291,11 +315,45 @@ export class App {
     this.rebake();
   }
 
-  /** Choose a style: its defaults replace the controls (BPM too), baked by the current GROOVE. CHOP's settings stay. */
+  /**
+   * Choose a style: its defaults replace the controls, baked by the current GROOVE. CHOP's settings
+   * stay. The tempo comes from the recipe's TEMPO PROFILE (seeded by the break's beat seed, so the
+   * same recipe and seed give the same tempo), or stays as it is with TEMPO LOCK on.
+   */
   setStyle(style: Style): void {
-    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried() });
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried(), bpm: this.tempoOf(style, this.seeds.beat) });
     this.history.replaceCurrent(this.entry);
     this.rebake();
+  }
+
+  /** The tempo for a recipe and a seed: from its TEMPO PROFILE, or the current one with TEMPO LOCK on. */
+  private tempoOf(style: Style, seed: number): number {
+    return this.tempoLock ? this.recipe.bpm : tempoFor(style, seed);
+  }
+
+  /** TEMPO LOCK on or off (a preference: saved, not an undo step). */
+  setTempoLock(on: boolean): void {
+    this.tempoLock = on;
+    this.status = on ? `TEMPO LOCK on: ${this.recipe.bpm} BPM stays through recipe changes, RANDOM RECIPE and WILDCARD (the BPM box still sets it).` : `TEMPO LOCK off: choosing a recipe picks a tempo from its range (${tempoRange(this.recipe.style)}).`;
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * TEMPO DICE: a new tempo from the recipe's TEMPO PROFILE, for the same break (the pattern is
+   * not regenerated). Not while TEMPO LOCK is on. One undo step.
+   */
+  diceTempo(seed = freshSeed()): boolean {
+    if (this.tempoLock) {
+      this.say('TEMPO LOCK is on: unlock it to roll a new tempo (the BPM box still sets it by hand).');
+      return false;
+    }
+    const rng = stream(seed, 'tempo-dice');
+    let bpm = pickTempo(this.recipe.style, rng);
+    for (let i = 0; i < 6 && bpm === this.recipe.bpm; i++) bpm = pickTempo(this.recipe.style, rng);
+    this.setRecipe({ bpm });
+    this.say(`Tempo ${bpm} BPM, from ${STYLE_DEFS[this.recipe.style].label}'s range (${tempoRange(this.recipe.style)}). Same break.`);
+    return true;
   }
 
   /**
@@ -337,15 +395,77 @@ export class App {
     const choices = others.length ? others : pool;
     const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
     const note = this.leaveEdits();
-    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried() });
-    this.seeds = reseed(this.seeds, this.frozen);
+    const seeds = reseed(this.seeds, this.frozen);
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried(), bpm: this.tempoOf(style, seeds.beat) });
+    this.seeds = seeds;
     this.seedName = null;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Random recipe: ${STYLE_DEFS[style].label}, seed ${this.seeds.beat}.${note}`;
+    this.status = `Random recipe: ${STYLE_DEFS[style].label} at ${this.recipe.bpm} BPM${this.tempoLock ? ' (TEMPO LOCK)' : ''}, seed ${this.seeds.beat}.${note}`;
     this.changed();
     return style;
+  }
+
+  /** WILDCARD's settings: one category on or off (a preference, not an undo step). */
+  setWildcard(cat: WildcardCategory, on: boolean): void {
+    this.wildcardSettings = { ...this.wildcardSettings, [cat]: on };
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  resetWildcard(): void {
+    this.wildcardSettings = defaultWildcard();
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * WILDCARD: a new break re-imagined across the categories in its settings (engine/wildcard.ts):
+   * a new recipe, tempo, controls, personality and treatments, new seeds as BAKE draws them (FREEZE
+   * respected; the KIT seed changes only with SAMPLE ASSIGNMENTS), and optionally the mixer and the
+   * output chain. Deterministic from `seed`. One undo step restores all of it, the mixer and the
+   * output chain included; redo brings it back. Heard through the switching mode while playing.
+   */
+  wildcard(seed = freshSeed()): void {
+    this.endGesture();
+    const before = this.snapshot();
+    const extrasBefore: Extras = { mix: JSON.parse(JSON.stringify(this.mix)) as MixState, output: this.output.config };
+    const S = this.wildcardSettings;
+    let status = '';
+    this.gesture = true;
+    try {
+      const note = this.leaveEdits() + this.leaveLegacy();
+      const res = wildcardRecipe(this.recipe, { settings: S, frozen: this.frozen, tempoLock: this.tempoLock, rollGeneration: this.rollGeneration }, seed);
+      const seeds = reseed(this.seeds, this.frozen, hashString(`wildcard:seeds:${seed}`) % 1000000);
+      // the samples change only with SAMPLE ASSIGNMENTS (and never with KIT frozen)
+      if (!S.samples || this.frozen.kit) seeds.kit = this.seeds.kit;
+      else res.changed.push('samples');
+      if (S.samples && this.frozen.kit) res.kept.push('SAMPLE ASSIGNMENTS (frozen)');
+      if (S.mixer) {
+        this.mix = wildcardMix(this.mix, seed);
+        this.player.setMix(this.mix);
+        res.changed.push('mixer');
+      }
+      if (S.output) {
+        const presets = presetsFor(OUTPUT_ENGINES);
+        const p = presets[wildcardOutput(presets.length, seed)];
+        if (p && this.output.applyPreset(p)) res.changed.push('output');
+      }
+      this.recipe = this.fresh(res.recipe);
+      this.seeds = seeds;
+      this.seedName = null;
+      this.picked = null;
+      this.show(this.bakeWith(this.seeds));
+      this.remember();
+      const a = this.current.approach;
+      status = `WILDCARD: ${STYLE_DEFS[this.recipe.style].label} at ${this.recipe.bpm} BPM, seed ${this.seeds.beat}${a ? ` (${a.groove}, hats ${a.hats || 'none'})` : ''}. Changed ${res.changed.map((c) => WILDCARD_LABEL[c]).join(', ') || 'only the seeds'}${res.kept.length ? `; kept ${res.kept.join(', ')}` : ''}. ⌘Z undoes all of it.${note}`;
+    } finally {
+      this.gesture = false;
+    }
+    this.status = status;
+    this.baseline = S.mixer || S.output ? withExtras(before, extrasBefore) : before;
+    this.changed();
   }
 
   resetRecipe(): void {
@@ -871,7 +991,7 @@ export class App {
     if (!this.baseline || this.gesture) return;
     const next = this.snapshot();
     const pattern = (s: string) => {
-      const { selected: _selected, ...state } = JSON.parse(s);
+      const { selected: _selected, extras: _extras, ...state } = JSON.parse(s);
       return JSON.stringify(state);
     };
     if (pattern(next) !== pattern(this.baseline)) {
@@ -1008,7 +1128,7 @@ export class App {
     this.endGesture();
     const s = this.undoStack.pop();
     if (!s) return this.say('Nothing to undo.');
-    this.redoStack.push(this.snapshot());
+    this.redoStack.push(hasExtras(s) ? withExtras(this.snapshot(), this.extras()) : this.snapshot());
     this.restoreSnapshot(s);
     this.say('Undone.');
   }
@@ -1017,14 +1137,26 @@ export class App {
     this.endGesture();
     const s = this.redoStack.pop();
     if (!s) return this.say('Nothing to redo.');
-    this.undoStack.push(this.snapshot());
+    this.undoStack.push(hasExtras(s) ? withExtras(this.snapshot(), this.extras()) : this.snapshot());
     this.restoreSnapshot(s);
     this.say('Redone.');
   }
 
+  private extras(): Extras {
+    return { mix: JSON.parse(JSON.stringify(this.mix)) as MixState, output: this.output.config };
+  }
+
   private restoreSnapshot(s: string): void {
-    const o = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'>;
+    const { extras, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras };
     Object.assign(this, o);
+    if (extras) {
+      // a WILDCARD step: the mixer and the output chain come back too
+      this.mix = sanitiseMix(extras.mix);
+      this.player.setMix(this.mix);
+      this.gesture = true;
+      this.output.load(extras.output);
+      this.gesture = false;
+    }
     // The player applies the selected live transition policy to restored snapshots.
     this.player.update(this.current);
     if (this.selected && !findRef(this.current.events, this.selected)) this.selected = null;

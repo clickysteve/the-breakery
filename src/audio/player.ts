@@ -451,8 +451,20 @@ export class Player {
         this.pending = null;
         this.switchAt = Infinity;
         // Keep bar/loop phase; immediate changes skip the already scheduled part.
-        const phase = (time - this.loopStart) % this.duration(p);
-        this.loopStart = time - phase;
+        if (this.clock === 'internal' && p.recipe.bpm !== this.tempo) {
+          // a new tempo (the INTERNAL clock only: an external clock sets the tempo itself): the
+          // position in the loop is kept in beats, the clock pulses carry on at the new rate
+          const beat = 60 / this.tempo;
+          const beats = ((time - this.loopStart) / beat) % (p.recipe.bars * 4);
+          this.flushClock(time, false);
+          this.clockStart += this.clockPulse * this.pulseSeconds;
+          this.clockPulse = 0;
+          this.tempo = p.recipe.bpm;
+          this.loopStart = time - beats * (60 / this.tempo);
+        } else {
+          const phase = (time - this.loopStart) % this.duration(p);
+          this.loopStart = time - phase;
+        }
         this.build(p);
         this.idx = this.list.findIndex(x => this.loopStart + x.sec >= time - 1e-9);
         if (this.idx < 0) this.idx = this.list.length;
