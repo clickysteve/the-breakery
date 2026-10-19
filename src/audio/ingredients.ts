@@ -9,11 +9,13 @@
 import { decodeSample, defaultZone, SampleInstrument, toAudioBuffer, type DecodedSample } from '@slopfactory/core/sampler';
 import { encodeWav16 } from '@slopfactory/core/export';
 import { sampleFromBytes, StorageError, type StoredSample } from '@slopfactory/core/storage';
-import type { KitLibrary } from '@slopfactory/core/kits';
+import { KitLibrary } from '@slopfactory/core/kits';
 import { emptyKit, type KitIndex } from '../engine/kit';
 import { CATEGORIES } from '../engine/types';
 import { guessCategory, importable, suggestCategory, type Slot } from './categorise';
 import { demoKit, DEMO_RATE, NEW_DEMO_IDS } from './demoKit';
+import { reverseChannels } from './reverse';
+import { REVERSED } from './timeline';
 
 export { guessCategory, type Slot };
 export const SLOTS: Slot[] = [...CATEGORIES, 'unsorted'];
@@ -103,8 +105,18 @@ export class Ingredients {
   private bytes = new Map<string, StoredSample>();
   private retired = new Map<string, SampleInstrument>();
   private demoAudio = new Map<string, Promise<StoredSample>>();
+  /**
+   * Reversed copies, made once per instrument when first needed. Keyed by the instrument itself, so
+   * a sample that is reloaded, replaced by a kit or removed gets a new copy (or none): the cache
+   * can never play an old sound, and copies of instruments no longer used are released with them.
+   */
+  private reversed = new WeakMap<SampleInstrument, SampleInstrument>();
 
-  constructor(readonly library: KitLibrary) {}
+  /** The kit library holds the samples (null: none in browser storage, for this visit only). */
+  readonly library: KitLibrary;
+  constructor(library: KitLibrary | null) {
+    this.library = library ?? new KitLibrary({ app: 'the-breakery', audio: null, store: null });
+  }
 
   /** The sample id of an ingredient (its audio's SHA-256 for user samples). */
   static audioId(it: Pick<Ingredient, 'id' | 'audio'>): string {
@@ -382,9 +394,25 @@ export class Ingredients {
     return k;
   }
 
+  /** The instrument for an id; an id ending in REVERSED is that sample's reversed copy (EXPRESSION). */
   instrument(id: string | undefined | null): SampleInstrument | null {
     if (!id) return null;
+    if (id.endsWith(REVERSED)) {
+      const base = this.instrument(id.slice(0, -REVERSED.length));
+      return base ? this.reversedOf(base) : null;
+    }
     return this.items.find((i) => i.id === id)?.instrument ?? this.retired.get(id) ?? null;
+  }
+
+  private reversedOf(base: SampleInstrument): SampleInstrument {
+    let r = this.reversed.get(base);
+    if (!r) {
+      const b = base.buffer;
+      const channels = Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c));
+      r = new SampleInstrument(toAudioBuffer({ sampleRate: b.sampleRate, channels: reverseChannels(channels, b.sampleRate) }), { ...base.zone, start: 0, end: null, loopStart: 0, loopEnd: null });
+      this.reversed.set(base, r);
+    }
+    return r;
   }
 
   /** Loudness per ready sample (for VELOCITY selection). */

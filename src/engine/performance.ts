@@ -22,7 +22,7 @@
  */
 import { correlatedNoise, type Rng } from './rng';
 import type { StyleDef } from './styles';
-import { clamp, STEPS, TPS, type BarRole, type BreakEvent, type Category, type Feel, type Hit, type Recipe } from './types';
+import { clamp, STEPS, TPS, VOCAB_REVISION, type BarRole, type BreakEvent, type Category, type Feel, type Hit, type Recipe } from './types';
 
 export const MAX_OFFSET_MS = 18;
 
@@ -66,6 +66,7 @@ export function perform(bars: Hit[][], roles: BarRole[], def: StyleDef, recipe: 
   events.sort((a, b) => a.bar * STEPS * TPS + a.step * TPS + a.sub - (b.bar * STEPS * TPS + b.step * TPS + b.sub));
   const backbeatAt = new Set(events.filter(isBackbeat).map((e) => `${e.bar}|${e.step}`));
   const n = roles.length;
+  const triplets = recipe.engine === 2 && (recipe.revision ?? 0) >= VOCAB_REVISION;
 
   const groups: Group[] = ['kick', 'snare', 'hats', 'perc', 'crash'];
   for (const g of groups) {
@@ -108,6 +109,8 @@ export function perform(bars: Hit[][], roles: BarRole[], def: StyleDef, recipe: 
 
       // ---- swing
       e.swing = Math.round(swingDelay(e.step + e.sub / TPS, recipe.swing) * 1000) / 1000 || 0;
+      // revision 3: a triplet partial is already swung; swing moves only the straight grid
+      if (triplets && (e.sub === 4 || e.sub === 8)) e.swing = 0;
     });
   }
   return { events, feel };

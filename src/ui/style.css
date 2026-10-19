@@ -1151,3 +1151,16 @@ input.mtext:focus-visible {
   color: var(--ink);
   text-decoration: underline;
 }
+
+/* PATTERN: a track name is a button that selects the track for REGEN TRACK. Selected: a dashed
+   frame and a solid bar on its left (a selected hit has a solid frame; SOLO and MUTE invert). */
+.label.trackname {
+  cursor: pointer;
+  padding: 1px 0 0 2px;
+  box-sizing: border-box;
+}
+.label.trackname.trksel {
+  outline: 1px dashed var(--ink);
+  box-shadow: inset 2px 0 0 var(--ink);
+  padding-left: 4px;
+}

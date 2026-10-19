@@ -22,6 +22,8 @@ import { generateFoundation } from './foundation';
 import { emptyKit, type KitIndex } from './kit';
 import { perform } from './performance';
 import { developPhrase, mutateCell, planBars, tidy } from './phrase';
+import { chooseForm, chooseGroove, chooseMotif, GROOVE_DEFS, type GrooveId } from './approaches';
+import { addCymbals, hatActivity, rideActivity, type FillMark } from './cymbals';
 import { freshSeed, hashString, stream } from './rng';
 import { applyEdits, hasEdits, type Edits } from './edits';
 import { autoSamples, finishSamples, type SampleContext } from './samples';
@@ -31,9 +33,14 @@ import { addRolls } from './rolls';
 import { addTomPhrases, addToms, tomVoices } from './toms';
 import { sanitiseChop } from './chopper';
 import { transform } from './transform';
+import { sanitiseRollExpr } from './rollExpr';
+import { personaBars, personaPerform, personaRecipe, sanitisePersonality } from './personality';
+import { dnaBars, sanitiseDna } from './dna';
+import { sanitiseDestroy } from './destroy';
+import { applyRegen, sanitiseRegen } from './regen';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
-import { CATEGORIES, clamp, CURRENT_REVISION, LAYERS, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds } from './types';
+import { CATEGORIES, clamp, CURRENT_REVISION, CYMBAL_MODES, LAYERS, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
 
 /** Recipe values made safe (clamped, known style and engine, whole bars 1–8). */
 export function sanitiseRecipe(r: Recipe): Recipe {
@@ -63,19 +70,76 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   const chop = sanitiseChop(r.chop);
   if (chop) out.chop = chop;
   else delete out.chop;
+  // Phase 12: absent unless set, so every recipe saved before them bakes exactly as it did
+  const opt = <K extends 'rollExpr' | 'personality' | 'dna' | 'destroy'>(k: K, v: Recipe[K] | undefined) => {
+    if (v) out[k] = v;
+    else delete out[k];
+  };
+  opt('rollExpr', sanitiseRollExpr(r.rollExpr));
+  opt('personality', sanitisePersonality(r.personality));
+  opt('dna', sanitiseDna(r.dna));
+  opt('destroy', sanitiseDestroy(r.destroy));
+  // Phase 13 (revision 3): HI-HAT ACTIVITY, RIDE ACTIVITY (absent = the recipe's default) and the RELATIONSHIP (absent = ALTERNATE)
+  const unit = (x: unknown) => (x !== undefined && x !== null && Number.isFinite(Number(x)) ? clamp(Number(x), 0, 1) : undefined);
+  const hats = rev >= VOCAB_REVISION ? unit(r.hats) : undefined;
+  const ride = rev >= VOCAB_REVISION ? unit(r.ride) : undefined;
+  if (hats !== undefined) out.hats = hats;
+  else delete out.hats;
+  if (ride !== undefined) out.ride = ride;
+  else delete out.ride;
+  if (rev >= VOCAB_REVISION && r.cymbals !== 'alternate' && (CYMBAL_MODES as readonly string[]).includes(String(r.cymbals))) out.cymbals = r.cymbals;
+  else delete out.cymbals;
   return out;
+}
+
+/** Does this recipe use the Phase 13 rhythmic vocabulary (revision 3)? */
+export const usesVocab = (r: Recipe): boolean => r.engine === 2 && (r.revision ?? 0) >= VOCAB_REVISION;
+
+/**
+ * SHUFFLE (revision 3): the off-beat kicks, ghosts, percussion and extra snares move to the
+ * eighth-note triplet grid: the "e" to the second partial of the beat, the "and" and the "a" to
+ * the third. The backbeats, fills and rolls stay where they are.
+ */
+function onTriplets(hits: Hit[]): Hit[] {
+  return tidy(
+    hits.map((h) => {
+      const r = h.step % 4;
+      if (h.sub !== 0 || r === 0 || !(h.cat === 'kick' || h.cat === 'ghost' || h.cat === 'perc' || (h.cat === 'snare' && h.role === 'extra snare'))) return h;
+      if (h.role === 'fill' || h.role === 'roll' || h.role === 'drag') return h;
+      return r === 1 ? { ...h, sub: 4, why: `${h.why} (on the triplet grid: a shuffle)` } : { ...h, step: h.step - r + 2, sub: 8, why: `${h.why} (on the triplet grid: a shuffle)` };
+    }),
+  );
+}
+
+/** Stored seeds made safe (mutations and track regenerations kept only when valid). */
+export function sanitiseSeeds(s: Seeds): Seeds {
+  const regen = sanitiseRegen(s.regen);
+  const mut = Array.isArray(s.mut) ? s.mut.filter((m) => m && Number.isFinite(m.seed)).map(sanitiseMutation) : [];
+  return { beat: s.beat >>> 0, detail: s.detail >>> 0, feel: s.feel >>> 0, kit: s.kit >>> 0, ...(mut.length ? { mut } : {}), ...(regen ? { regen } : {}) };
 }
 
 /** The roll targets toggled (kept in the canonical order). */
 export const toggleTarget = (ts: readonly RollTarget[], t: RollTarget): RollTarget[] => ROLL_TARGETS.filter((x) => (x === t ? !ts.includes(t) : ts.includes(x)));
 
 function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
-  const def = STYLE_DEFS[recipe.style];
+  // revision 3: a groove approach within the recipe shapes its foundation strategy (approaches.ts)
+  const v3 = usesVocab(recipe);
+  let def = STYLE_DEFS[recipe.style];
+  let grooveId: GrooveId = 'backbeat';
+  let note: string | undefined;
+  if (v3) {
+    const ar = stream(seeds.beat, 'approach');
+    grooveId = chooseGroove(def, recipe, ar);
+    const shaped = GROOVE_DEFS[grooveId].shape(def, ar);
+    def = shaped.def;
+    note = shaped.note;
+  }
   const plan = planSupport(def, recipe, stream(seeds.detail, 'plan'));
-  const foundation = generateFoundation(def, recipe, stream(seeds.beat, 'foundation'));
-  const support = generateSupport(def, recipe, plan, foundation.hits, foundation.backbeats, stream(seeds.detail, 'support'));
+  const foundation = generateFoundation(def, recipe, stream(seeds.beat, 'foundation'), v3);
+  const support = generateSupport(def, recipe, plan, foundation.hits, foundation.backbeats, stream(seeds.detail, 'support'), v3);
   const groove = tidy([...foundation.hits, ...support]);
-  const roles = planBars(recipe.bars, def);
+  const roles = v3 ? chooseForm(recipe.bars, def, recipe, stream(seeds.beat, 'form')) : planBars(recipe.bars, def);
+  const motif = v3 ? chooseMotif(def, grooveId, stream(seeds.beat, 'motif')) : undefined;
   const crashAtTop = stream(seeds.beat, 'crash').chance(def.crashP * (0.4 + recipe.fills));
   // MUTATE: each mutation varies the groove cell, and the phrase is developed from it (from the same
   // streams, so the bars stay related). A mutation with a RANGE reaches only some bars, so each bar
@@ -85,15 +149,19 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
   const reach = muts.map((m) => mutationBars(m, roles));
   const cells = new Map<string, Hit[]>([['', groove]]);
   const phrases = new Map<string, Hit[][]>();
+  const marksOf = new Map<string, (FillMark | null)[]>();
   const develop = (key: string): Hit[][] => {
     let ph = phrases.get(key);
     if (!ph) {
-      const ctx = { def, recipe, timekeeper: plan.timekeeper, sixteenths: plan.sixteenths, beatRng: stream(seeds.beat, 'phrase'), detailRng: stream(seeds.detail, 'phrase'), crashAtTop };
+      const marks: (FillMark | null)[] = roles.map(() => null);
+      const ctx = { def, recipe, timekeeper: plan.timekeeper, sixteenths: v3 || plan.sixteenths, beatRng: stream(seeds.beat, 'phrase'), detailRng: stream(seeds.detail, 'phrase'), crashAtTop, ...(v3 ? { vocab: { motif: motif!, marks } } : {}) };
       ph = developPhrase(cells.get(key)!, roles, ctx);
       phrases.set(key, ph);
+      marksOf.set(key, marks);
     }
     return ph;
   };
+  const barMarks: (FillMark | null)[] = roles.map(() => null);
   const bars = roles.map((_, i) => {
     let key = '';
     /** the bar as a SELECTED TRACKS mutation left it (null: as developed from the cell) */
@@ -102,7 +170,7 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
       if (!reach[k]![i]) return;
       const prev = key;
       key += `${k},`;
-      if (!cells.has(key)) cells.set(key, mutateCell(cells.get(prev)!, def, recipe, stream(m.seed, 'mutate'), m.beat, m.detail, plan.timekeeper, m));
+      if (!cells.has(key)) cells.set(key, mutateCell(cells.get(prev)!, def, recipe, stream(m.seed, 'mutate'), m.beat, m.detail, plan.timekeeper, m, !v3));
       if (!m.cats) kept = null;
       else {
         const only = new Set(m.cats);
@@ -110,8 +178,27 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
         kept = tidy([...develop(key)[i]!.filter((h) => only.has(h.cat)), ...before.filter((h) => !only.has(h.cat))]);
       }
     });
-    return kept ?? develop(key)[i]!;
+    const bar = kept ?? develop(key)[i]!;
+    develop(key);
+    barMarks[i] = marksOf.get(key)![i] ?? null;
+    return bar;
   });
+
+  // revision 3: a shuffle moves the off-beats to the triplet grid, then the cymbals are generated per bar (cymbals.ts)
+  let timekeeper = plan.timekeeper;
+  let approach: Approach | undefined;
+  if (v3) {
+    if (GROOVE_DEFS[grooveId].triplet) bars.splice(0, bars.length, ...bars.map(onTriplets));
+    const mutations = roles.map((_, i) => muts.filter((m, k) => reach[k]![i] && m.detail));
+    const cy = addCymbals(bars, { def, recipe, groove: grooveId, roles, marks: barMarks, cycle: plan.cycle, mutations }, stream(seeds.detail, 'cymbals'));
+    bars.splice(0, bars.length, ...cy.bars.map(tidy));
+    timekeeper = cy.timekeeper;
+    approach = { groove: `${GROOVE_DEFS[grooveId].label}${note ? ` ${note}` : ''}`, form: roles.join(' '), motif: motif!, hats: cy.hats, ride: cy.ride, development: cy.development };
+  }
+
+  // BREAK DNA builds with its vocabulary, then the PERSONALITY plays the phrase its way (both off: the bars as they are)
+  const shaped = personaBars(dnaBars(bars, roles, recipe.dna, { beatSeed: seeds.beat, halftime: def.backbeat === 'three' }), roles, recipe, recipe.personality, seeds.beat);
+  bars.splice(0, bars.length, ...shaped);
 
   const crash = (i: number, why: string) => {
     bars[i] = tidy([...bars[i]!.filter((h) => !((h.cat === 'hat' || h.cat === 'ride' || h.cat === 'open') && h.step === 0)), { cat: 'crash', step: 0, sub: 0, level: 0.85, role: 'crash', why }]);
@@ -123,7 +210,7 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
   }
 
   const { events, feel } = perform(bars, roles, def, recipe, stream(seeds.feel, 'performance'), plan.cycle);
-  return { plan: roles, feel, timekeeper: plan.timekeeper, events };
+  return { plan: roles, feel, timekeeper, events, ...(approach ? { approach } : {}) };
 }
 
 /** Does this recipe hold back every new roll (ROLL GENERATION off, revision 1 on)? Before revision 1 it held back only the ROLLS layer. */
@@ -150,6 +237,9 @@ export function plainFills(events: BreakEvent[]): BreakEvent[] {
  * pattern (addTomPhrases), voiced on the toms the kit has; before it, fills in the fill bars.
  */
 function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: Seeds, kit: KitIndex): BreakEvent[] {
+  // revision 3: a cymbal family at 0% does not roll either
+  const off = usesVocab(recipe) && (core.timekeeper === 'ride' ? rideActivity(recipe) : hatActivity(recipe)) <= 0;
+  if (off) recipe = { ...recipe, rollTargets: recipe.rollTargets.filter((t) => t !== 'hat') };
   const ctx = { def: STYLE_DEFS[recipe.style], fl: FLOURISH[recipe.style], recipe, feel: core.feel, roles: core.plan };
   const withToms = (recipe.revision ?? 0) >= 1 ? addTomPhrases(core.events, ctx, stream(seeds.beat, 'tom-phrases'), stream(seeds.feel, 'toms'), tomVoices(kit)) : addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
   if (recipe.rollsOn === false) return withToms;
@@ -161,13 +251,25 @@ function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: 
  * with it), with its AUTO sample choice and (engine 2) its toms and rolls. Exactly what BAKE made
  * before CHOP existed.
  */
-export function groove(recipe: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}): { core: Omit<Break, 'recipe' | 'seeds'>; events: BreakEvent[]; main: ReturnType<typeof autoSamples> } {
+export function groove(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}): { core: Omit<Break, 'recipe' | 'seeds'>; events: BreakEvent[]; main: ReturnType<typeof autoSamples> } {
+  // the PERSONALITY's composition: the recipe the GROOVE is generated from (engine 2; NEUTRAL: the recipe itself)
+  const recipe = recipeIn.engine === 2 ? personaRecipe(recipeIn, recipeIn.personality) : recipeIn;
   const core = recipe.engine === 1 ? bakeV1(recipe, seeds) : bakeV2(recipe, seeds);
   const main = autoSamples(core.events, kit, seeds.kit, samples);
   const flourished = recipe.engine === 2 ? flourish(core, recipe, seeds, kit) : core.events;
   // the toms are the same whatever ROLL GENERATION is: the GROOVE's rolls become plain fills after them
-  const events = holdsRolls(recipe) ? plainFills(flourished) : flourished;
+  const played = holdsRolls(recipe) ? plainFills(flourished) : flourished;
+  // revision 3: HI-HAT ACTIVITY or RIDE ACTIVITY at 0% means none of that family, whatever a later layer added
+  const events = usesVocab(recipe) ? silence(played, recipe) : played;
   return { core, events, main };
+}
+
+/** The generated events without the cymbal families whose activity is 0 (revision 3). */
+export function silence(events: BreakEvent[], recipe: Recipe): BreakEvent[] {
+  const noHats = hatActivity(recipe) <= 0;
+  const noRide = rideActivity(recipe) <= 0;
+  if (!noHats && !noRide) return events;
+  return events.filter((e) => !((noHats && (e.cat === 'hat' || e.cat === 'open')) || (noRide && e.cat === 'ride')));
 }
 
 /**
@@ -180,12 +282,20 @@ export function groove(recipe: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(),
  */
 export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(), samples: SampleContext = {}, names: (id: string) => string = (id) => id, edits?: Edits | null): Break {
   const recipe = sanitiseRecipe(recipeIn);
-  const g = groove(recipe, seeds, kit, samples);
-  const t = transform(g.events, { recipe, seeds, plan: g.core.plan });
-  const { events, report } = applyEdits(t.events, edits, recipe);
+  const core = (s: Seeds) => {
+    const g = groove(recipe, s, kit, samples);
+    return { g, t: transform(g.events, { recipe, seeds: s, plan: g.core.plan }) };
+  };
+  const { g, t } = core(seeds);
+  // REGEN TRACK: the selected tracks from the best of their candidates, every other track exactly as it was
+  const rg = applyRegen(t.events, seeds, g.core.plan, (s) => core(s).t.events);
+  // the PERSONALITY's performance (and DILLA's timing), keyed by position: before the hand edits, so a TIME set by hand wins
+  const performed = personaPerform(rg.events, recipe.personality, { plan: g.core.plan, feelSeed: seeds.feel, bpm: recipe.bpm, swing: recipe.swing, busyFrom: t.events });
+  const { events, report } = applyEdits(performed, edits, recipe);
   finishSamples(events, kit, seeds.kit, samples, names, g.main);
   const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
-  return { recipe, seeds: { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}) }, ...g.core, events, ...ed, ...(t.chop ? { chop: t.chop } : {}) };
+  const copy: Seeds = { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}), ...(seeds.regen ? { regen: seeds.regen.map((x) => ({ cats: [...x.cats], n: x.n })) } : {}) };
+  return { recipe, seeds: copy, ...g.core, events, ...ed, ...(t.chop ? { chop: t.chop } : {}), ...(t.destroy ? { destroy: t.destroy } : {}), ...(rg.report ? { regen: rg.report } : {}) };
 }
 
 export function randomSeeds(): Seeds {
@@ -203,6 +313,8 @@ export function reseed(current: Seeds, frozen: Partial<Record<Layer, boolean>>, 
   const next = seedsFrom(seed);
   for (const l of LAYERS) if (frozen[l]) next[l] = current[l];
   if (frozen.beat && frozen.detail && current.mut?.length) next.mut = current.mut.map((m) => ({ ...m }));
+  // track regenerations belong to the beat they were made on, as mutations do
+  if (frozen.beat && frozen.detail && current.regen?.length) next.regen = current.regen.map((x) => ({ cats: [...x.cats], n: x.n }));
   return next;
 }
 

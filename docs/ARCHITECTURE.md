@@ -5,13 +5,17 @@ INGREDIENTS ──kit index──┐
 RECIPE + SEEDS ──────────┤
                          ▼
                    engine/generate.ts  (pure TypeScript, no DOM, no audio)
-   GENERATION (GROOVE, engine 2): phrase plan → foundation → support → [mutations]
-             → phrase development (answers, development, chops, fills) → performance
+   GENERATION (GROOVE, engine 2): PERSONALITY's recipe nudges → phrase plan → foundation
+             → support → [mutations] → phrase development (answers, development, chops, fills)
+             → BREAK DNA bars → PERSONALITY phrasing → performance
              → AUTO samples → TOMS → ROLLS
    LEGACY (engine 1, v1/, frozen): the first release's generator, then AUTO samples
                          │
-   TRANSFORMATION (engine/transform.ts): CHOP (engine/chopper.ts), from the GROOVE every time
+   TRANSFORMATION (engine/transform.ts), from the GROOVE every time:
+             CHOP (engine/chopper.ts) → roll EXPRESSION (rollExpr.ts) → DESTROY (destroy.ts)
                          │
+             → REGEN TRACK (regen.ts: the selected tracks from re-baked candidates)
+             → PERSONALITY performance and DILLA timing (personality.ts, dilla.ts)
              → hand EDITS → PICK modes and hand-chosen samples
                          │
                          ▼  Break = structured events
@@ -37,11 +41,11 @@ RECIPE + SEEDS ──────────┤
 
 | Folder | What | Depends on |
 |---|---|---|
-| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, and `FLOURISH`: each recipe's toms and rolls), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
+| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, `FLOURISH`: each recipe's toms and rolls, and `VOCAB`: each recipe's grooves and cymbal vocabulary), `approaches` (groove approaches, phrase forms, motifs), `cymbals` (hats and ride, revision 3), `tempo` (tempo profiles), `wildcard` (WILDCARD), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
 | `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (the current kit's samples by category, folder import, loudness; storage and the sample library through Core's `KitLibrary`), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
 | `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF), `messages` (builders and parsing), `output` (note-safe output per device), `router` (live hits → timestamped notes, queued note-offs, clock out), `routing` (per-track settings, defaults, input matching), `clockIn` (external clock follower), `access` (Web MIDI wrapper). Built on Core's MIDI interfaces. | audio/timeline, engine, Core midi types |
 | `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence); `midi.ts` (MidiRig: MIDI settings, devices, input, clock source); `kits.ts` (The Breakery's side of Core's kit system: categories as kit roles, INGREDIENTS and PICK settings as kit instruments and back, the legacy `.breakery-kit` reader and migration; see [KITS.md](KITS.md)); `bundledKits.ts` (kits shipped with The Breakery: none yet). | engine, audio, midi, Core kits |
-| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window); `kitsPanel` and `libraryPanel` (the KITS and LIBRARY tabs of INGREDIENTS: views of Core's KitSession and KitLibrary). | app, Core palette, Core kits |
+| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, CYMBALS (`cymbalsTab`), ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window).; `kitsPanel` and `libraryPanel` (the KITS and LIBRARY tabs of INGREDIENTS: views of Core's KitSession and KitLibrary) | app, Core palette, Core kits |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
 ## The event model
@@ -204,6 +208,119 @@ first hand edit. The edits are positional and were made on the chopped result, s
 APPLIED (fixed: `App.chopLocked`); `setChop` refuses with a message rather than move hits under the
 edits. Undoing the edits, or CLEAR ALL HAND EDITS, frees it. Nothing is discarded silently.
 `npm run evaluate` writes `docs/chop-report.md` (grids and measures, not a listening test).
+
+## The expressive engine (Phase 12)
+
+Research, interpretation and design decisions: [EXPRESSIVE_RESEARCH.md](EXPRESSIVE_RESEARCH.md).
+Measured event data: [expressive-report.md](expressive-report.md) (`npm run evaluate`).
+
+* **Per-hit PITCH and REVERSE.** `BreakEvent.pitch` (semitones, -24..+24, absent = 0) and
+  `reverse` (absent = forwards). Absent fields are the old behaviour exactly. `audio/timeline.ts`
+  maps them for every renderer: `notePitch` (Core's note pitch, `ROOT_PITCH` + semitones, so
+  pitch is by playback rate) and `noteInstrument` (the sample id with `~rev`). `Ingredients`
+  resolves `~rev` to a reversed copy (`audio/reverse.ts`: silent tail trimmed below -60 dB, a
+  2 ms fade-in, cached per sample; the original is never changed), so the live player, the
+  offline render, WAV, stems and batch all play the same thing. The player warms reversed
+  copies when a break is set. MIDI ignores both (GM notes, no pitch bend): a MIDI file of an
+  expressed break is byte-identical to the plain one.
+* **Roll EXPRESSION** (`rollExpr.ts`, recipe `rollExpr`, absent = CLASSIC): pitch, velocity and
+  timing contours, ratchet counts, reverse modes, 12 presets and DICE (`diceExpr(seed)`).
+  `expressRolls` reshapes each roll group as a whole from stream `roll-expr:<variant>:<start>`
+  of the FEEL seed, after CHOP, and touches no other hit. It shapes rolls that exist; it never
+  makes rolls, so ROLL GENERATION off still means no new rolls. **RATCHET** (`edits.ratchetHit`)
+  is a hand edit: the selected hit split into n strokes with the same contours, as hand-placed
+  roll hits (one undo step).
+* **DESTROY** (`destroy.ts`, recipe `destroy`): after CHOP and EXPRESSION, on beat windows.
+  Beats are ranked once (weighted keys from the BEAT seed), so more AMOUNT destroys the same
+  beats and more; each beat's operation comes from its own stream. The loop's first beat is never
+  destroyed. It starts from the GROOVE every time, so it never compounds; AMOUNT 0 is the
+  identity. Operations are event approximations: GATE removes hits in closed sixteenths, TAPE
+  STOP moves, lowers and softens each hit along a falling rate. With ROLL GENERATION off,
+  STUTTER repeats sixteenths (role `chop`) instead of making 1/32 rolls. Fixed once there are
+  hand edits, like CHOP.
+* **PERSONALITY** (`personality.ts`, recipe `personality`, absent = NEUTRAL) acts in three
+  places: `personaRecipe` (bounded, proportional nudges of the recipe, so 0 stays 0),
+  `personaBars` (phrasing edits of the developed bars; never adds a tom or a roll; additions
+  scale with DENSITY) and `personaPerform` (timing and dynamics of the finished events; a roll
+  moves as a whole). INTENSITY 0 is the recipe exactly.
+* **DILLA** (`dilla.ts`) is the DILLA personality's timing: one of four strategies from the FEEL
+  seed, per-voice swing (replacing the recipe's, not added), per-voice lean and a two-bar table.
+  `personaPerform` leaves timing to it, so nothing is offset twice.
+* **BREAK DNA** (`dna.ts`, recipe `dna`, absent = NONE): AMEN, a construction vocabulary
+  (A A A′ B) blended into the developed bars at INFLUENCE; `dnaChopStyle` leans CHOP towards
+  Amen-style edits. No audio is involved.
+* **REGEN TRACK** (`regen.ts`, seeds `regen`: a lineage of `{cats, n}` steps). Baking a step
+  re-bakes the whole GROOVE and transformations from six candidate seeds (`regenSeeds`: hashed
+  from the BEAT seed, the tracks and the step, keeping FEEL and KIT), scores each candidate's
+  selected tracks against the tracks that stay, and swaps in the best. Every other track is
+  byte-identical, because the personality's busy-bar dynamics are counted from the events before
+  REGEN and roll leads are found per drum. It is an explicit request, so it applies whatever
+  FREEZE says (the status line says so). It is kept by `reseed` only when BEAT and DETAIL are both
+  frozen, as mutations are. An empty track is left alone (its part is on another track).
+* **Revision 2** (`CURRENT_REVISION = 2`): TOM ACTIVITY's recalibrated curve (`toms.tomCurve`)
+  and longer phrases. Recipes saved with revision 1 (or 0) still bake exactly as before.
+* **Persistence.** All of the above live in the recipe or seeds, so history, favourites, undo,
+  reloads and batch carry them; `entryKey` includes them only when active, so earlier keys are
+  unchanged. `App.carried()` keeps CHOP, DESTROY, EXPRESSION, PERSONALITY and DNA across recipe
+  changes.
+
+## Rhythmic intelligence (Phase 13)
+
+Research, interpretation and design decisions: [rhythmic-research.md](rhythmic-research.md).
+Measured event data: [diversity-report.md](diversity-report.md) against the baseline in
+[diversity-baseline.md](diversity-baseline.md) (`npm run evaluate`).
+
+* **Revision 3** (`CURRENT_REVISION = VOCAB_REVISION = 3`). Every new behaviour below is gated
+  on `usesVocab(recipe)` (engine 2, revision 3 or later). Recipes saved with revision 2 or
+  earlier keep identical random draws: test/phase13.test.ts fingerprints 396 revision 2 breaks
+  against the output of main at the merge of Phase 12.
+* **Composition order** in `bakeV2`:
+  1. A **groove approach** comes from stream `approach` of the BEAT seed (`approaches.ts`
+     `chooseGroove`, weighted by `VOCAB[style].grooves`). It shapes the StyleDef that
+     `foundation.ts` uses. With revision 3, the foundation keeps a random candidate near the
+     best instead of always the best.
+  2. Support (ghosts and percussion) runs. With revision 3 it no longer lays down the
+     timekeeping.
+  3. A **phrase form** comes from stream `form` (`chooseForm`; every form ends in T) and a
+     **motif** from stream `motif` (`chooseMotif`). The answer bars develop the motif
+     (`phrase.ts` `developMotif`).
+  4. Shuffle grooves move hits onto the triplet grid (`onTriplets`). `performance.ts` does not
+     swing those hits again.
+  5. The **cymbals** are added by `addCymbals` (`cymbals.ts`, stream `cymbals` of the DETAIL
+     seed). It draws one plan per phrase and renders it per bar against each bar's kicks,
+     snares and fill marks (`FillMark`, recorded by `developPhrase`).
+  6. The approach is returned as `Break.approach` (groove, form, motif, hats, ride,
+     development), shown in the CYMBALS tab and the pattern card's tooltip.
+* **HI-HAT and RIDE ACTIVITY** are `Recipe.hats` and `Recipe.ride`. When absent they default to
+  `VOCAB[style]` (`hatActivity`, `rideActivity`). **RELATIONSHIP** is `Recipe.cymbals` (absent
+  means ALTERNATE).
+  * At 0, `generate.silence` removes that family after every later layer, and `flourish`
+    drops the hat roll target.
+  * Personalities scale their cymbal additions by the activity (`personality.ts` `tkRoom`).
+* **Tempo** (`tempo.ts`): `TEMPO_PROFILES` and `tempoFor(style, seed)`.
+  * `App.setStyle` and `App.randomRecipe` take their tempo from the profile, or keep it with
+    `App.tempoLock` (saved as a preference, not an undo step). `App.diceTempo` re-rolls the
+    tempo of the same break. BAKE never changes the tempo.
+  * `Player.schedule` changes an internal clock's tempo at the switch point, keeping the
+    position in beats. An external clock is never re-timed.
+* **WILDCARD** (`wildcard.ts`). `wildcardRecipe` is pure and seeded, and `App.wildcard(seed)`
+  applies it.
+  * It reseeds the layers that are not frozen. The KIT seed changes only with SAMPLE
+    ASSIGNMENTS on and KIT not frozen.
+  * Optionally it moves the mixer (`wildcardMix`; solo and mute are kept) and applies an output
+    preset (`OutputChain.applyPreset`, Core unchanged).
+  * One press is one undo step. A snapshot that changed the mixer or output carries them as
+    `extras`, which `restoreSnapshot` puts back, and redo re-applies them.
+  * The settings (`App.wildcardSettings`) are saved with the app state, and edited in the
+    Wildcard menu.
+* **Interface**:
+  * `ui/cymbalsTab.ts` is the CYMBALS tab of the RECIPE window. The RECIPE tab's HATS · RIDE
+    button opens it.
+  * LOCK and RND sit beside the BPM box.
+  * WILDCARD sits beside BAKE. The Wildcard menu holds the category toggles, and the W key
+    triggers WILDCARD.
+* `destroy.ts` fix: FREEZE with ROLL GENERATION off now copies only the roll hits that sit on
+  the sixteenth grid, as `chop` hits, so no new 1/32 rolls appear.
 
 ## Sample selection
 

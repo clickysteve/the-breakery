@@ -1,29 +1,37 @@
 /**
- * RECIPE · CHOP · ROLLS · MUTATE, one window with four tabs.
+ * RECIPE · CYMBALS · PERSONALITY · CHOP · ROLLS · MUTATE, one window with six tabs.
  *
- * RECIPE: style (with RANDOM RECIPE), tempo, bars, seed (with DICE, history and favourite), a row
- * showing CHOP (the transformation) and ROLL GENERATION, each opening its tab (a LEGACY break offers
+ * RECIPE: style (with RANDOM RECIPE), tempo (with TEMPO LOCK and the tempo DICE), bars, seed (with DICE, history and favourite), a row
+ * showing CHOP (the transformation), ROLL GENERATION and the cymbals' activity, each opening its tab (a LEGACY break offers
  * USE CURRENT GROOVE there), the eight generative controls and TOM ACTIVITY. GROOVE, the only
  * generator, has no selector: every break is baked by it. Every change re-bakes the same
  * seeds, so you hear what the control does to this break. Every number can be clicked and typed
  * (emmm's numerical fields). CHOP: the phrase transformation (chopTab.ts). ROLLS: roll generation
- * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
+ * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts). PERSONALITY: who plays the
+ * break and its BREAK DNA (personalityTab.ts). CYMBALS: HI-HAT and RIDE ACTIVITY and how they share
+ * the time (cymbalsTab.ts).
  */
+import { hatActivity, rideActivity } from '../engine/cymbals';
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
+import { tempoRange } from '../engine/tempo';
 import { CATEGORY_LABEL, MAX_BARS, MIN_BARS, STYLES, TOMS, type Bars, type RecipeKey } from '../engine/types';
 import { chopTab } from './chopTab';
+import { cymbalsTab } from './cymbalsTab';
 import { el, label, setTip } from './dom';
 import { mutateTab } from './mutateTab';
+import { personalityTab } from './personalityTab';
 import { rollsTab } from './rollsTab';
 import { Button, MWindow, NumBox, RangeBar } from './widgets';
 import type { UiContext } from './context';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+/** The window's tabs, by index. */
+export const TAB = { recipe: 0, cymbals: 1, persona: 2, chop: 3, rolls: 4, mutate: 5 } as const;
 const num = (t: string) => (/^\d+(\.\d+)?$/.test(t) ? Number(t) : null);
 
 const CONTROLS: { key: RecipeKey; label: string; tip: string; format?: (v: number) => string; parse?: (t: string) => number | null }[] = [
-  { key: 'density', label: 'DENSITY', tip: 'How many hits: more kicks, and sixteenth hats instead of eighths above a point.' },
+  { key: 'density', label: 'DENSITY', tip: 'How many hits: more kicks and ghosts, and a little more in the cymbals. The hats and the ride have their own activity (CYMBALS tab).' },
   { key: 'complexity', label: 'COMPLEXITY', tip: 'How far from the plain backbeat: extra snares, off-beat kicks, open-hat lifts, 32nd drags, displaced backbeats.' },
   { key: 'syncopation', label: 'SYNCOPATION', tip: 'Target syncopation of the kick/snare foundation. Research suggests medium syncopation grooves most, so this is a target, not "more is better".' },
   { key: 'ghosts', label: 'GHOSTS', tip: 'How many ghost snares. They are built from figures around the backbeats (anticipating, rebounding, two-stroke pickups), not placed at random.' },
@@ -52,9 +60,11 @@ const BAR_PLAN: Record<number, string> = {
 
 export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'CHOP', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
-  const [b, chopPane, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
+  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
+  const [b, cymbalsPane, personaPane, chopPane, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
   const W = rect.w - 2;
+  const cymbals = cymbalsTab(cymbalsPane, ui, W);
+  const persona = personalityTab(personaPane, ui, W);
   const chop = chopTab(chopPane, ui, W);
   const rolls = rollsTab(rollsPane, ui, W);
   const mut = mutateTab(mutatePane, ui, W);
@@ -69,7 +79,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     const col = i % perRow;
     return new Button(b, [4 + col * (bw + 2), 1 + row * 14, bw, 13], def.label, {
       cls: 'small',
-      tip: `${def.label} (${def.bpm[0]}–${def.bpm[1]} BPM): ${def.blurb} Choosing it sets every control to its defaults. The genre name is a tendency, not a promise of authenticity.`,
+      tip: `${def.label} (${tempoRange(s)}): ${def.blurb} Choosing it sets every control to its defaults and picks a tempo from its range (not with TEMPO LOCK). The genre name is a tendency, not a promise of authenticity.`,
       onPress: () => app.setStyle(s),
     });
   });
@@ -89,11 +99,23 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     min: 40,
     max: 220,
     label: 'Tempo, beats per minute',
-    tip: 'Tempo, 40–220 BPM. Click and type a value, then Return (Escape cancels); ↑ ↓ step it (Shift: by 10); drag up/down or scroll to sweep it.',
+    tip: 'Tempo, 40–220 BPM. Click and type a value, then Return (Escape cancels); ↑ ↓ step it (Shift: by 10); drag up/down or scroll to sweep it. The box always sets it, TEMPO LOCK or not.',
   });
+  const lock = new Button(b, [56, y2, 30, 15], 'LOCK', {
+    cls: 'small',
+    tip: 'TEMPO LOCK: keep this tempo when choosing a recipe, with RANDOM RECIPE, WILDCARD and REGEN (BAKE never changes it). The BPM box still sets it. An external MIDI clock sets the playing tempo either way.',
+    onPress: () => app.setTempoLock(!app.tempoLock),
+  });
+  lock.el.setAttribute('aria-label', 'Tempo lock');
+  const tdice = new Button(b, [88, y2, 24, 15], 'RND', {
+    cls: 'small',
+    tip: 'TEMPO DICE: a new tempo from the recipe’s range, for the same break (the pattern is not regenerated). Not with TEMPO LOCK on.',
+    onPress: () => void app.diceTempo(),
+  });
+  tdice.el.setAttribute('aria-label', 'Roll a new tempo');
 
-  label(b, 59, y2 + 4, 'BARS');
-  const bars = new NumBox(b, [82, y2, 18, 15], {
+  label(b, 117, y2 + 4, 'BARS');
+  const bars = new NumBox(b, [140, y2, 18, 15], {
     get: () => app.recipe.bars,
     set: (v) => app.setRecipe({ bars: v as Bars }),
     min: MIN_BARS,
@@ -103,9 +125,9 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     tip: 'Pattern length, 1–8 bars. Click and type, or ↑ ↓. The phrase is built to the length, not by stacking bars.',
   });
 
-  label(b, 105, y2 + 4, 'SEED');
+  label(b, 163, y2 + 4, 'SEED');
   const bx = W - 4 - 24 - 2 - 12 - 1 - 12 - 2 - 26;
-  const seed = new NumBox(b, [128, y2, bx - 2 - 128, 15], {
+  const seed = new NumBox(b, [186, y2, bx - 2 - 186, 15], {
     get: () => app.seeds.beat,
     set: (v) => app.setSeed(Math.max(0, v)),
     min: 0,
@@ -128,14 +150,20 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const chopBtn = new Button(b, [4, 51, bw + 20, 13], 'CHOP OFF', {
     cls: 'small',
     tip: 'CHOP: the transformation. It re-arranges the GROOVE’s phrase (recalls, swaps, repeats, retriggers, drop-outs). Opens the CHOP tab.',
-    onPress: () => win.setTab(1),
+    onPress: () => win.setTab(TAB.chop),
   });
   const rollsBtn = new Button(b, [4 + bw + 23, 51, bw + 20, 13], 'ROLLS OFF', {
     cls: 'small',
     tip: 'ROLL GENERATION: off until you switch it on, and kept as you set it whatever the recipe. Toms do not need it (TOM ACTIVITY). Opens the ROLLS tab.',
-    onPress: () => win.setTab(2),
+    onPress: () => win.setTab(TAB.rolls),
   });
-  const genNote = el('div', 'label tiny', b, [4 + 2 * (bw + 23) + 2, 55, W - 4 - 76 - (4 + 2 * (bw + 23) + 2)]);
+  const cymBtn = new Button(b, [4 + 2 * (bw + 23), 51, bw + 28, 13], 'HATS · RIDE', {
+    cls: 'small',
+    tip: 'HI-HAT and RIDE ACTIVITY, and how they share the time. Opens the CYMBALS tab.',
+    onPress: () => win.setTab(TAB.cymbals),
+  });
+  const gx = 4 + 2 * (bw + 23) + bw + 31;
+  const genNote = el('div', 'label tiny', b, [gx, 55, W - 4 - 76 - gx]);
   const useGroove = new Button(b, [W - 4 - 72, 51, 72, 13], 'USE GROOVE', {
     cls: 'small',
     tip: 'USE CURRENT GROOVE: this break was made by the first release’s generator (LEGACY) and plays exactly as it did. This re-bakes the same seed and controls with today’s GROOVE. One way; ⌘Z returns to the legacy break.',
@@ -179,6 +207,11 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     rollsBtn.on = app.rollGeneration && !app.legacy;
     rollsBtn.text = app.legacy ? 'NO ROLLS' : app.rollGeneration ? 'ROLLS ON' : 'ROLLS OFF';
     useGroove.el.style.display = app.legacy ? '' : 'none';
+    cymBtn.text = app.legacy ? 'LEGACY CYMBALS' : `HATS ${Math.round(hatActivity(app.recipe) * 100)}% RIDE ${Math.round(rideActivity(app.recipe) * 100)}%`;
+    cymBtn.on = false;
+    lock.on = app.tempoLock;
+    tdice.disabled = app.tempoLock;
+    setTip(tdice.el, app.tempoLock ? 'TEMPO DICE is off while TEMPO LOCK is on: unlock it to roll a new tempo (the BPM box still sets it).' : `TEMPO DICE: a new tempo from ${STYLE_DEFS[app.recipe.style].label}’s range (${tempoRange(app.recipe.style)}), for the same break. The pattern is not regenerated.`);
     genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : '';
     bpm.update();
     bars.update();
@@ -194,9 +227,11 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     const tomHits = app.current.events.filter((e) => (TOMS as readonly string[]).includes(e.cat)).length;
     tomNote.textContent = app.legacy ? 'LEGACY BREAK: NO TOMS' : `${tomHits} TOM HIT${tomHits === 1 ? '' : 'S'} · SAMPLES ${have.length}/3`;
     setTip(tomNote, have.length === 3 ? 'High, mid and low tom samples are loaded (INGREDIENTS). Tom hits follow their MIXER channels and MIDI notes.' : `No sample for ${TOMS.filter((t) => !kit[t].length).map((t) => CATEGORY_LABEL[t]).join(', ')}: those hits are silent until one is loaded (INGREDIENTS), or the demo kit is added.`);
-    if (win.tab === 1) chop.update();
-    if (win.tab === 2) rolls.update();
-    if (win.tab === 3) mut.update();
+    if (win.tab === TAB.cymbals) cymbals.update();
+    if (win.tab === TAB.persona) persona.update();
+    if (win.tab === TAB.chop) chop.update();
+    if (win.tab === TAB.rolls) rolls.update();
+    if (win.tab === TAB.mutate) mut.update();
   }
   function setTipBars(): void {
     bars.el.dataset.tip = `Pattern length, 1–8 bars (now ${app.recipe.bars}: ${BAR_PLAN[app.recipe.bars]}). Click and type, or ↑ ↓.`;

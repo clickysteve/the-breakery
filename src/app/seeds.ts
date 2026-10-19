@@ -8,7 +8,11 @@
  */
 import { chopActive } from '../engine/chopper';
 import { editsKey, hasEdits, sanitiseEdits, type Edits } from '../engine/edits';
-import { sanitiseMutation, sanitiseRecipe } from '../engine/generate';
+import { sanitiseRecipe, sanitiseSeeds } from '../engine/generate';
+import { destroyActive } from '../engine/destroy';
+import { exprActive } from '../engine/rollExpr';
+import { personaActive } from '../engine/personality';
+import { dnaActive } from '../engine/dna';
 import { sanitiseSampleSettings, type SampleSettings } from '../engine/samples';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Recipe, type Seeds } from '../engine/types';
@@ -40,6 +44,12 @@ export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edit
   if (r.jungleCuts) k.push('jungle cuts');
   if (r.revision) k.push(['revision', r.revision]);
   if (chopActive(r.chop)) k.push(['chop', r.chop!.amount, r.chop!.slice, r.chop!.retrigger, r.chop!.variant]);
+  // Phase 12 (only when they change the break, so earlier keys are unchanged)
+  if (exprActive(r.rollExpr)) k.push(['expr', r.rollExpr]);
+  if (personaActive(r.personality)) k.push(['persona', r.personality!.id, r.personality!.amount]);
+  if (dnaActive(r.dna)) k.push(['dna', r.dna!.id, r.dna!.amount]);
+  if (destroyActive(r.destroy)) k.push(['destroy', r.destroy!.amount, r.destroy!.style, r.destroy!.variant]);
+  if (s.regen?.length) k.push(['regen', s.regen.map((x) => [x.cats, x.n])]);
   if (hasEdits(e.edits)) k.push(editsKey(e.edits));
   return JSON.stringify(k);
 }
@@ -117,11 +127,10 @@ export function sanitiseEntry(v: unknown): SeedEntry | null {
   if (!o || !o.recipe || !o.seeds) return null;
   const s = o.seeds;
   if (![s.beat, s.detail, s.feel, s.kit].every(isSeed)) return null;
-  const mut = Array.isArray(s.mut) ? s.mut.filter((m) => m && isSeed(m.seed)).map(sanitiseMutation) : [];
   const edits = sanitiseEdits(o.edits, CATEGORIES);
   return {
     recipe: sanitiseRecipe(o.recipe),
-    seeds: { beat: s.beat >>> 0, detail: s.detail >>> 0, feel: s.feel >>> 0, kit: s.kit >>> 0, ...(mut.length ? { mut } : {}) },
+    seeds: sanitiseSeeds({ ...s, mut: Array.isArray(s.mut) ? s.mut.filter((m) => m && isSeed(m.seed)) : [] }),
     name: typeof o.name === 'string' && o.name ? o.name : null,
     ...(hasEdits(edits) ? { edits } : {}),
   };

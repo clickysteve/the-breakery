@@ -197,11 +197,12 @@ describe('CHOP: the transformation', () => {
       const r = recipe('dnb', 4, { amount: 0.8, retrigger: 0, slice: 'micro' });
       const g = bakeK(recipe('dnb'), 600 + s);
       const c = bakeK(r, 600 + s);
-      // every roll group in the result has as many strokes as some roll group of the GROOVE
-      const sizes = new Set(rollGroups(g.events, true).map((x) => `${x.cat}:${x.events.length}`));
+      // every roll group in the result has as many strokes as some roll group of the GROOVE (or a
+      // whole number of them: a roll repeated straight after itself reads as one longer group)
+      const sizes = rollGroups(g.events, true).map((x) => [x.cat, x.events.length] as const);
       for (const x of rollGroups(c.events, true)) {
         if (x.events.some((e) => e.why.startsWith('CHOP retrigger'))) continue;
-        expect(sizes.has(`${x.cat}:${x.events.length}`)).toBe(true);
+        expect(sizes.some(([cat, n]) => cat === x.cat && x.events.length % n === 0), `${x.cat}:${x.events.length}`).toBe(true);
       }
       expect(atomicSpans(g.events, 4).length).toBeGreaterThanOrEqual(0);
     }

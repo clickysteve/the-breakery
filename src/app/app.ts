@@ -5,12 +5,19 @@
  * so each control's effect is heard on the same break; BAKE draws new seeds for every layer that
  * is not frozen; MUTATE varies the current groove a little.
  */
-import { addHit, deleteHit, describeEdits, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, ratchetHit, RATCHET_SPAN_LABEL, refLabel, revertHit, sanitiseEdits, setPitch, setReverse, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { defaultRollExpr, describeExpr, diceExpr, presetExpr, sanitiseRollExpr, type RollExpression, type RollPreset } from '../engine/rollExpr';
+import { defaultDestroy, describeDestroy, sanitiseDestroy, type DestroySettings } from '../engine/destroy';
+import { describePersonality, PERSONALITY_LABEL, sanitisePersonality, type PersonalitySetting } from '../engine/personality';
+import { describeDna, sanitiseDna, type DnaSetting } from '../engine/dna';
+import { regenStep } from '../engine/regen';
 import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
 import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from '../engine/chopper';
 import { rollGroups } from '../engine/rolls';
 import { SECTION_DEFS, type Section } from '../engine/sections';
-import { freshSeed } from '../engine/rng';
+import { freshSeed, hashString, stream } from '../engine/rng';
+import { defaultWildcard, sanitiseWildcard, WILDCARD_LABEL, wildcardMix, wildcardOutput, wildcardRecipe, type WildcardCategory, type WildcardSettings } from '../engine/wildcard';
+import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
@@ -18,7 +25,7 @@ import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
 import { audible, safeGain, safePan, sanitiseMix, type MixState } from './mix';
-import { OutputChain, type ChainConfig } from '@slopfactory/core/engines';
+import { OutputChain, presetsFor, type ChainConfig } from '@slopfactory/core/engines';
 import { OUTPUT_ENGINES } from '../audio/output';
 import { diceName, entryKey, entryLabel, FAVOURITES_MAX, sanitiseFavourite, SeedHistory, type Favourite, type SeedEntry } from './seeds';
 
@@ -76,7 +83,19 @@ interface Saved {
   output?: ChainConfig;
   /** ROLL GENERATION: the user's preference (absent: off for a new user; a state saved before it keeps what its break had) */
   rollGeneration?: boolean;
+  /** TEMPO LOCK: the tempo stays through recipe changes, RANDOM RECIPE, WILDCARD and REGEN */
+  tempoLock?: boolean;
+  /** WILDCARD: which categories it changes */
+  wildcard?: WildcardSettings;
 }
+
+/** What an undo step of WILDCARD also restores (the mixer and the output chain are otherwise never part of undo). */
+interface Extras {
+  mix: MixState;
+  output: ChainConfig;
+}
+const withExtras = (snap: string, extras: Extras): string => JSON.stringify({ ...JSON.parse(snap), extras });
+const hasExtras = (snap: string): boolean => 'extras' in (JSON.parse(snap) as object);
 
 const noFreeze = (): Record<Layer, boolean> => ({ beat: false, detail: false, feel: false, kit: false });
 
@@ -141,6 +160,14 @@ export class App {
    */
   rollGeneration = false;
   /**
+   * TEMPO LOCK, the user's preference (saved, never part of undo): when on, nothing but the BPM box
+   * changes the tempo (choosing a recipe, RANDOM RECIPE and WILDCARD keep it). BAKE never changes
+   * the tempo either way. With an EXTERNAL MIDI clock the clock sets the tempo whatever this says.
+   */
+  tempoLock = false;
+  /** WILDCARD's categories (a preference: saved, never part of undo, kept through recipe changes) */
+  wildcardSettings: WildcardSettings = defaultWildcard();
+  /**
    * OUTPUT: the master output chain. App settings like the mixer: saved, never part of the break
    * or of undo. Every change is heard at once and saved.
    */
@@ -156,6 +183,8 @@ export class App {
     const fromUrl = initialSeed !== undefined ? parseSeed(initialSeed) : null;
     // ROLL GENERATION: off for a new user; a state saved before the preference existed keeps what its break had
     this.rollGeneration = typeof s?.rollGeneration === 'boolean' ? s.rollGeneration : s?.recipe ? s.recipe.rollsOn !== false : false;
+    this.tempoLock = s?.tempoLock === true;
+    this.wildcardSettings = sanitiseWildcard(s?.wildcard);
     // a saved break (LEGACY too) reproduces as it was; a seed from a link is a new break, baked by the current GROOVE
     this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : this.fresh(defaultRecipe('funk', 2));
     if (fromUrl) this.recipe = this.fresh(current(this.recipe));
@@ -211,7 +240,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -286,11 +315,55 @@ export class App {
     this.rebake();
   }
 
-  /** Choose a style: its defaults replace the controls (BPM too), baked by the current GROOVE. CHOP's settings stay. */
+  /**
+   * Choose a style: its defaults replace the controls, baked by the current GROOVE. CHOP's settings
+   * stay. The tempo comes from the recipe's TEMPO PROFILE (seeded by the break's beat seed, so the
+   * same recipe and seed give the same tempo), or stays as it is with TEMPO LOCK on.
+   */
   setStyle(style: Style): void {
-    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried(), bpm: this.tempoOf(style, this.seeds.beat) });
     this.history.replaceCurrent(this.entry);
     this.rebake();
+  }
+
+  /** The tempo for a recipe and a seed: from its TEMPO PROFILE, or the current one with TEMPO LOCK on. */
+  private tempoOf(style: Style, seed: number): number {
+    return this.tempoLock ? this.recipe.bpm : tempoFor(style, seed);
+  }
+
+  /** TEMPO LOCK on or off (a preference: saved, not an undo step). */
+  setTempoLock(on: boolean): void {
+    this.tempoLock = on;
+    this.status = on ? `TEMPO LOCK on: ${this.recipe.bpm} BPM stays through recipe changes, RANDOM RECIPE and WILDCARD (the BPM box still sets it).` : `TEMPO LOCK off: choosing a recipe picks a tempo from its range (${tempoRange(this.recipe.style)}).`;
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * TEMPO DICE: a new tempo from the recipe's TEMPO PROFILE, for the same break (the pattern is
+   * not regenerated). Not while TEMPO LOCK is on. One undo step.
+   */
+  diceTempo(seed = freshSeed()): boolean {
+    if (this.tempoLock) {
+      this.say('TEMPO LOCK is on: unlock it to roll a new tempo (the BPM box still sets it by hand).');
+      return false;
+    }
+    const rng = stream(seed, 'tempo-dice');
+    let bpm = pickTempo(this.recipe.style, rng);
+    for (let i = 0; i < 6 && bpm === this.recipe.bpm; i++) bpm = pickTempo(this.recipe.style, rng);
+    this.setRecipe({ bpm });
+    this.say(`Tempo ${bpm} BPM, from ${STYLE_DEFS[this.recipe.style].label}'s range (${tempoRange(this.recipe.style)}). Same break.`);
+    return true;
+  }
+
+  /**
+   * What a new recipe keeps from the current one: CHOP (with DESTROY), the rolls' EXPRESSION, the
+   * PERSONALITY and the BREAK DNA. They are how the break is treated and who plays it, not part of
+   * a recipe's defaults.
+   */
+  private carried(): Partial<Recipe> {
+    const r = this.recipe;
+    return JSON.parse(JSON.stringify({ ...(r.chop ? { chop: r.chop } : {}), ...(r.destroy ? { destroy: r.destroy } : {}), ...(r.rollExpr ? { rollExpr: r.rollExpr } : {}), ...(r.personality ? { personality: r.personality } : {}), ...(r.dna ? { dna: r.dna } : {}) })) as Partial<Recipe>;
   }
 
   /** Is this break LEGACY (baked by the first release's generator, kept so saved breaks reproduce)? */
@@ -322,15 +395,77 @@ export class App {
     const choices = others.length ? others : pool;
     const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
     const note = this.leaveEdits();
-    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
-    this.seeds = reseed(this.seeds, this.frozen);
+    const seeds = reseed(this.seeds, this.frozen);
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried(), bpm: this.tempoOf(style, seeds.beat) });
+    this.seeds = seeds;
     this.seedName = null;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Random recipe: ${STYLE_DEFS[style].label}, seed ${this.seeds.beat}.${note}`;
+    this.status = `Random recipe: ${STYLE_DEFS[style].label} at ${this.recipe.bpm} BPM${this.tempoLock ? ' (TEMPO LOCK)' : ''}, seed ${this.seeds.beat}.${note}`;
     this.changed();
     return style;
+  }
+
+  /** WILDCARD's settings: one category on or off (a preference, not an undo step). */
+  setWildcard(cat: WildcardCategory, on: boolean): void {
+    this.wildcardSettings = { ...this.wildcardSettings, [cat]: on };
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  resetWildcard(): void {
+    this.wildcardSettings = defaultWildcard();
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * WILDCARD: a new break re-imagined across the categories in its settings (engine/wildcard.ts):
+   * a new recipe, tempo, controls, personality and treatments, new seeds as BAKE draws them (FREEZE
+   * respected; the KIT seed changes only with SAMPLE ASSIGNMENTS), and optionally the mixer and the
+   * output chain. Deterministic from `seed`. One undo step restores all of it, the mixer and the
+   * output chain included; redo brings it back. Heard through the switching mode while playing.
+   */
+  wildcard(seed = freshSeed()): void {
+    this.endGesture();
+    const before = this.snapshot();
+    const extrasBefore: Extras = { mix: JSON.parse(JSON.stringify(this.mix)) as MixState, output: this.output.config };
+    const S = this.wildcardSettings;
+    let status = '';
+    this.gesture = true;
+    try {
+      const note = this.leaveEdits() + this.leaveLegacy();
+      const res = wildcardRecipe(this.recipe, { settings: S, frozen: this.frozen, tempoLock: this.tempoLock, rollGeneration: this.rollGeneration }, seed);
+      const seeds = reseed(this.seeds, this.frozen, hashString(`wildcard:seeds:${seed}`) % 1000000);
+      // the samples change only with SAMPLE ASSIGNMENTS (and never with KIT frozen)
+      if (!S.samples || this.frozen.kit) seeds.kit = this.seeds.kit;
+      else res.changed.push('samples');
+      if (S.samples && this.frozen.kit) res.kept.push('SAMPLE ASSIGNMENTS (frozen)');
+      if (S.mixer) {
+        this.mix = wildcardMix(this.mix, seed);
+        this.player.setMix(this.mix);
+        res.changed.push('mixer');
+      }
+      if (S.output) {
+        const presets = presetsFor(OUTPUT_ENGINES);
+        const p = presets[wildcardOutput(presets.length, seed)];
+        if (p && this.output.applyPreset(p)) res.changed.push('output');
+      }
+      this.recipe = this.fresh(res.recipe);
+      this.seeds = seeds;
+      this.seedName = null;
+      this.picked = null;
+      this.show(this.bakeWith(this.seeds));
+      this.remember();
+      const a = this.current.approach;
+      status = `WILDCARD: ${STYLE_DEFS[this.recipe.style].label} at ${this.recipe.bpm} BPM, seed ${this.seeds.beat}${a ? ` (${a.groove}, hats ${a.hats || 'none'})` : ''}. Changed ${res.changed.map((c) => WILDCARD_LABEL[c]).join(', ') || 'only the seeds'}${res.kept.length ? `; kept ${res.kept.join(', ')}` : ''}. ⌘Z undoes all of it.${note}`;
+    } finally {
+      this.gesture = false;
+    }
+    this.status = status;
+    this.baseline = S.mixer || S.output ? withExtras(before, extrasBefore) : before;
+    this.changed();
   }
 
   resetRecipe(): void {
@@ -553,6 +688,136 @@ export class App {
     return chopActive(this.recipe.chop);
   }
 
+  // ---------------------------------------------------------------- roll expression
+
+  /** ROLLS ▸ EXPRESSION (CLASSIC until changed). */
+  get rollExpr(): RollExpression {
+    return this.recipe.rollExpr ?? defaultRollExpr();
+  }
+
+  /** Change the expression by hand (it becomes CUSTOM unless it matches a preset). */
+  setRollExpr(patch: Partial<RollExpression>): void {
+    const next = sanitiseRollExpr({ ...this.rollExpr, preset: 'custom', ...patch });
+    this.recipe = this.fresh({ ...this.recipe, rollExpr: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = `ROLL EXPRESSION ${describeExpr(this.recipe.rollExpr)}${this.rollGeneration ? '' : ' ROLL GENERATION is off: it shapes the rolls already in fills and the RATCHETs you make.'}`;
+    this.changed(false);
+  }
+
+  rollPreset(p: Exclude<RollPreset, 'custom'>): void {
+    this.setRollExpr(presetExpr(p, this.rollExpr.variant));
+  }
+
+  /** DICE: a new expression for the rolls from a new seed (the rest of the pattern is unchanged). */
+  diceRolls(seed = freshSeed()): void {
+    this.setRollExpr(diceExpr(seed));
+  }
+
+  // ---------------------------------------------------------------- destroy
+
+  get destroySettings(): DestroySettings {
+    return this.recipe.destroy ?? defaultDestroy();
+  }
+
+  /** CHOP ▸ DESTROY (fixed while there are hand edits, as CHOP is). */
+  setDestroy(patch: Partial<DestroySettings>): void {
+    if (this.chopLocked) return this.say(`DESTROY is applied: this pattern has ${editCount(this.edits)} hand edit${editCount(this.edits) === 1 ? '' : 's'}. ⌘Z them, or Edit ▸ Clear All Hand Edits, to change it again.`);
+    const next = sanitiseDestroy({ ...this.destroySettings, ...patch })!;
+    if (JSON.stringify(next) === JSON.stringify(this.recipe.destroy)) return;
+    this.recipe = this.fresh({ ...this.recipe, destroy: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describeDestroy(this.current.destroy, next);
+    this.changed(false);
+  }
+
+  /** DESTROY ▸ DICE: another take of the destruction (a new seed). */
+  diceDestroy(seed = freshSeed()): void {
+    if (!this.destroySettings.on) return this.say('DESTROY: switch it on first.');
+    this.setDestroy({ variant: seed || 1 });
+  }
+
+  // ---------------------------------------------------------------- personality and break DNA
+
+  get personality(): PersonalitySetting {
+    return this.recipe.personality ?? { id: 'neutral', amount: 0.6 };
+  }
+
+  setPersonality(patch: Partial<PersonalitySetting>): void {
+    const next = sanitisePersonality({ ...this.personality, ...patch });
+    this.recipe = this.fresh({ ...this.recipe, personality: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describePersonality(this.recipe.personality);
+    this.changed(false);
+  }
+
+  get dna(): DnaSetting | null {
+    return this.recipe.dna ?? null;
+  }
+
+  /** BREAK DNA: NONE (null) or AMEN, with its INFLUENCE. */
+  setDna(patch: Partial<DnaSetting> | null): void {
+    const next = patch === null ? undefined : sanitiseDna({ id: 'amen', amount: this.dna?.amount ?? 0.6, ...(this.dna ?? {}), ...patch });
+    const { dna: _old, ...rest } = this.recipe;
+    this.recipe = this.fresh({ ...rest, ...(next ? { dna: next } : {}) });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describeDna(this.recipe.dna);
+    this.changed(false);
+  }
+
+  /** A short line comparing this break with the same seeds played by NEUTRAL (the PERSONALITY tab's feedback). */
+  private feedbackCache: [string, string] = ['', ''];
+  get personaFeedback(): string {
+    const p = this.recipe.personality;
+    if (!p || p.id === 'neutral' || !p.amount) return 'NEUTRAL: the recipe as it is.';
+    const key = entryKey({ recipe: this.recipe, seeds: this.seeds });
+    if (this.feedbackCache[0] === key) return this.feedbackCache[1];
+    const { personality: _p, ...plain } = this.recipe;
+    const base = this.bakeWith(this.seeds, plain as Recipe, null).events;
+    const now = this.bakeWith(this.seeds, this.recipe, null).events;
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+    const off = (cat: string, evs: typeof now) => mean(evs.filter((e) => e.cat === cat).map((e) => e.offsetMs));
+    const ms = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1)}`;
+    const line = `${PERSONALITY_LABEL[p.id]} vs NEUTRAL: ${base.length} → ${now.length} hits, velocity ${Math.round(mean(base.map((e) => e.vel)))} → ${Math.round(mean(now.map((e) => e.vel)))}, kick ${ms(off('kick', now) - off('kick', base))} ms, snare ${ms(off('snare', now) - off('snare', base))} ms, hats ${ms(off('hat', now) - off('hat', base))} ms.`;
+    this.feedbackCache = [key, line];
+    return line;
+  }
+
+  // ---------------------------------------------------------------- regen track
+
+  /**
+   * REGEN TRACK: the selected tracks generated again, fitted to the rest of the pattern, and every
+   * other track left exactly as it is. An explicit request, so it applies whatever FREEZE says.
+   * One undo step and one history entry; the batch is kept (only the working pattern changes);
+   * playback follows with the SWITCH mode like any new break. Hand edits stay (those on the old
+   * track's generated hits become inactive and come back with ⌘Z).
+   */
+  regenTracks(cats: Category[] = this.trackSel): void {
+    if (!cats.length) return this.say('REGEN TRACK: select a track first (click its name on the left of the pattern).');
+    if (this.legacy) return this.say('REGEN TRACK works on the current GROOVE: this is a LEGACY break. RECIPE ▸ USE GROOVE first.');
+    if (!this.current.events.some((e) => cats.includes(e.cat))) return this.say(`REGEN TRACK: ${cats.map((c) => CATEGORY_LABEL[c]).join(', ')} has no hits in this pattern (its part is played on another track), so there is nothing to regenerate.`);
+    const before = this.current.editReport?.inactive ?? 0;
+    this.seeds = { ...this.seeds, regen: regenStep(this.seeds.regen, cats) };
+    this.picked = null;
+    this.show(this.bakeWith(this.seeds));
+    this.remember();
+    const lost = (this.current.editReport?.inactive ?? 0) - before;
+    const names = cats.map((c) => CATEGORY_LABEL[c]).join(', ');
+    this.status = `Regenerated ${names}: everything else is as it was (⌘Z goes back).${this.frozen.beat || this.frozen.detail ? ' FREEZE does not stop REGEN TRACK: it was asked for.' : ''}${lost > 0 ? ` ${lost} hand edit${lost === 1 ? ' was' : 's were'} on the old track (kept, not active).` : ''}`;
+    this.changed();
+  }
+
+  /** The tracks selected for REGEN TRACK (click a row name; shift-click adds). Not part of the break. */
+  trackSel: Category[] = [];
+
+  selectTrack(cat: Category, add = false): void {
+    this.trackSel = add ? (this.trackSel.includes(cat) ? this.trackSel.filter((c) => c !== cat) : CATEGORIES.filter((c) => c === cat || this.trackSel.includes(c))) : this.trackSel.length === 1 && this.trackSel[0] === cat ? [] : [cat];
+    this.changed(false);
+  }
+
   /** CLEAR ROLLS: delete every roll hit in this pattern (generated, from fills, or kept). Undoable; ROLL GENERATION is unchanged. */
   clearRolls(): void {
     const refs = this.current.events.filter((e) => e.role === 'roll' && e.ref).map((e) => e.ref!);
@@ -726,7 +991,7 @@ export class App {
     if (!this.baseline || this.gesture) return;
     const next = this.snapshot();
     const pattern = (s: string) => {
-      const { selected: _selected, ...state } = JSON.parse(s);
+      const { selected: _selected, extras: _extras, ...state } = JSON.parse(s);
       return JSON.stringify(state);
     };
     if (pattern(next) !== pattern(this.baseline)) {
@@ -767,7 +1032,7 @@ export class App {
     const r = addHit(this.edits, this.current.events, { cat, ...p });
     this.commit(r, true, { gesture, say: r.edits === this.edits ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
     const e = this.selectedEvent;
-    if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel);
+    if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel, e);
     return r.ref;
   }
 
@@ -811,7 +1076,30 @@ export class App {
     if (!ref) return;
     this.commit(setSample(this.edits, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
     const e = findRef(this.current.events, ref);
-    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel);
+    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
+  }
+
+  /** EXPRESSION: transpose the hit (semitones, by playback rate). */
+  setHitPitch(st: number, ref: string | null = this.selected): void {
+    if (!ref) return;
+    if (this.commit(setPitch(this.edits, this.current.events, ref, st), false)) this.status = `Pitch ${fmtPitch(findRef(this.current.events, ref)?.pitch ?? 0)} (by playback rate: higher is shorter).`;
+  }
+
+  /** EXPRESSION: play the hit backwards (or forwards again). */
+  setHitReverse(on: boolean, ref: string | null = this.selected): void {
+    if (!ref) return;
+    this.commit(setReverse(this.edits, this.current.events, ref, on), false, { say: on ? 'Reversed: the sample plays backwards from this hit.' : 'Forwards again.' });
+    const e = findRef(this.current.events, ref);
+    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
+  }
+
+  /** RATCHET: split the hit into n strokes over `span` grid ticks, with the ROLLS tab's EXPRESSION. One undo step. */
+  ratchet(n: number, span: number, ref: string | null = this.selected): void {
+    if (!ref) return;
+    const { preset: _p, variant: _v, ratchet: _r, ...shape } = this.rollExpr;
+    const r = ratchetHit(this.edits, this.current.events, ref, n, span, shape, this.recipe.bpm, this.recipe.bars);
+    if (!r.ref) return this.say('No room to ratchet this hit there.');
+    this.commit(r, true, { say: `Ratchet ×${n} over ${RATCHET_SPAN_LABEL[span] ?? `${span} ticks`} (${describeExpr(this.recipe.rollExpr)}) ⌘Z undoes it.` });
   }
 
   duplicateHit(ref: string | null = this.selected): void {
@@ -840,7 +1128,7 @@ export class App {
     this.endGesture();
     const s = this.undoStack.pop();
     if (!s) return this.say('Nothing to undo.');
-    this.redoStack.push(this.snapshot());
+    this.redoStack.push(hasExtras(s) ? withExtras(this.snapshot(), this.extras()) : this.snapshot());
     this.restoreSnapshot(s);
     this.say('Undone.');
   }
@@ -849,14 +1137,26 @@ export class App {
     this.endGesture();
     const s = this.redoStack.pop();
     if (!s) return this.say('Nothing to redo.');
-    this.undoStack.push(this.snapshot());
+    this.undoStack.push(hasExtras(s) ? withExtras(this.snapshot(), this.extras()) : this.snapshot());
     this.restoreSnapshot(s);
     this.say('Redone.');
   }
 
+  private extras(): Extras {
+    return { mix: JSON.parse(JSON.stringify(this.mix)) as MixState, output: this.output.config };
+  }
+
   private restoreSnapshot(s: string): void {
-    const o = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'>;
+    const { extras, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras };
     Object.assign(this, o);
+    if (extras) {
+      // a WILDCARD step: the mixer and the output chain come back too
+      this.mix = sanitiseMix(extras.mix);
+      this.player.setMix(this.mix);
+      this.gesture = true;
+      this.output.load(extras.output);
+      this.gesture = false;
+    }
     // The player applies the selected live transition policy to restored snapshots.
     this.player.update(this.current);
     if (this.selected && !findRef(this.current.events, this.selected)) this.selected = null;
