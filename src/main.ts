@@ -359,6 +359,8 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       { label: 'Reset Recipe', action: () => app.resetRecipe() },
       { label: 'CHOP', checked: () => app.chop.on, action: () => app.setChop({ on: !app.chop.on }) },
       { label: 'Re-CHOP', action: () => app.reChop() },
+      { label: 'Roll Generation', checked: () => app.rollGeneration, action: () => app.setRollsOn(!app.rollGeneration) },
+      { label: 'Re-ROLL', action: () => app.reRoll() },
       { label: 'DESTROY', checked: () => app.destroy2.on, action: () => app.setDestroy2({ on: !app.destroy2.on }) },
       { label: 'Re-DESTROY', action: () => app.reDestroy() },
       { label: 'Dice Break DNA', action: () => app.diceDna() },

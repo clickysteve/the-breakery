@@ -2,8 +2,10 @@
  * CHOP (a tab of the RECIPE window): the first transformation. The GROOVE baked from the recipe is
  * the source; CHOP re-arranges its phrase (fragments recalled, swapped, repeated, doubled,
  * retriggered, dropped out) and the result is the pattern. Non-destructive: every change is
- * recalculated from the GROOVE with the same seeds, so AMOUNT 0 or ENABLED off is the GROOVE again.
- * Fixed (APPLIED) while the pattern has hand edits, which were made on the chopped result.
+ * recalculated from the GROOVE with the same seeds, so AMOUNT 0 or ENABLED off is the GROOVE again,
+ * and on again is the same chop until RE-CHOP. Never needs BAKE, and is always available: hand
+ * edits are a positional layer over the result, kept through every CHOP change (an edit whose hit
+ * is not in the new result waits, inactive, until that result returns).
  *
  * DESTROY has its own tab (destroyTab.ts, Phase 14). A break saved with the earlier CHOP ▸ DESTROY
  * (destroy.ts) still plays it; the DESTROY tab shows it and can remove it.
@@ -48,7 +50,7 @@ export function chopTab(b: HTMLElement, ui: UiContext, W: number) {
   label(b, 5, 6, 'CHOP', 'head');
   const enable = new Button(b, [40, 3, 58, 14], 'ENABLED', {
     cls: 'small',
-    tip: 'CHOP: on, the pattern is the GROOVE re-arranged (fragments of the phrase recalled, swapped, repeated, retriggered, dropped out); off, the pattern is the GROOVE. The settings are kept either way. Hits are moved as events, not audio slices, so every one stays editable and exports as MIDI. ⌘Z undoes.',
+    tip: 'CHOP: on, the CURRENT groove re-arranged (fragments of the phrase recalled, swapped, repeated, retriggered, dropped out), no BAKE; off, the groove as it was. The settings are kept either way, and on again is the same chop until RE-CHOP. Hits are moved as events, not audio slices, so every one stays editable and exports as MIDI. Hand edits are kept. ⌘Z undoes.',
     onPress: () => app.setChop({ on: !app.chop.on }),
   });
   const again = new Button(b, [102, 3, 52, 14], 'RE-CHOP', {
@@ -96,33 +98,34 @@ export function chopTab(b: HTMLElement, ui: UiContext, W: number) {
 
   function update(): void {
     const c = app.chop;
-    const locked = app.chopLocked;
     enable.text = c.on ? 'ENABLED' : 'DISABLED';
     enable.on = c.on;
     amount.update();
     retrig.update();
     slices.forEach((s, i) => (s.on = SLICE_SIZES[i] === c.slice));
-    for (const s of settings) s.classList.toggle('inactive', !c.on || locked);
-    enable.disabled = locked;
-    again.disabled = locked || !c.on;
-    state.textContent = !app.chopped ? 'PATTERN = GROOVE' : locked ? 'APPLIED' : 'PREVIEW';
+    // switched off, the settings look inactive (they still work, and are kept); ENABLED is always available
+    for (const s of settings) s.classList.toggle('inactive', !c.on);
+    enable.disabled = false;
+    again.disabled = !c.on;
+    state.textContent = !app.chopped ? 'PATTERN = GROOVE' : `CHOPPED${c.variant ? ` · TAKE ${c.variant}` : ''}`;
     const d = app.destroySettings;
-    setTip(state, locked ? 'APPLIED: this pattern has hand edits on the chopped result, so CHOP is fixed (a new chop would move hits under them). ⌘Z the edits, or Edit ▸ Clear All Hand Edits, to change CHOP again.' : 'PREVIEW: every CHOP change is recalculated from the GROOVE. The first hand edit in the PATTERN applies it.');
+    setTip(state, 'Every CHOP change is recalculated from the GROOVE underneath (never from the chopped result), so off gives the groove back and on again gives the same chop. RE-CHOP draws the next take.');
     report.textContent = (c.on && !app.chopped ? 'CHOP: AMOUNT 0, the pattern is the GROOVE.' : describeChop(app.current.chop)).toUpperCase();
     setTip(report, `${describeChop(app.current.chop)}${app.recipe.destroy?.on ? ` ${describeDestroy(app.current.destroy, d)}` : ''} RECIPE ▸ GROOVE ▸ CHOP ▸ EXPRESSION ▸ HAND EDITS ▸ DESTROY ▸ PATTERN: CHOP never compounds on its own result; turning it off gives the GROOVE back. DESTROY has its own tab.`);
     const def = STYLE_DEFS[app.recipe.style];
     const cs = CHOP_STYLE[app.recipe.style];
     style.textContent = `${def.label}: ${STYLE_CHOP[app.recipe.style]} · SUGGESTED SLICE ${cs.slice.toUpperCase()}${app.dna ? ` · ${DNA_LABEL[app.dna.id]} DNA LEANS THE CUTS` : ''}`;
     setTip(style, `How ${def.label} chops: the recipe weighs the same operations (recall, swap, repeat, double, retrigger, drop-out) differently, and chooses how fragments are joined or split around the SLICE SIZE. The seed is the BEAT seed: FREEZE BEAT keeps the chop, BAKE makes a new one.`);
-    note.textContent = locked
-      ? 'APPLIED: HAND EDITS ARE ON THE CHOPPED RESULT · ⌘Z THEM TO CHANGE CHOP'
+    const inactive = app.current.editReport?.inactive ?? 0;
+    note.textContent = app.hasEdits && inactive
+      ? `${inactive} HAND EDIT${inactive === 1 ? '' : 'S'} WAITING FOR ${inactive === 1 ? 'ITS' : 'THEIR'} HIT · KEPT, ACTIVE AGAIN WHEN IT RETURNS`
       : app.legacy
         ? 'LEGACY BREAK: CHOP WORKS ON IT AS IT IS · RECIPE ▸ USE GROOVE TO RE-BAKE'
         : c.on && !app.rollGeneration
-          ? 'PREVIEW · ROLL GENERATION OFF: RETRIGGER MAKES NO NEW ROLLS'
+          ? 'ON THE CURRENT GROOVE · ROLL GENERATION OFF: RETRIGGER MAKES NO NEW ROLLS'
         : c.on
-          ? 'PREVIEW: EVERY CHANGE IS RECALCULATED FROM THE GROOVE · ⌘Z UNDOES'
-          : 'OFF: THE SETTINGS ARE KEPT · SWITCH ON TO CHOP THIS GROOVE';
+          ? 'ON THE CURRENT GROOVE: EVERY CHANGE IS RECALCULATED FROM IT · NO BAKE · ⌘Z UNDOES'
+          : 'OFF: THE SETTINGS ARE KEPT · SWITCH ON TO CHOP THIS GROOVE (NO BAKE)';
   }
   update();
   return { update };
