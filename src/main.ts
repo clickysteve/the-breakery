@@ -6,7 +6,9 @@
  */
 import './ui/style.css';
 import { IndexedDbSampleStore } from '@slopfactory/core/storage';
-import { KitManager } from './app/kits';
+import { IndexedDbKitStore, installBundledKits, KitLibrary, type KitSession } from '@slopfactory/core/kits';
+import { APP_ID, breakerySession, KIT_LIBRARY_DB, LEGACY_DB, migrateLegacy } from './app/kits';
+import { BUNDLED_KITS } from './app/bundledKits';
 import { App, BATCH_SIZE } from './app/app';
 import { loadSwitchMode } from './app/switchMode';
 import { MidiRig } from './app/midi';
@@ -61,12 +63,17 @@ fit();
 
 // ------------------------------------------------------------------ model
 let store: IndexedDbSampleStore | null = null;
+let kitStore: IndexedDbKitStore | null = null;
 try {
   store = typeof indexedDB !== 'undefined' ? new IndexedDbSampleStore('the-breakery') : null;
+  kitStore = typeof indexedDB !== 'undefined' ? new IndexedDbKitStore(KIT_LIBRARY_DB) : null;
 } catch {
   store = null;
 }
-const ingredients = new Ingredients(store);
+// The kit library (Slop Factory Core): audio stays in `the-breakery`, kits and the sample index in
+// their own database. Samples the current INGREDIENTS use are never deleted from it.
+const library = new KitLibrary({ app: APP_ID, audio: store, store: kitStore, inUse: () => ingredients.items.filter((i) => i.source === 'user').map((i) => Ingredients.audioId(i)) });
+const ingredients = new Ingredients(library);
 const player = new Player(ingredients);
 player.switchMode = loadSwitchMode();
 await ingredients.restore().catch(() => ingredients.loadDemo());
@@ -74,10 +81,16 @@ const params = new URLSearchParams(location.search);
 const app = new App(ingredients, player, params.get('seed') ?? undefined);
 const midi = new MidiRig(app);
 
-let kits: KitManager | null = null;
+let kits: KitSession | null = null;
 try {
-  kits = new KitManager(app, typeof indexedDB !== 'undefined' ? new IndexedDbSampleStore('the-breakery-kits') : null);
-  await kits.restore();
+  // kits saved by the first release move into the library (their old storage is left untouched)
+  const legacy = typeof indexedDB !== 'undefined' ? new IndexedDbSampleStore(LEGACY_DB) : null;
+  const notes = (await migrateLegacy(library, legacy, localStorage, ingredients.items)).flatMap((r) => [...(r.error ? [r.error] : []), ...r.problems]);
+  await installBundledKits(library, BUNDLED_KITS);
+  kits = breakerySession(app);
+  const failed = await kits.restore();
+  if (failed) app.status = `Kit restore failed: ${failed}`;
+  else if (notes.length) app.status = `Some kits from the previous version could not be moved yet (they are kept and will be tried again): ${notes.join(' ')}`;
 } catch (e) {
   app.status = `Kit restore failed: ${e instanceof Error ? e.message : String(e)}`;
 }
@@ -291,7 +304,7 @@ async function doTakeaway(): Promise<void> {
   }
 }
 
-(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, midi, takeaway, importEntries, palettes }; // for debugging and automation
+(window as unknown as { breakery: unknown }).breakery = { app, ingredients, player, midi, takeaway, importEntries, palettes, kits, library }; // for debugging and automation
 
 const ui: UiContext = {
   app,

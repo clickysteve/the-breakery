@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
+  const groups = [['INGREDIENTS', 'KITS', 'LIBRARY'], ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
   const tabs = $$('.mtab');
-  check(tabs.length === 12, `12 tabs, got ${tabs.length}`);
+  check(tabs.length === 13, `13 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);

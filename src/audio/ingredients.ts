@@ -1,12 +1,15 @@
 /**
- * INGREDIENTS: the sample library. User samples are decoded by Slop Factory Core, kept as their
- * original bytes in this browser's IndexedDB (Core's content-addressed store) and never leave
- * the browser. Category assignments live in localStorage. The demo kit is synthesised, so only
- * its assignments are stored.
+ * INGREDIENTS: the current kit's samples, by category. User samples go through Slop Factory
+ * Core's kit library (`@slopfactory/core/kits`): decoded to check them, kept as their original
+ * bytes in this browser's IndexedDB (Core's content-addressed store) and indexed in the library,
+ * so every saved kit can use them without importing them again; they never leave the browser.
+ * Category assignments live in localStorage. The demo kit is synthesised, so only its
+ * assignments are stored.
  */
 import { decodeSample, defaultZone, SampleInstrument, toAudioBuffer, type DecodedSample } from '@slopfactory/core/sampler';
 import { encodeWav16 } from '@slopfactory/core/export';
-import { sampleFromBytes, type StoredSample, type SampleStore } from '@slopfactory/core/storage';
+import { sampleFromBytes, StorageError, type StoredSample } from '@slopfactory/core/storage';
+import { KitLibrary } from '@slopfactory/core/kits';
 import { emptyKit, type KitIndex } from '../engine/kit';
 import { CATEGORIES } from '../engine/types';
 import { guessCategory, importable, suggestCategory, type Slot } from './categorise';
@@ -53,6 +56,12 @@ export interface Ingredient {
   loud: number;
   /** folder path it was imported from, if any */
   path?: string;
+  /** the sample's id when it differs from `id` (a demo sound saved in a kit) */
+  audio?: string;
+  /** its role in the kit it came from, when not its category's (a CLAP in PERC) */
+  role?: string;
+  /** which instrument of its role it came from, when not the first */
+  index?: number;
 }
 
 interface SavedItem {
@@ -61,6 +70,9 @@ interface SavedItem {
   cat: Slot;
   source: 'demo' | 'user';
   path?: string;
+  audio?: string;
+  role?: string;
+  index?: number;
 }
 
 const META_KEY = 'breakery.ingredients.v1';
@@ -89,8 +101,10 @@ function loadMeta(): SavedItem[] {
 export class Ingredients {
   items: Ingredient[] = [];
   onChange: () => void = () => {};
+  /** audio not kept in browser storage (it was unavailable), for this visit */
   private bytes = new Map<string, StoredSample>();
   private retired = new Map<string, SampleInstrument>();
+  private demoAudio = new Map<string, Promise<StoredSample>>();
   /**
    * Reversed copies, made once per instrument when first needed. Keyed by the instrument itself, so
    * a sample that is reloaded, replaced by a kit or removed gets a new copy (or none): the cache
@@ -98,7 +112,16 @@ export class Ingredients {
    */
   private reversed = new WeakMap<SampleInstrument, SampleInstrument>();
 
-  constructor(private store: SampleStore | null) {}
+  /** The kit library holds the samples (null: none in browser storage, for this visit only). */
+  readonly library: KitLibrary;
+  constructor(library: KitLibrary | null) {
+    this.library = library ?? new KitLibrary({ app: 'the-breakery', audio: null, store: null });
+  }
+
+  /** The sample id of an ingredient (its audio's SHA-256 for user samples). */
+  static audioId(it: Pick<Ingredient, 'id' | 'audio'>): string {
+    return it.audio ?? it.id;
+  }
 
   private changed(save = true): void {
     if (save) this.save();
@@ -107,7 +130,7 @@ export class Ingredients {
 
   save(): void {
     try {
-      const meta: SavedItem[] = this.items.map(({ id, name, cat, source, path }) => ({ id, name, cat, source, ...(path ? { path } : {}) }));
+      const meta: SavedItem[] = this.items.map(({ id, name, cat, source, path, audio, role, index }) => ({ id, name, cat, source, ...(path ? { path } : {}), ...(audio ? { audio } : {}), ...(role ? { role } : {}), ...(index ? { index } : {}) }));
       localStorage.setItem(META_KEY, JSON.stringify(meta));
     } catch {
       /* storage unavailable: assignments last for this visit only */
@@ -152,12 +175,9 @@ export class Ingredients {
         .filter((it) => it.source === 'user')
         .map(async (it) => {
           try {
-            const s = await this.store?.get(it.id);
-            if (!s) throw new Error('missing');
-            this.bytes.set(it.id, s);
-            this.readyUser(it, await decodeSample(s.bytes, s.name || it.name));
+            this.readyUser(it, await this.library.decoded(Ingredients.audioId(it), it.name));
           } catch (e) {
-            it.status = e instanceof Error && e.message === 'missing' ? 'missing' : 'error';
+            it.status = e instanceof Error && (e as { code?: string }).code === 'missing-audio' ? 'missing' : 'error';
             it.message = it.status === 'missing' ? `"${it.name}" is no longer in this browser's storage. Load it again.` : e instanceof Error ? e.message : String(e);
           }
           this.changed(false);
@@ -218,23 +238,31 @@ export class Ingredients {
       onProgress?.(done, audio.length);
       try {
         const bytes = await f.arrayBuffer();
-        const decoded = await decodeSample(bytes, f.name);
-        const stored = await sampleFromBytes(bytes, f.name, f.type);
-        if (this.items.some((i) => i.id === stored.id) || report.added.some((a) => a.id === stored.id)) {
+        // decoded (to check it), stored and indexed by the library; the same audio is stored once
+        let id: string;
+        let kept: boolean;
+        let decoded: DecodedSample;
+        let unstored: StoredSample | null = null;
+        try {
+          const r = await this.library.addSample(bytes, f.name, f.type);
+          ({ decoded, stored: kept } = r);
+          id = r.sample.id;
+        } catch (e) {
+          // storage full or unavailable: the sample still plays during this visit
+          if (!(e instanceof StorageError)) throw e;
+          decoded = await decodeSample(bytes, f.name);
+          unstored = await sampleFromBytes(bytes, f.name, f.type);
+          id = unstored.id;
+          kept = false;
+        }
+        if (this.items.some((i) => Ingredients.audioId(i) === id) || report.added.some((a) => a.id === id)) {
           report.duplicates++;
           done++;
           continue;
         }
-        this.bytes.set(stored.id, stored);
-        let kept = true;
-        try {
-          if (this.store) await this.store.put(stored);
-          else kept = false;
-        } catch {
-          kept = false;
-        }
+        if (!kept) this.bytes.set(id, unstored ?? (await sampleFromBytes(bytes, f.name, f.type)));
         const sug = suggestCategory(path || f.name);
-        const it: Ingredient = { id: stored.id, name: f.name, cat: sug.cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120, ...(path ? { path } : {}) };
+        const it: Ingredient = { id, name: f.name, cat: sug.cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120, ...(path ? { path } : {}) };
         this.readyUser(it, decoded);
         if (!kept) it.message = (it.message ? it.message + ' ' : '') + 'Browser storage is unavailable: this sample lasts until the page is closed.';
         this.items.push(it);
@@ -251,64 +279,106 @@ export class Ingredients {
     return report;
   }
 
+  /** Add a sample already in the library to the current kit (no second import). */
+  async addFromLibrary(id: string, name: string, cat: Slot): Promise<void> {
+    if (this.items.some((i) => Ingredients.audioId(i) === id)) return;
+    const it: Ingredient = { id, name, cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120 };
+    this.readyUser(it, await this.library.decoded(id, name));
+    this.items.push(it);
+    this.changed();
+  }
+
   setCategory(id: string, cat: Slot): void {
     const it = this.items.find((i) => i.id === id);
     if (!it || it.cat === cat) return;
     it.cat = cat;
+    delete it.role;
+    delete it.index;
     this.changed();
+  }
+
+  /** Delete a removed sample from this browser, unless a saved kit (or another ingredient) still uses it. */
+  private forget(it: Ingredient): void {
+    const id = Ingredients.audioId(it);
+    this.bytes.delete(id);
+    // the library refuses while any saved kit uses it: removing an ingredient cannot damage saved kits
+    if (it.source === 'user') void this.library.removeSample(id).catch(() => {});
   }
 
   remove(id: string): void {
     const it = this.items.find((i) => i.id === id);
     if (!it) return;
     this.items = this.items.filter((i) => i !== it);
-    // Saved kits contain their own audio; removing an ingredient cannot damage them.
-    this.bytes.delete(id);
-    if (it.source === 'user') void this.store?.delete(id).catch(() => {});
+    this.forget(it);
     this.changed();
   }
 
   clear(): void {
-    for (const it of this.items) if (it.source === 'user') void this.store?.delete(it.id).catch(() => {});
-    this.bytes.clear();
+    const gone = this.items;
     this.items = [];
+    for (const it of gone) this.forget(it);
     this.changed();
   }
 
-  /** Capture original user bytes; demo sounds become portable WAVs. */
+  /** A demo sound as a portable WAV (synthesised once per visit). */
+  private demoWav(it: Ingredient): Promise<StoredSample> | null {
+    const d = demoKit().find((x) => x.id === it.id);
+    if (!d) return null;
+    let p = this.demoAudio.get(it.id);
+    if (!p) {
+      p = encodeWav16([d.data], DEMO_RATE).then((wav) => sampleFromBytes(wav.slice().buffer, it.name.replace(/\.wav$/i, '') + '.wav', 'audio/wav'));
+      this.demoAudio.set(it.id, p);
+    }
+    return p;
+  }
+
+  /** The current samples as kit items: each with its audio's id (demo sounds become WAVs). */
+  async kitItems(): Promise<{ id: string; audio: string; name: string; cat: Slot; role?: string; index?: number }[]> {
+    return Promise.all(this.items.map(async (it) => {
+      if (it.status !== 'ready') throw new Error(`Sample “${it.name}” is not playable. Reload or remove it before saving.`);
+      const audio = it.source === 'demo' ? (await this.demoWav(it))?.id : Ingredients.audioId(it);
+      if (!audio) throw new Error(`Audio for “${it.name}” is unavailable.`);
+      return { id: it.id, audio, name: it.name, cat: it.cat, ...(it.role ? { role: it.role } : {}), ...(it.index ? { index: it.index } : {}) };
+    }));
+  }
+
+  /** Audio the library may not have: demo sounds (as WAVs) and samples kept only for this visit. */
+  async unstoredAudio(): Promise<StoredSample[]> {
+    const out: StoredSample[] = [...this.bytes.values()];
+    for (const it of this.items) {
+      const wav = it.source === 'demo' ? this.demoWav(it) : null;
+      if (wav) out.push(await wav);
+    }
+    return out;
+  }
+
+  /** The original bytes of every current sample (demo sounds as WAVs). */
   async audioFiles(): Promise<StoredSample[]> {
     return Promise.all(this.items.map(async (it) => {
       if (it.status !== 'ready') throw new Error(`Sample “${it.name}” is not playable. Reload or remove it before saving.`);
-      let audio = this.bytes.get(it.id);
-      if (!audio && it.source === 'demo') {
-        const d = demoKit().find(d => d.id === it.id);
-        if (d) {
-          const wav = await encodeWav16([d.data], DEMO_RATE);
-          audio = await sampleFromBytes(wav.slice().buffer, it.name + '.wav', 'audio/wav');
-        }
-      }
-      if (!audio) audio = await this.store?.get(it.id) ?? undefined;
+      const audio = it.source === 'demo' ? await this.demoWav(it) : this.bytes.get(Ingredients.audioId(it)) ?? (await this.library.readSample(Ingredients.audioId(it)));
       if (!audio) throw new Error(`Audio for “${it.name}” is unavailable.`);
       return audio;
     }));
   }
 
-  async prepareKit(items: { id: string; name: string; cat: Slot; audio: string }[], files: StoredSample[]): Promise<Ingredient[]> {
+  /** Ready-to-play ingredients for a kit's items: every sample decodes first, or this throws (nothing changes). */
+  async prepareItems(items: { id: string; audio: string; name: string; cat: Slot; role?: string; index?: number }[]): Promise<Ingredient[]> {
     return Promise.all(items.map(async (m) => {
-      const file = files.find(f => f.id === m.audio);
-      if (!file) throw new Error(`Missing audio for “${m.name}”.`);
-      const d = await decodeSample(file.bytes, file.name);
-      const it: Ingredient = { id: m.id, name: m.name, cat: m.cat, source: 'user', status: 'loading', message: '', duration: 0, loud: -120, instrument: null };
+      const d = await this.library.decoded(m.audio, m.name);
+      const it: Ingredient = { id: m.id, name: m.name, cat: m.cat, source: 'user', status: 'loading', message: '', duration: 0, loud: -120, instrument: null, ...(m.audio !== m.id ? { audio: m.audio } : {}), ...(m.role ? { role: m.role } : {}), ...(m.index ? { index: m.index } : {}) };
       this.readyUser(it, d);
       return it;
     }));
   }
 
-  replaceKit(items: Ingredient[], files: StoredSample[], assignments: { id: string; audio: string }[]): void {
+  /** Swap in a kit's ingredients. Instruments of the old ones stay until the player has moved on (releaseRetired). */
+  replaceKit(items: Ingredient[]): void {
     for (const it of this.items) if (it.instrument) this.retired.set(it.id, it.instrument);
     this.items = items;
-    this.bytes = new Map(assignments.map(m => [m.id, files.find(f => f.id === m.audio)!]));
-    // The kit manager persists this complete collection; do not notify the rebake listener.
+    this.bytes.clear();
+    // kept for the next visit; the kit manager notifies listeners (no rebake here)
+    this.save();
   }
 
   releaseRetired(): void { this.retired.clear(); }
