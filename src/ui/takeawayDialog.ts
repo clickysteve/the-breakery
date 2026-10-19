@@ -4,7 +4,7 @@
  * off, moved up or down), the separator, the LOOP suffix, and a live preview drawn by the same
  * functions the export uses (audio/exportName.ts).
  */
-import { buildFileName, masterSuffix, movePart, NAME_PART_LABEL, SEPARATOR_LABEL, SEPARATORS, LOOP_SUFFIX_LABEL, LOOP_SUFFIXES, stemFileNames, uniqueName, type NamingPrefs } from '../audio/exportName';
+import { buildFileName, masterSuffix, movePart, nameRows, NAME_PART_LABEL, SEPARATOR_LABEL, SEPARATORS, LOOP_SUFFIX_LABEL, LOOP_SUFFIXES, stemFileNames, uniqueName, type NamingPrefs } from '../audio/exportName';
 import type { TakeawayOptions } from '../audio/takeaway';
 import { CATEGORIES, CATEGORY_LABEL, type Break } from '../engine/types';
 import { el, setTip } from './dom';
@@ -91,8 +91,11 @@ export async function takeawayDialog(screen: HTMLElement, current: Break, batch:
       // ---- the file name builder
       el('div', 'rule', box).style.cssText = 'position:static;height:0;border-top:1px dotted var(--ink);margin:6px 0 4px';
       el('div', 'row', box, undefined, 'FILE NAME');
-      const list = el('div', '', box);
-      list.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:1px 10px;font-size:9px';
+      // numbered DOWN each column (1-4 left, 5-7 right): the DOM stays in filename order, so the
+      // arrows, focus and Tab follow it; one column when the dialog is narrow (style.css)
+      const list = el('div', 'nameparts', el('div', 'namebox', box));
+      list.setAttribute('role', 'list');
+      list.setAttribute('aria-label', 'File name components, in order');
       const custom = el('input', '', el('div', 'row', box));
       custom.type = 'text';
       custom.maxLength = 80;
@@ -117,8 +120,11 @@ export async function takeawayDialog(screen: HTMLElement, current: Break, batch:
 
       const drawParts = () => {
         list.replaceChildren();
+        list.style.gridTemplateRows = `repeat(${nameRows(naming.parts.length)}, auto)`;
         naming.parts.forEach((p, i) => {
           const row = el('div', '', list);
+          row.setAttribute('role', 'listitem');
+          row.dataset.part = p.id;
           row.style.cssText = 'display:flex;align-items:center;gap:3px';
           const l = el('label', '', row);
           l.style.flex = '1';

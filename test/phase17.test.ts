@@ -8,7 +8,7 @@ import { bake, seedsFrom } from '../src/engine/generate';
 import { applyEdits, baseRef, editCount, hitKey, noEdits, originOf, sanitiseEdits, upgradeEdits, type Edits } from '../src/engine/edits';
 import { emptyKit, type KitIndex } from '../src/engine/kit';
 import { defaultRecipe } from '../src/engine/styles';
-import { CATEGORIES, TPB, TPS, type Break, type BreakEvent, type Recipe } from '../src/engine/types';
+import { CATEGORIES, TPB, TPS, type Break, type BreakEvent } from '../src/engine/types';
 
 const kit = (): KitIndex => {
   const k = emptyKit();
@@ -217,7 +217,7 @@ describe('Part A: hand edits anchored through CHOP', () => {
   });
 
   it('pure layer: exact first, then the nearest of the origin in the bar, each hit once; a missing origin waits', () => {
-    const ev = (step: number, src?: string): BreakEvent => ({ cat: 'snare', bar: 0, step, sub: 0, level: 1, role: 'snare', why: '', vel: 100, swing: 0, offsetMs: 0, sample: null, ...(src ? { src } : {}) });
+    const ev = (step: number, src?: string): BreakEvent => ({ cat: 'snare', bar: 0, step, sub: 0, level: 1, role: 'backbeat', why: '', vel: 100, swing: 0, offsetMs: 0, sample: null, ...(src ? { src } : {}) });
     const o = 'snare|0|4|0';
     const edits: Edits = { ...noEdits(), removed: [`snare|0|10|0@${o}`, `snare|0|12|0@${o}`], changed: { 'snare|0|14|0@snare|0|9|0': { vel: 5 } } };
     // CHOP now has that snare at 6 and 13, and another hit on 10

@@ -1236,3 +1236,47 @@ input.mtext:focus-visible {
   box-shadow: inset 2px 0 0 var(--ink);
   padding-left: 4px;
 }
+
+/* Phase 17: PAINT. Hovered: the name is underlined; chosen for painting: framed in the selection
+   colour with a ✎ mark (not colour alone); previewing: the ▶ turns solid and shows ♪. */
+.srow .sname.paintable {
+  cursor: pointer;
+}
+.srow:hover .sname.paintable {
+  text-decoration: underline dotted;
+}
+.srow.paint {
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+}
+.srow.paint .sname {
+  font-weight: 600;
+}
+.srow .ibtn.auditioning {
+  background: var(--ink);
+  color: var(--paper);
+}
+/* the cell the next click in the PATTERN grid fills */
+.gridhover {
+  outline: 1px dotted var(--selection);
+  outline-offset: -1px;
+  background: transparent;
+}
+/* the TAKEAWAY file name builder: numbered down each column, one column when narrow */
+.nameparts {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px 10px;
+  font-size: 9px;
+}
+.namebox {
+  container-type: inline-size;
+}
+@container (max-width: 300px) {
+  .nameparts {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none !important;
+  }
+}

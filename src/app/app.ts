@@ -94,6 +94,8 @@ interface Saved {
   wildcard?: WildcardSettings;
   /** changed since the last NEW PATCH (NEW PATCH asks first) */
   patchDirty?: boolean;
+  /** PAINT: the sample chosen in INGREDIENTS for each track's hand-placed hits */
+  paint?: Partial<Record<Category, string>>;
 }
 
 /** What an undo step of WILDCARD also restores (the mixer and the output chain are otherwise never part of undo). */
@@ -189,6 +191,13 @@ export class App {
    * or NEW PATCH; part of the undo snapshots, so undo and redo bring back the matching one.
    */
   wildcardReport: WildcardReport | null = null;
+  /**
+   * PAINT (Phase 17): a sample chosen in INGREDIENTS for its own track. A hit placed by hand on
+   * that track plays exactly that sample (pinned: no PICK mode chooses for it); other tracks keep
+   * their own choice or their PICK mode. A preference, saved, never part of undo (the hits it
+   * places are). A choice whose sample is no longer in its track is dropped (see checkPaint).
+   */
+  paint: Partial<Record<Category, string>> = {};
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private baseline = '';
@@ -217,6 +226,7 @@ export class App {
     this.keepEdits = s?.keepEdits === true;
     this.snap = (SNAPS as readonly number[]).includes(Number(s?.snap)) ? Number(s!.snap) : 12;
     this.mutation = sanitiseMutate(s?.mutate);
+    if (s?.paint && typeof s.paint === 'object') for (const c of CATEGORIES) if (typeof s.paint[c] === 'string' && s.paint[c]) this.paint[c] = s.paint[c];
     this.output = new OutputChain(OUTPUT_ENGINES, s?.output);
     player.setOutput(this.output.config);
     this.output.subscribe((c) => {
@@ -258,7 +268,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings, patchDirty: this.patchDirty };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings, patchDirty: this.patchDirty, paint: this.paint };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -292,6 +302,7 @@ export class App {
 
   /** Re-bake the current seeds (after a recipe, kit or sample-setting change); the batch follows. Hand edits are re-applied. */
   rebake(): void {
+    this.checkPaint();
     const before = this.current.editReport;
     this.show(this.bakeWith(this.seeds));
     this.batch = this.batch.map((c, i) => (i === this.picked ? this.current : this.bakeWith(c.seeds, this.recipe, this.keepEdits ? this.edits : null)));
@@ -1401,8 +1412,10 @@ export class App {
   addHit(cat: Category, tick: number, gesture = false): string | null {
     const p = posOf(tick);
     if (p.bar < 0 || p.bar >= this.recipe.bars) return null;
-    const r = addHit(this.layer, this.current.events, { cat, ...p });
-    this.commit(r, true, { gesture, say: this.unchanged(r.edits) ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
+    // PAINT: the sample chosen for this track, exactly (no PICK mode); none chosen, the PICK mode as before
+    const sample = this.paintSample(cat);
+    const r = addHit(this.layer, this.current.events, { cat, ...p, ...(sample ? { sample } : {}) });
+    this.commit(r, true, { gesture, say: this.unchanged(r.edits) ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand${sample ? ` (${this.ingredients.name(sample)})` : ''}.` });
     const e = this.selectedEvent;
     if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel, e);
     return r.ref;
@@ -1543,6 +1556,7 @@ export class App {
   /** Replace only sound selection, preserving every hit and the undo/redo stacks. */
   kitLoaded(settings: SampleSettings): void {
     this.samples = sanitiseSampleSettings(settings);
+    this.checkPaint();
     const reassign = (b: Break): Break => {
       const events: Break['events'] = b.events.map(e => ({ ...e, sample: null, sampleWhy: undefined, pinned: undefined }));
       selectSamples(events, this.ingredients.kit(), b.seeds.kit, { settings: this.samples, loudness: this.ingredients.loudness() }, id => this.ingredients.name(id));
@@ -1560,6 +1574,48 @@ export class App {
     this.baseline = this.snapshot();
     this.save();
     for (const f of this.listeners) f();
+  }
+
+  // ---------------------------------------------------------------- PAINT: a chosen sample for hand-placed hits
+
+  /** The sample a hand-placed hit of this track plays (null: its PICK mode chooses, as before). */
+  paintSample(cat: Category): string | null {
+    const id = this.paint[cat];
+    return id && this.ingredients.kit()[cat].includes(id) ? id : null;
+  }
+
+  /**
+   * Choose (or, given the chosen one or null, release) the sample new hits of `cat` play. Not a
+   * preview: nothing sounds. The choice belongs to that track only.
+   */
+  setPaint(cat: Category, id: string | null): void {
+    if (!id || this.paint[cat] === id) {
+      if (!this.paint[cat]) return;
+      delete this.paint[cat];
+      this.status = `PAINT off for ${CATEGORY_LABEL[cat]}: hits placed by hand take its PICK mode again.`;
+    } else {
+      this.paint[cat] = id;
+      this.status = `PAINT ${CATEGORY_LABEL[cat]}: hits placed by hand on the ${CATEGORY_LABEL[cat]} row play ${this.ingredients.name(id)}. Click it again (or another sample) to change; other rows are unaffected.`;
+    }
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * Drop PAINT choices whose sample is no longer in its track (another kit, removed, moved to
+   * another category): that track goes back to its PICK mode, never to a stale sample. The sample
+   * itself is not touched. Samples still loading count as there.
+   */
+  private checkPaint(): void {
+    const gone: Category[] = [];
+    for (const c of CATEGORIES) {
+      const id = this.paint[c];
+      if (id && !(this.ingredients.items ?? []).some((it) => it.id === id && it.cat === c)) {
+        delete this.paint[c];
+        gone.push(c);
+      }
+    }
+    if (gone.length) this.status = `PAINT: the chosen ${gone.map((c) => CATEGORY_LABEL[c]).join(', ')} sample${gone.length === 1 ? ' is' : 's are'} not in ${gone.length === 1 ? 'that track' : 'those tracks'} now; hits placed by hand there take the PICK mode again.`;
   }
 
   setSnap(ticks: number): void {
