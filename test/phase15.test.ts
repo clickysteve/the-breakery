@@ -68,10 +68,10 @@ describe('GROOVE revision 4 reproduces exactly (fingerprint taken on main before
 
 describe('CLAP and FX (revision 5)', () => {
   const at = (st: Recipe['style'], patch: Partial<Recipe>, s: number, bars: Bars = 4) => groove(sanitiseRecipe({ ...defaultRecipe(st, bars), ...patch }), seedsFrom(s), K13).events;
-  it('new recipes are revision 5; activities are absent (the style default) until set', () => {
-    expect(CURRENT_REVISION).toBe(CLAPFX_REVISION);
+  it('new recipes have CLAP and FX (revision 5 on); activities are absent (the style default) until set', () => {
+    expect(CURRENT_REVISION).toBeGreaterThanOrEqual(CLAPFX_REVISION);
     const r = defaultRecipe('electro');
-    expect(r.revision).toBe(5);
+    expect(r.revision).toBe(CURRENT_REVISION);
     expect(r.clap).toBeUndefined();
     expect(clapActivity(r)).toBe(CLAP_DEFAULT.electro);
     expect(fxActivity(r)).toBe(FX_DEFAULT.electro);

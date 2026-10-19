@@ -80,32 +80,37 @@ describe('ROLL GENERATION', () => {
       (globalThis as { localStorage?: Storage }).localStorage = memoryStorage();
     });
 
-    it('turning it off keeps the rolls already there; CLEAR ROLLS deletes them; both undo', () => {
+    it('turning it off takes the generated rolls off this groove (on again brings the same ones back); CLEAR ROLLS clears; both undo', () => {
       const { app } = makeApp(String(seeds.beat));
       app.setRollsOn(true);
       app.setRecipe(jungle);
-      const rolls = app.current.events.filter((e) => e.role === 'roll').map(pos).sort();
+      const withRolls = strip(app.current);
+      const rolls = fromRolls(app.current).map(pos).sort();
       expect(rolls.length).toBeGreaterThan(0);
       const settings = { ...app.recipe };
       app.setRollsOn(false);
       expect(app.recipe.rollsOn).toBe(false);
-      // every roll hit is still there (one under which the groove plays a hit of its own keeps that hit)
-      for (const p of rolls) expect(app.current.events.some((e) => pos(e) === p)).toBe(true);
-      expect(app.edits.added.length).toBeGreaterThan(0);
-      expect(app.edits.added.every((m) => m.role === 'roll')).toBe(true);
-      expect(app.status).toMatch(/kept/);
+      // revision 6: the rolls are a transformation; off removes the generated ones, nothing becomes a hand edit
+      expect(fromRolls(app.current)).toEqual([]);
+      expect(app.edits.added.length).toBe(0);
       // the settings themselves are untouched
       for (const k of ['rolls', 'rollLength', 'rollSpeed', 'rollDynamics', 'rollPlace', 'rollTargets'] as const) expect(app.recipe[k]).toEqual(settings[k]);
-      // a new break gets none
+      app.setRollsOn(true);
+      expect(strip(app.current)).toEqual(withRolls);
+      // a new break with it off gets none
+      app.setRollsOn(false);
       app.bake();
       expect(fromRolls(app.current)).toEqual([]);
       app.historyBack();
+      app.setRollsOn(true);
       const kept = app.rollCount.hits;
       expect(kept).toBeGreaterThan(0);
       app.clearRolls();
       expect(app.rollCount).toEqual({ rolls: 0, hits: 0 });
+      expect(app.rollGeneration).toBe(false);
       app.undo();
       expect(app.rollCount.hits).toBe(kept);
+      expect(app.rollGeneration).toBe(true);
     });
 
     it('turning it on again does not double the kept rolls', () => {
@@ -254,9 +259,10 @@ describe('ROLL GENERATION is the user’s preference', () => {
     app.historyBack();
     expect(app.rollGeneration).toBe(false);
     expect(app.recipe.rollsOn).toBe(false);
-    // its rolls are kept as hits, nothing new is generated
+    // revision 6: its generated rolls are off with the switch (they come back with it); nothing becomes a hand edit
     expect(rollsIn(app.current)).toEqual([]);
-    expect(app.rollCount.hits).toBeGreaterThan(0);
+    expect(fromRolls(app.current)).toEqual([]);
+    expect(app.edits.added.length).toBe(0);
     app.loadFavourite(fav);
     expect(app.recipe.rollsOn).toBe(false);
     expect(rollsIn(app.current)).toEqual([]);

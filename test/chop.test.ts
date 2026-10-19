@@ -85,8 +85,9 @@ describe('CHOP: the transformation', () => {
       const kept = (amount: number) => {
         let sum = 0;
         for (let s = 0; s < 8; s++) {
-          const g = new Set(place(bakeK(recipe(style), 300 + s)));
-          const c = place(bakeK(recipe(style, 4, { amount, retrigger: 0.3, slice: CHOP_STYLE[style].slice }), 300 + s));
+          // CHOP alone (revision 6 rolls run after it: rollLayer.ts)
+          const g = new Set(place(bakeK({ ...recipe(style), rolls: 0 }, 300 + s)));
+          const c = place(bakeK({ ...recipe(style, 4, { amount, retrigger: 0.3, slice: CHOP_STYLE[style].slice }), rolls: 0 }, 300 + s));
           sum += c.filter((p) => g.has(p)).length / g.size;
         }
         return sum / 8;
@@ -194,8 +195,9 @@ describe('CHOP: the transformation', () => {
 
   it('never cuts a roll or a tom fill: each one stays whole (moved or not)', () => {
     for (let s = 0; s < 10; s++) {
-      const r = recipe('dnb', 4, { amount: 0.8, retrigger: 0, slice: 'micro' });
-      const g = bakeK(recipe('dnb'), 600 + s);
+      // CHOP alone (revision 6 rolls run after it and lead into the chopped hits: rollLayer.ts)
+      const r = { ...recipe('dnb', 4, { amount: 0.8, retrigger: 0, slice: 'micro' }), rolls: 0 };
+      const g = bakeK({ ...recipe('dnb'), rolls: 0 }, 600 + s);
       const c = bakeK(r, 600 + s);
       // every roll group in the result has as many strokes as some roll group of the GROOVE (or a
       // whole number of them: a roll repeated straight after itself reads as one longer group)
@@ -405,29 +407,29 @@ describe('CHOP in the App', () => {
     for (const c of app.batch) expect(place(c).join()).toBe(place(bake(app.recipe, c.seeds, k0)).join());
   });
 
-  it('hand edits apply CHOP: it is then fixed until the edits are undone or cleared, and nothing is discarded', () => {
+  it('hand edits never lock CHOP (Phase 16): CHOP still changes, the edits are kept, and the same CHOP gives the same edited result', () => {
     const { app } = makeApp();
     app.setChop({ on: true, amount: 0.6 });
-    const chopped = flat(app.current);
     const step = [1, 3, 5, 7, 9, 11, 13, 15].find((s) => !app.current.events.some((e) => e.cat === 'perc' && e.bar === 0 && Math.abs(e.step - s) <= 1))!;
     const ref = app.addHit('perc', step * TPS)!;
     expect(ref).toBeTruthy();
-    expect(app.chopLocked).toBe(true);
+    const edits = JSON.stringify(app.edits);
     const edited = flat(app.current);
     app.setChop({ amount: 0.9 });
-    expect(flat(app.current)).toBe(edited); // refused, with a message
-    expect(app.status).toMatch(/CHOP is applied/);
+    expect(flat(app.current)).not.toBe(edited);
+    expect(JSON.stringify(app.edits)).toBe(edits); // nothing discarded
+    expect(app.current.events.some((e) => e.ref === ref)).toBe(true); // a hand-placed hit stays where it was put
+    expect(app.status).toMatch(/hand edit/);
+    app.setChop({ amount: 0.6 });
+    expect(flat(app.current)).toBe(edited);
+    app.setChop({ on: false });
+    expect(JSON.stringify(app.edits)).toBe(edits);
+    app.setChop({ on: true });
+    expect(flat(app.current)).toBe(edited);
     app.reChop();
+    expect(flat(app.current)).not.toBe(edited);
+    app.undo();
     expect(flat(app.current)).toBe(edited);
-    app.undo(); // the edit
-    expect(app.chopLocked).toBe(false);
-    expect(flat(app.current)).toBe(chopped);
-    app.redo();
-    expect(flat(app.current)).toBe(edited);
-    app.revertAll();
-    expect(app.chopLocked).toBe(false);
-    app.setChop({ amount: 0.9 });
-    expect(flat(app.current)).not.toBe(chopped);
   });
 
   it('chopped hits can be edited: deleted, moved and re-velocitied, like any hit', () => {
