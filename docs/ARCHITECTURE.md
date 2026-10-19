@@ -5,13 +5,17 @@ INGREDIENTS ──kit index──┐
 RECIPE + SEEDS ──────────┤
                          ▼
                    engine/generate.ts  (pure TypeScript, no DOM, no audio)
-   GENERATION (GROOVE, engine 2): phrase plan → foundation → support → [mutations]
-             → phrase development (answers, development, chops, fills) → performance
+   GENERATION (GROOVE, engine 2): PERSONALITY's recipe nudges → phrase plan → foundation
+             → support → [mutations] → phrase development (answers, development, chops, fills)
+             → BREAK DNA bars → PERSONALITY phrasing → performance
              → AUTO samples → TOMS → ROLLS
    LEGACY (engine 1, v1/, frozen): the first release's generator, then AUTO samples
                          │
-   TRANSFORMATION (engine/transform.ts): CHOP (engine/chopper.ts), from the GROOVE every time
+   TRANSFORMATION (engine/transform.ts), from the GROOVE every time:
+             CHOP (engine/chopper.ts) → roll EXPRESSION (rollExpr.ts) → DESTROY (destroy.ts)
                          │
+             → REGEN TRACK (regen.ts: the selected tracks from re-baked candidates)
+             → PERSONALITY performance and DILLA timing (personality.ts, dilla.ts)
              → hand EDITS → PICK modes and hand-chosen samples
                          │
                          ▼  Break = structured events
@@ -204,6 +208,61 @@ first hand edit. The edits are positional and were made on the chopped result, s
 APPLIED (fixed: `App.chopLocked`); `setChop` refuses with a message rather than move hits under the
 edits. Undoing the edits, or CLEAR ALL HAND EDITS, frees it. Nothing is discarded silently.
 `npm run evaluate` writes `docs/chop-report.md` (grids and measures, not a listening test).
+
+## The expressive engine (Phase 12)
+
+Research, interpretation and design decisions: [EXPRESSIVE_RESEARCH.md](EXPRESSIVE_RESEARCH.md).
+Measured event data: [expressive-report.md](expressive-report.md) (`npm run evaluate`).
+
+* **Per-hit PITCH and REVERSE.** `BreakEvent.pitch` (semitones, -24..+24, absent = 0) and
+  `reverse` (absent = forwards). Absent fields are the old behaviour exactly. `audio/timeline.ts`
+  maps them for every renderer: `notePitch` (Core's note pitch, `ROOT_PITCH` + semitones, so
+  pitch is by playback rate) and `noteInstrument` (the sample id with `~rev`). `Ingredients`
+  resolves `~rev` to a reversed copy (`audio/reverse.ts`: silent tail trimmed below -60 dB, a
+  2 ms fade-in, cached per sample; the original is never changed), so the live player, the
+  offline render, WAV, stems and batch all play the same thing. The player warms reversed
+  copies when a break is set. MIDI ignores both (GM notes, no pitch bend): a MIDI file of an
+  expressed break is byte-identical to the plain one.
+* **Roll EXPRESSION** (`rollExpr.ts`, recipe `rollExpr`, absent = CLASSIC): pitch, velocity and
+  timing contours, ratchet counts, reverse modes, 12 presets and DICE (`diceExpr(seed)`).
+  `expressRolls` reshapes each roll group as a whole from stream `roll-expr:<variant>:<start>`
+  of the FEEL seed, after CHOP, and touches no other hit. It shapes rolls that exist; it never
+  makes rolls, so ROLL GENERATION off still means no new rolls. **RATCHET** (`edits.ratchetHit`)
+  is a hand edit: the selected hit split into n strokes with the same contours, as hand-placed
+  roll hits (one undo step).
+* **DESTROY** (`destroy.ts`, recipe `destroy`): after CHOP and EXPRESSION, on beat windows.
+  Beats are ranked once (weighted keys from the BEAT seed), so more AMOUNT destroys the same
+  beats and more; each beat's operation comes from its own stream. The loop's first beat is never
+  destroyed. It starts from the GROOVE every time, so it never compounds; AMOUNT 0 is the
+  identity. Operations are event approximations: GATE removes hits in closed sixteenths, TAPE
+  STOP moves, lowers and softens each hit along a falling rate. With ROLL GENERATION off,
+  STUTTER repeats sixteenths (role `chop`) instead of making 1/32 rolls. Fixed once there are
+  hand edits, like CHOP.
+* **PERSONALITY** (`personality.ts`, recipe `personality`, absent = NEUTRAL) acts in three
+  places: `personaRecipe` (bounded, proportional nudges of the recipe, so 0 stays 0),
+  `personaBars` (phrasing edits of the developed bars; never adds a tom or a roll; additions
+  scale with DENSITY) and `personaPerform` (timing and dynamics of the finished events; a roll
+  moves as a whole). INTENSITY 0 is the recipe exactly.
+* **DILLA** (`dilla.ts`) is the DILLA personality's timing: one of four strategies from the FEEL
+  seed, per-voice swing (replacing the recipe's, not added), per-voice lean and a two-bar table.
+  `personaPerform` leaves timing to it, so nothing is offset twice.
+* **BREAK DNA** (`dna.ts`, recipe `dna`, absent = NONE): AMEN, a construction vocabulary
+  (A A A′ B) blended into the developed bars at INFLUENCE; `dnaChopStyle` leans CHOP towards
+  Amen-style edits. No audio is involved.
+* **REGEN TRACK** (`regen.ts`, seeds `regen`: a lineage of `{cats, n}` steps). Baking a step
+  re-bakes the whole GROOVE and transformations from six candidate seeds (`regenSeeds`: hashed
+  from the BEAT seed, the tracks and the step, keeping FEEL and KIT), scores each candidate's
+  selected tracks against the tracks that stay, and swaps in the best. Every other track is
+  byte-identical, because the personality's busy-bar dynamics are counted from the events before
+  REGEN and roll leads are found per drum. It is an explicit request, so it applies whatever
+  FREEZE says (the status line says so). It is kept by `reseed` only when BEAT and DETAIL are both
+  frozen, as mutations are. An empty track is left alone (its part is on another track).
+* **Revision 2** (`CURRENT_REVISION = 2`): TOM ACTIVITY's recalibrated curve (`toms.tomCurve`)
+  and longer phrases. Recipes saved with revision 1 (or 0) still bake exactly as before.
+* **Persistence.** All of the above live in the recipe or seeds, so history, favourites, undo,
+  reloads and batch carry them; `entryKey` includes them only when active, so earlier keys are
+  unchanged. `App.carried()` keeps CHOP, DESTROY, EXPRESSION, PERSONALITY and DNA across recipe
+  changes.
 
 ## Sample selection
 

@@ -10,19 +10,19 @@ These are structural checks and something to read; they are not a listening test
 |---|---|---|---|---|---|---|---|
 | FUNK | LARGE | LOW | 96% | 100% | 0% | 100% | 41 |
 | FUNK | LARGE | MEDIUM | 90% | 96% | 2% | 100% | 43 |
-| FUNK | LARGE | HIGH | 82% | 91% | 6% | 101% | 43 |
+| FUNK | LARGE | HIGH | 82% | 92% | 6% | 101% | 43 |
 | HIP-HOP | MEDIUM | LOW | 95% | 97% | 1% | 99% | 35 |
 | HIP-HOP | MEDIUM | MEDIUM | 88% | 96% | 2% | 96% | 35 |
 | HIP-HOP | MEDIUM | HIGH | 79% | 86% | 5% | 93% | 34 |
-| JUNGLE | SMALL | LOW | 88% | 91% | 4% | 102% | 40 |
-| JUNGLE | SMALL | MEDIUM | 74% | 81% | 11% | 109% | 40 |
-| JUNGLE | SMALL | HIGH | 62% | 62% | 20% | 118% | 40 |
+| JUNGLE | SMALL | LOW | 87% | 91% | 3% | 102% | 40 |
+| JUNGLE | SMALL | MEDIUM | 74% | 82% | 11% | 110% | 40 |
+| JUNGLE | SMALL | HIGH | 62% | 63% | 19% | 120% | 40 |
 | D&B | MEDIUM | LOW | 94% | 97% | 1% | 98% | 34 |
 | D&B | MEDIUM | MEDIUM | 88% | 94% | 2% | 97% | 34 |
 | D&B | MEDIUM | HIGH | 79% | 88% | 8% | 96% | 33 |
-| BREAKCORE | MICRO | LOW | 85% | 99% | 5% | 100% | 39 |
-| BREAKCORE | MICRO | MEDIUM | 67% | 77% | 19% | 104% | 39 |
-| BREAKCORE | MICRO | HIGH | 57% | 69% | 28% | 112% | 39 |
+| BREAKCORE | MICRO | LOW | 85% | 99% | 5% | 102% | 39 |
+| BREAKCORE | MICRO | MEDIUM | 69% | 81% | 20% | 103% | 39 |
+| BREAKCORE | MICRO | HIGH | 60% | 73% | 27% | 111% | 39 |
 
 ## FUNK (slice LARGE)
 
@@ -358,41 +358,33 @@ OPEN HAT |.   .   x   .   |.   .   .   . x |.   .   .   x   |.   .   .   .   |
 
 ```
 GROOVE
-KICK     |X   .  x.xX .   |X   .  x.xXx. x |X   .  x.xX .   |X   .  x.xXX. XX|
-SNARE    |.   X   .   X   |.   X   .   X   |.   X   .   X   |.   X   .   Xx  |
+KICK     |X   .  x.xX .   |X   .  x.xXx. x |X   .  x.xX .   |X   .  x.xXX. X |
+SNARE    |.   X   .   X   |.   X   .   X   |.   X   .   X   |.   X   .   XxXX|
 GHOST    |.  -.   .   .   |.  -.   .   .   |.  -.   .   .   |.  -.   .   .   |
-HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   . X |
-LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .  X|
 HAT      |.oxoXoxoxoxoxoxo|xoxoxoxoxoxoxoxo|xoxoXoxoxoxoXoxo|xo~~xoxoxoxoX   |
 CRASH    |X   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .   |
 PERC     |.o  .o  o  o. o |.o  .o  o  o. o |.o  .o  o  o. o |.o  .o  o  o.   |
 
 LOW: CHOP: 2 of 16 slices edited (1 recalled, 1 retriggered).
-KICK     |X   .  x.xX .   |X   .  x.xXx. x |X   .  xX   .   |X   .   .xXX. XX|
-SNARE    |.   X   .   X   |.   X   .   X   |.   X   .   X   |.   X ~~.   Xx  |
+KICK     |X   .  x.xX .   |X   .  x.xXx. x |X   .  xX   .   |X   .   .xXX. X |
+SNARE    |.   X   .   X   |.   X   .   X   |.   X   .   X   |.   X ~~.   XxXX|
 GHOST    |.  -.   .   .   |.  -.   .   .   |.  -.   .  -.   |.  -.   .   .   |
-HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   . X |
-LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .  X|
 HAT      |.oxoXoxoxoxoxoxo|xoxoxoxoxoxoxoxo|xoxoXoxoxoxoXoxo|xo~~xo  xoxoX   |
 CRASH    |X   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .   |
 PERC     |.o  .o  o  o. o |.o  .o  o  o. o |.o  .o  .o  . o |.o  .o  o  o.   |
 
 MEDIUM: CHOP: 5 of 16 slices edited (3 recalled, 2 retriggered).
-KICK     |X   .  xX   .   |X   .  x.xXx. x |X ~~.  xX   .  x|X   .   .xXX. XX|
-SNARE    |.   X   .   X   |.   X   .   X   |.   X   .   X   |.   X ~~.   Xx  |
+KICK     |X   .  xX   .   |X   .  x.xXx. x |X ~~.  xX   .  x|X   .   .xXX. X |
+SNARE    |.   X   .   X   |.   X   .   X   |.   X   .   X   |.   X ~~.   XxXX|
 GHOST    |.  -.   .  -.   |.  -.   .   .   |.   .   .  -.   |.  -.   .   .   |
-HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   . X |
-LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .  X|
 HAT      |.oxoXoxoxo~~xoxo|xoxoxoxoxoxoxoxo|xo  XoxoxoxoXoxo|xo~~xo  xoxoX   |
 CRASH    |X   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .   |
 PERC     |.o  .o  .o  . o |.o  .o  o  o. o |.o  .o  .o  .o  |.o  .o  o  o.   |
 
 HIGH: CHOP: 8 of 16 slices edited (4 recalled, 1 repeated, 1 doubled, 1 retriggered, 1 dropped out).
-KICK     |X   .  x.  x.   |X   .  xX   . x |X ~~.  xX   .  x|X X .   X   . XX|
-SNARE    |.   X   .   X   |.   X   . X X   |.   X   .   X   |.   .   .   Xx  |
+KICK     |X   .  x.  x.   |X   .  xX   . x |X ~~.  xX   .  x|X X .   X   . X |
+SNARE    |.   X   .   X   |.   X   . X X   |.   X   .   X   |.   .   .   XxXX|
 GHOST    |.  -.   .   .   |.  -.   .   .   |.   .   .  -.   |.   .   .  -.   |
-HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   . X |
-LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .  X|
 HAT      |.oxoXoxoxoxoxoxo|xoxoxoxoxoxoxoxo|xo  XoxoxoxoXoxo|xoxo.   xoxoX   |
 CRASH    |X   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .   |
 PERC     |.o  .o  .o  . o |.o  .o  .o  . o |.o  .o  .o  .o  |.o o.   .o  .   |
@@ -567,38 +559,38 @@ RIDE     |xxooxx~xxo  .oxo|oxo~xoxoxox .~xo|x x~.   .   .   |x~~~.~xxxxxxxoxo|
 ```
 GROOVE
 KICK     |X   .x x.   .x x|X   .x xX   .x x|X   .x  .  xxx~~|X   x xX.  xx~xx|
-SNARE    |.   X   .X X.   |.   X   .   .   |.   ~ xx~X  .   |.   .   .   .   |
-GHOST    |.  -.   -   .   |.  -.   .  -.   |.  -.   .   .   |.  -.   .   .   |
-HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   . X .   |
-MID TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   XX  .   |
-LOW TOM  |.   .   .   .   |.   .   .   .   |.   .X  .   .   |.   .  X.   .   |
-HAT      |xoxoxoxoxoxoxoxo|xoxoxo~~xoxoxoxo|xoxox   .oxo.   |xoxooxo .   .  ~|
-
-LOW: CHOP: 14 of 51 slices edited (3 recalled, 2 swapped, 5 repeated, 3 retriggered, 1 dropped out).
-KICK     |X   .~ x.   . x |X   .x x~   .   |X x .~  .  x.  x|X   . xX.  xx~xx|
-SNARE    |.   X   .X X.   |.   X   .X  .   |.   ~ xx~~  ~~  |.   .   .   .   |
-GHOST    |.  -.   -   .   |.  -.   .  -.  -|.  -.   .   .   |.  --   .   .   |
+SNARE    |.   X   .X X.   |.   X   .   .   |. ~~X xx~X  .   |.   .   .   .   |
+GHOST    |.  -.   -   .   |.  -.   .  -.   |.   .   .   .   |.  -.   .   .   |
 HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   . X .   |
 MID TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   XX  .   |
 LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .  X.   .   |
-HAT      |xoxox xoxoxoxxox|xoxoxo~~.xxoxxxo|x oox   . xo. xo|xoxooxo .   .  ~|
+HAT      |xoxoxoxoxoxoxoxo|xoxoxo~~xoxoxoxo|xo  xo  .oxo.   |xoxooxo .   .  ~|
 
-MEDIUM: CHOP: 27 of 51 slices edited (6 recalled, 4 swapped, 10 repeated, 1 doubled, 5 retriggered, 1 dropped out).
-KICK     |X   .~x .   .  x|X   .  x~   .~  |X xxx~  .  x.  x|XXx . xX.  xx~xx|
-SNARE    |.   X   .  X. X |.  X.   .X  .   |.   . x~~~  ~~  |.   .   .   .   |
-GHOST    |.  -.   --  .   |.   --  .   .  -|.   .   .   .   |.  ---  .   .   |
+LOW: CHOP: 13 of 50 slices edited (3 recalled, 6 repeated, 3 retriggered, 1 dropped out).
+KICK     |X   .~ x.   .  x|X   .x x~   .   |X  x.x  .   xx~~|~   xxxX.  xx~xx|
+SNARE    |.   X   .X X.   |.   X   .X  .  X|. X X x~~XXX.   |.   .   .   .   |
+GHOST    |.  -.   -   .   |.  -.   .  -.   |.   .   .   .   |.  -.   .   .   |
 HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   . X .   |
 MID TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   XX  .   |
 LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .  X.   .   |
-HAT      |xoxox oxxxxoxxoo|xoxxoo~~.xxxx xo|x ooo   . ~o. ~o|xxooooo .   .  ~|
+HAT      |xoxox xoxoxoxxxo|xoxoxo~~.xxoxxxx|x xoxo  .ooo.   |.oxoooo .   .  ~|
 
-HIGH: CHOP: 36 of 51 slices edited (12 recalled, 4 swapped, 6 repeated, 2 doubled, 10 retriggered, 2 dropped out).
-KICK     |X   .~ x.   . x |X   .~  .   x   |X xx.   .   .x x|~ xx~XxX.  xx~xx|
-SNARE    |.   X   .   XX  |.   ~   .X  . X |.   ~ x~~   .   |.   .   .   .   |
-GHOST    |.  -.   --  .   |.   .   .   .   |.   .   . --.   |.   .   .   .   |
+MEDIUM: CHOP: 27 of 50 slices edited (9 recalled, 4 swapped, 6 repeated, 7 retriggered, 1 dropped out).
+KICK     |X   .~x .   .  x|X   .  x~  x.~  |X  xx   . x xx~~|~ xx. ~X.  xx~xx|
+SNARE    |.   X   .  X. X |.   .   .X  .  X|. X . x~~~  .   |.   .   .   .   |
+GHOST    |.  -.   --  .   |.  ---  .   .   |.   .   .   .   |.   --  .   .   |
 HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   . X .   |
 MID TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   XX  .   |
 LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .  X.   .   |
-HAT      |x~xox ~oxxxxooox|xoxx. ~~.xxxooox|x~oo.   .xooxoxo|.~oo.xo .   .  ~|
+HAT      |xoxox oxxxxoxxoo|xoxooo~~.xxox xx|x xooo  . ox.   |.oooxx  .   .  ~|
+
+HIGH: CHOP: 34 of 50 slices edited (9 recalled, 2 swapped, 10 repeated, 12 retriggered, 1 dropped out).
+KICK     |X   .~ x.   . x |X   .~ x~  xx   |X  xx~  .  ~.  x|~  x.  X.   X   |
+SNARE    |.   X   .  X.   |.   ~   .X  . X |. X .   .   . X |.   .   .   .   |
+GHOST    |.  -.   --  .   |.   .   .   .   |.   .   .   .-  |.   --- .  -.   |
+HIGH TOM |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   . X .  X|
+MID TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   XX  .Xx |
+LOW TOM  |.   .   .   .   |.   .   .   .   |.   .   .   .   |.   .  X.   X   |
+HAT      |x~xox ~oxxxoxxox|xoxx. ~~.xxoooox|x~xoo   .   xoxo|.~~oxxx .  x.   |
 ```
 

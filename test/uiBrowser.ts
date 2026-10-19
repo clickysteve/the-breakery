@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
+  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
   const tabs = $$('.mtab');
-  check(tabs.length === 10, `10 tabs, got ${tabs.length}`);
+  check(tabs.length === 11, `11 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);
@@ -72,7 +72,7 @@ export async function run(): Promise<string> {
   // tab switching keeps state and does not touch playback
   const before = JSON.stringify(app.current.events);
   const recipe = JSON.stringify(app.recipe);
-  for (const t of ['CHOP', 'ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
+  for (const t of ['PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
     await chooseTab(t);
     const tab = $$('.mtab').find((x) => x.textContent === t)!;
     check(tab.classList.contains('on') && tab.getAttribute('aria-selected') === 'true', `${t} selected`);
@@ -116,8 +116,9 @@ export async function run(): Promise<string> {
   check(recipeWin.querySelector('.mtab.on')?.textContent === 'CHOP', 'the CHOP button opens the CHOP tab');
   const cbtn = (t: string) => $$('.btn', recipeWin).filter(visible).find((b) => b.textContent === t)!;
   for (const t of ['DISABLED', 'RE-CHOP', 'LARGE', 'MEDIUM', 'SMALL', 'MICRO']) check(cbtn(t), `CHOP tab: ${t}`);
-  check($$('.range', recipeWin).filter(visible).length === 2, 'CHOP tab: AMOUNT and RETRIGGER range bars');
-  check($$('.label', recipeWin).filter(visible).some((l) => l.textContent === 'RECIPE ▸ GROOVE ▸ CHOP ▸ PATTERN'), 'CHOP tab: the flow');
+  check($$('.range', recipeWin).filter(visible).length === 3, 'CHOP tab: AMOUNT, RETRIGGER and DESTROY AMOUNT range bars');
+  check($$('.label', recipeWin).filter(visible).some((l) => l.textContent === 'PATTERN = GROOVE'), 'CHOP tab: the state (the flow is in the report\'s tooltip since DESTROY took its row)');
+  for (const t of ['STUTTER', 'PITCH', 'REVERSE', 'GATE', 'CHAOS']) check(cbtn(t), `CHOP tab: DESTROY ${t}`);
   await press(cbtn('DISABLED'), 3, 3);
   check(app.chopped && JSON.stringify(app.current.events) !== groove && JSON.stringify(app.seeds) === grooveSeeds, 'ENABLED chops the same GROOVE (same seeds)');
   check(cbtn('ENABLED')?.classList.contains('on'), 'ENABLED shown on');

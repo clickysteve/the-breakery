@@ -89,5 +89,30 @@ export async function run() {
   check(asked.some((a) => a.id === snare + REVERSED && a.pitch === ROOT_PITCH - 7), `live: reversed at -7 st requested (${JSON.stringify(asked.slice(0, 4))})`);
   check(asked.some((a) => a.id === snare && a.pitch === ROOT_PITCH + 3), 'live: forwards at +3 st requested');
   lines.push(`live player: ${asked.length} notes scheduled with their instrument and pitch`);
+
+  // the interface: the new controls are there, visible, and use no native dropdowns
+  await import('../src/main');
+  const app = (window as unknown as { breakery: { app: import('../src/app/app').App } }).breakery.app;
+  const press = (el: Element) => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  const tab = (n: string) => { const t = [...document.querySelectorAll('.mtab')].find((x) => x.textContent?.trim() === n); check(t, `tab ${n}`); press(t); };
+  const visible = (text: string) => [...document.querySelectorAll<HTMLElement>('.btn, .label')].some((x) => x.textContent === text && x.getBoundingClientRect().width > 0);
+  check(document.querySelectorAll('select').length === 0, 'no native dropdowns');
+  tab('PERSONALITY');
+  for (const n of ['NEUTRAL', 'ANGRY', 'DILLA', 'HEAVY-HANDED', 'NONE', 'AMEN', 'INTENSITY', 'INFLUENCE']) check(visible(n), `PERSONALITY shows ${n}`);
+  press([...document.querySelectorAll('.btn')].find((x) => x.textContent === 'LAZY')!);
+  check(app.recipe.personality?.id === 'lazy', 'clicking LAZY sets the personality');
+  tab('CHOP');
+  for (const n of ['DESTROY', 'STUTTER', 'CHAOS', 'DICE']) check(visible(n), `CHOP shows ${n}`);
+  tab('ROLLS');
+  press([...document.querySelectorAll('.btn')].find((x) => x.textContent === 'EXPRESSION')!);
+  for (const n of ['PRESET', 'PITCH', 'VELOCITY', 'TIMING', 'RATCHET', 'REVERSE']) check(visible(n), `ROLLS ▸ EXPRESSION shows ${n}`);
+  check(visible('REGEN TRACK'), 'REGEN TRACK is visible under the pattern');
+  const kickName = [...document.querySelectorAll<HTMLElement>('.trackname')].find((x) => x.textContent?.trim() === 'KICK');
+  check(kickName, 'track names are clickable');
+  press(kickName);
+  check(app.trackSel.join() === 'kick', `clicking KICK selects the track (${app.trackSel})`);
+  check(kickName.classList.contains('trksel') || !!document.querySelector('.trksel'), 'the selected track is marked');
+  check(document.querySelectorAll('select').length === 0, 'still no native dropdowns');
+  lines.push('interface: PERSONALITY, BREAK DNA, DESTROY, EXPRESSION, REGEN TRACK and track selection present; no native dropdowns');
   return `passed\n${lines.join('\n')}`;
 }
