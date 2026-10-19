@@ -655,6 +655,32 @@ input.mtext {
   background: var(--selection);
   color: var(--paper);
 }
+/* a list box tells hover, the keyboard cursor, the selection and the loaded entry apart */
+.msel.glist .msel-item.hot {
+  background: none;
+  color: var(--ink);
+}
+.msel.glist .msel-item[aria-selected='true'] {
+  background: var(--selection);
+  color: var(--paper);
+}
+.msel.glist .msel-item.hover {
+  outline: 1px dotted var(--ink);
+  outline-offset: -2px;
+}
+.msel.glist.focused .msel-item.hot {
+  outline: 1px dashed var(--ink);
+  outline-offset: -1px;
+}
+.msel.glist .msel-item[aria-selected='true'].hover,
+.msel.glist.focused .msel-item[aria-selected='true'].hot {
+  outline-color: var(--paper);
+}
+.msel-item.loaded::before {
+  content: '▸';
+  position: absolute;
+  left: 3px;
+}
 /* a disabled option reads in dither, as in the menus */
 .msel-item.disabled {
   color: var(--ink);
