@@ -107,4 +107,4 @@ test('tom report', () => {
       lines.push('');
     }
   writeFileSync('docs/tom-report.md', lines.join('\n') + '\n');
-});
+}, 120_000);

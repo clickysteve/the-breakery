@@ -142,7 +142,9 @@ export function destroy(source: readonly BreakEvent[], s: DestroySettings, ctx: 
       }
     } else if (op === 'freeze') {
       const prev = events.filter((e) => tickOf(e) >= w0 - BEAT && tickOf(e) < w0 && e.cat !== 'crash');
-      if (w > 0 && prev.length) made = prev.map((e) => at(e, tickOf(e) + BEAT, { role: e.role === 'roll' ? 'roll' : 'chop', vel: clamp(Math.round(e.vel * 0.95), 1, 127), why: why(e, ': the beat before, frozen') }));
+      // ROLL GENERATION off: a frozen roll repeats only its sixteenths (no new rolls)
+      const src = ctx.noRolls ? prev.filter((e) => e.role !== 'roll' || e.sub === 0) : prev;
+      if (w > 0 && src.length) made = src.map((e) => at(e, tickOf(e) + BEAT, { role: e.role === 'roll' && !ctx.noRolls ? 'roll' : 'chop', vel: clamp(Math.round(e.vel * 0.95), 1, 127), why: why(e, ': the beat before, frozen') }));
     } else if (op === 'reverse') {
       const mirror = s.amount > 0.6;
       made = here.map((e) => {

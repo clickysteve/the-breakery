@@ -39,7 +39,8 @@
 import { dillaPerform, hnoise, rollLeads } from './dilla';
 import { hashString, stream } from './rng';
 import { tidy } from './phrase';
-import { clamp, STEPS, TPB, TPS, type BarRole, type BreakEvent, type Category, type Hit, type Recipe } from './types';
+import { hatActivity, rideActivity } from './cymbals';
+import { clamp, STEPS, TPB, TPS, VOCAB_REVISION, type BarRole, type BreakEvent, type Category, type Hit, type Recipe } from './types';
 
 export const PERSONALITIES = ['neutral', 'angry', 'frantic', 'lazy', 'sloppy', 'nervous', 'confident', 'drunk', 'mechanical', 'manic', 'minimalist', 'showoff', 'stubborn', 'playful', 'heavy', 'delicate', 'dilla'] as const;
 export type PersonalityId = (typeof PERSONALITIES)[number];
@@ -181,6 +182,9 @@ export function personaBars(bars: Hit[][], roles: BarRole[], recipe: Recipe, p: 
   const rng = stream(beatSeed, `persona:${p.id}`);
   const room = clamp((recipe.density / 0.5) ** 1.5, 0.1, 1); // a sparse recipe gets little added (20 % DENSITY: a quarter)
   const tk: Category = bars[0]?.some((h) => h.cat === 'ride' && h.role === 'time') ? 'ride' : 'hat';
+  // revision 3: the cymbals it adds follow HI-HAT ACTIVITY or RIDE ACTIVITY (a personality never overrides them)
+  const vocab = recipe.engine === 2 && (recipe.revision ?? 0) >= VOCAB_REVISION;
+  const tkRoom = vocab ? room * clamp((tk === 'ride' ? rideActivity(recipe) : hatActivity(recipe)) / 0.7, 0, 1) : room;
   const why = `${PERSONALITY_LABEL[p.id]} personality`;
   const add = (hits: Hit[], h: Omit<Hit, 'why'>, what: string) => {
     if (h.step < 0 || h.step >= STEPS) return;
@@ -207,10 +211,10 @@ export function personaBars(bars: Hit[][], roles: BarRole[], recipe: Recipe, p: 
       case 'bursts':
         // quick little bursts before a backbeat: a 32nd pair of hats or a ghost drag
         for (const s of [3, 11]) {
-          if (next() < a * 0.45 * room) add(hits, { cat: tk, step: s, sub: 6, level: 0.42, role: 'time' }, 'a nervous 32nd');
+          if (next() < a * 0.45 * tkRoom) add(hits, { cat: tk, step: s, sub: 6, level: 0.42, role: 'time' }, 'a nervous 32nd');
           if (next() < a * 0.3 * room) add(hits, { cat: 'ghost', step: s, sub: 0, level: 0.26, role: 'ghost' }, 'a nervous ghost');
         }
-        if (d.energy > 0.8) for (let s = 1; s < STEPS; s += 2) if (next() < a * 0.5 * room) add(hits, { cat: tk, step: s, sub: 0, level: 0.45, role: 'time' }, 'frantic sixteenths');
+        if (d.energy > 0.8) for (let s = 1; s < STEPS; s += 2) if (next() < a * 0.5 * tkRoom) add(hits, { cat: tk, step: s, sub: 0, level: 0.45, role: 'time' }, 'frantic sixteenths');
         break;
       case 'sparse':
         if (i > 0 || a > 0.5) hits = thin(hits, a * (d.energy < -0.7 ? 0.7 : 0.4), next);
@@ -235,7 +239,7 @@ export function personaBars(bars: Hit[][], roles: BarRole[], recipe: Recipe, p: 
         break;
       case 'swings':
         if (i % 2 === 1) hits = thin(hits, a * 0.6, next);
-        else for (let s = 1; s < STEPS; s += 2) if (next() < a * 0.45 * room) add(hits, i === 0 && s < 4 ? { cat: tk, step: s + 4, sub: 0, level: 0.5, role: 'time' } : { cat: next() < 0.5 ? 'ghost' : tk, step: s, sub: 0, level: 0.34, role: 'ghost' }, 'a manic flurry');
+        else for (let s = 1; s < STEPS; s += 2) if (next() < a * 0.45 * room) add(hits, i === 0 && s < 4 ? { cat: tk, step: s + 4, sub: 0, level: 0.5, role: 'time' } : { cat: next() < 1 - 0.5 * (tkRoom / room) ? 'ghost' : tk, step: s, sub: 0, level: 0.34, role: 'ghost' }, 'a manic flurry');
         break;
       case 'fills':
         // ornaments in the fill bars: a ghost-to-snare run in the last beat; an extra snare in development bars

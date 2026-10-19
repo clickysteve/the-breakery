@@ -362,7 +362,9 @@ describe('PERSONALITIES', () => {
           expect(b.events.filter((e) => isTom(e.cat)), `${id} ${style}`).toHaveLength(0);
           expect(b.events.filter((e) => e.role === 'roll'), `${id} ${style}`).toHaveLength(0);
         }
-    const mean = (r: Recipe) => SEEDS.reduce((s, x) => s + B(r, x).events.length, 0) / SEEDS.length;
+    // (24 seeds: with six, one seed's groove approach could swing the mean by several percent)
+    const MANY = Array.from({ length: 24 }, (_, i) => 100 + i * 37);
+    const mean = (r: Recipe) => MANY.reduce((s, x) => s + B(r, x).events.length, 0) / MANY.length;
     // (JUNGLE and HIP-HOP barely change with DENSITY, so the bound is against the sparse recipe itself)
     for (const style of ['funk', 'jungle', 'hiphop', 'dnb', 'breakcore'] as Style[]) {
       const sparse = R(style, 4, { density: 0.2, rollsOn: false });
@@ -583,8 +585,8 @@ describe('TOM ACTIVITY (revision 2)', () => {
   const toms = (r: Recipe) => SEEDS.reduce((s, x) => s + B(r, x).events.filter((e) => isTom(e.cat)).length, 0) / SEEDS.length;
 
   it('is the current revision for new recipes', () => {
-    expect(CURRENT_REVISION).toBe(2);
-    expect(defaultRecipe('funk').revision).toBe(2);
+    expect(CURRENT_REVISION).toBeGreaterThanOrEqual(2);
+    expect(defaultRecipe('funk').revision).toBe(CURRENT_REVISION);
   });
 
   it('0 % has no toms; more activity means more toms; never in the first beat of the loop', () => {

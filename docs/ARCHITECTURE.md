@@ -41,11 +41,11 @@ RECIPE + SEEDS ──────────┤
 
 | Folder | What | Depends on |
 |---|---|---|
-| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, and `FLOURISH`: each recipe's toms and rolls), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
+| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, `FLOURISH`: each recipe's toms and rolls, and `VOCAB`: each recipe's grooves and cymbal vocabulary), `approaches` (groove approaches, phrase forms, motifs), `cymbals` (hats and ride, revision 3), `tempo` (tempo profiles), `wildcard` (WILDCARD), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
 | `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (sample library, storage, folder import, loudness), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
 | `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF), `messages` (builders and parsing), `output` (note-safe output per device), `router` (live hits → timestamped notes, queued note-offs, clock out), `routing` (per-track settings, defaults, input matching), `clockIn` (external clock follower), `access` (Web MIDI wrapper). Built on Core's MIDI interfaces. | audio/timeline, engine, Core midi types |
 | `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence); `midi.ts` (MidiRig: MIDI settings, devices, input, clock source). | engine, audio, midi |
-| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window). | app, Core palette |
+| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, CYMBALS (`cymbalsTab`), ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window). | app, Core palette |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
 ## The event model
@@ -263,6 +263,64 @@ Measured event data: [expressive-report.md](expressive-report.md) (`npm run eval
   reloads and batch carry them; `entryKey` includes them only when active, so earlier keys are
   unchanged. `App.carried()` keeps CHOP, DESTROY, EXPRESSION, PERSONALITY and DNA across recipe
   changes.
+
+## Rhythmic intelligence (Phase 13)
+
+Research, interpretation and design decisions: [rhythmic-research.md](rhythmic-research.md).
+Measured event data: [diversity-report.md](diversity-report.md) against the baseline in
+[diversity-baseline.md](diversity-baseline.md) (`npm run evaluate`).
+
+* **Revision 3** (`CURRENT_REVISION = VOCAB_REVISION = 3`). Every new behaviour below is gated
+  on `usesVocab(recipe)` (engine 2, revision 3 or later). Recipes saved with revision 2 or
+  earlier keep identical random draws: test/phase13.test.ts fingerprints 396 revision 2 breaks
+  against the output of main at the merge of Phase 12.
+* **Composition order** in `bakeV2`:
+  1. A **groove approach** comes from stream `approach` of the BEAT seed (`approaches.ts`
+     `chooseGroove`, weighted by `VOCAB[style].grooves`). It shapes the StyleDef that
+     `foundation.ts` uses. With revision 3, the foundation keeps a random candidate near the
+     best instead of always the best.
+  2. Support (ghosts and percussion) runs. With revision 3 it no longer lays down the
+     timekeeping.
+  3. A **phrase form** comes from stream `form` (`chooseForm`; every form ends in T) and a
+     **motif** from stream `motif` (`chooseMotif`). The answer bars develop the motif
+     (`phrase.ts` `developMotif`).
+  4. Shuffle grooves move hits onto the triplet grid (`onTriplets`). `performance.ts` does not
+     swing those hits again.
+  5. The **cymbals** are added by `addCymbals` (`cymbals.ts`, stream `cymbals` of the DETAIL
+     seed). It draws one plan per phrase and renders it per bar against each bar's kicks,
+     snares and fill marks (`FillMark`, recorded by `developPhrase`).
+  6. The approach is returned as `Break.approach` (groove, form, motif, hats, ride,
+     development), shown in the CYMBALS tab and the pattern card's tooltip.
+* **HI-HAT and RIDE ACTIVITY** are `Recipe.hats` and `Recipe.ride`. When absent they default to
+  `VOCAB[style]` (`hatActivity`, `rideActivity`). **RELATIONSHIP** is `Recipe.cymbals` (absent
+  means ALTERNATE).
+  * At 0, `generate.silence` removes that family after every later layer, and `flourish`
+    drops the hat roll target.
+  * Personalities scale their cymbal additions by the activity (`personality.ts` `tkRoom`).
+* **Tempo** (`tempo.ts`): `TEMPO_PROFILES` and `tempoFor(style, seed)`.
+  * `App.setStyle` and `App.randomRecipe` take their tempo from the profile, or keep it with
+    `App.tempoLock` (saved as a preference, not an undo step). `App.diceTempo` re-rolls the
+    tempo of the same break. BAKE never changes the tempo.
+  * `Player.schedule` changes an internal clock's tempo at the switch point, keeping the
+    position in beats. An external clock is never re-timed.
+* **WILDCARD** (`wildcard.ts`). `wildcardRecipe` is pure and seeded, and `App.wildcard(seed)`
+  applies it.
+  * It reseeds the layers that are not frozen. The KIT seed changes only with SAMPLE
+    ASSIGNMENTS on and KIT not frozen.
+  * Optionally it moves the mixer (`wildcardMix`; solo and mute are kept) and applies an output
+    preset (`OutputChain.applyPreset`, Core unchanged).
+  * One press is one undo step. A snapshot that changed the mixer or output carries them as
+    `extras`, which `restoreSnapshot` puts back, and redo re-applies them.
+  * The settings (`App.wildcardSettings`) are saved with the app state, and edited in the
+    Wildcard menu.
+* **Interface**:
+  * `ui/cymbalsTab.ts` is the CYMBALS tab of the RECIPE window. The RECIPE tab's HATS · RIDE
+    button opens it.
+  * LOCK and RND sit beside the BPM box.
+  * WILDCARD sits beside BAKE. The Wildcard menu holds the category toggles, and the W key
+    triggers WILDCARD.
+* `destroy.ts` fix: FREEZE with ROLL GENERATION off now copies only the roll hits that sit on
+  the sixteenth grid, as `chop` hits, so no new 1/32 rolls appear.
 
 ## Sample selection
 

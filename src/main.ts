@@ -14,6 +14,7 @@ import { Ingredients, SLOTS, type ImportEntry, type Slot } from './audio/ingredi
 import { audibleCategories, mixActive } from './app/mix';
 import { entryLabel } from './app/seeds';
 import { CATEGORY_LABEL } from './engine/types';
+import { WILDCARD_CATEGORIES, WILDCARD_LABEL } from './engine/wildcard';
 import { Player } from './audio/player';
 import { loadNaming, saveNaming, buildFileName, type NamingPrefs } from './audio/exportName';
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
@@ -328,7 +329,7 @@ async function about(): Promise<void> {
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br>X: REGEN TRACK (click a track name in the PATTERN to select it; shift-click for several)<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects. PITCH, REV and RATCHET are in the strip under the grid.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
+    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · W: WILDCARD (what it may change: the Wildcard menu) · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br>X: REGEN TRACK (click a track name in the PATTERN to select it; shift-click for several)<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects. PITCH, REV and RATCHET are in the strip under the grid.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -375,6 +376,10 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
     items: () => [
       { label: 'Bake', key: 'B', action: () => app.bake() },
       { label: 'Batch of 8', key: 'N', action: () => app.bakeBatch() },
+      { label: 'Wildcard', key: 'W', action: () => app.wildcard() },
+      { sep: true },
+      { label: 'Tempo Lock', checked: () => app.tempoLock, action: () => app.setTempoLock(!app.tempoLock) },
+      { label: app.tempoLock ? 'Dice Tempo (unlock first)' : 'Dice Tempo', action: () => void app.diceTempo() },
       { sep: true },
       { label: player.playing ? 'Stop' : 'Play', key: 'Space', action: () => void togglePlay() },
       { label: 'Loop', key: 'L', checked: () => player.loop, action: () => ((player.loop = !player.loop), app.changed()) },
@@ -388,6 +393,17 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       ...(app.legacy ? [{ label: 'Use Current GROOVE', action: () => app.useCurrentGroove() }] : []),
       { sep: true },
       { label: 'Clear Solo / Mute', action: () => app.clearMix() },
+    ],
+  },
+  {
+    // WILDCARD's settings: which categories one press may change (saved in this browser)
+    title: 'Wildcard',
+    items: () => [
+      { label: 'Wildcard', key: 'W', action: () => app.wildcard() },
+      { sep: true },
+      ...WILDCARD_CATEGORIES.map((c) => ({ label: WILDCARD_LABEL[c], checked: () => app.wildcardSettings[c], action: () => app.setWildcard(c, !app.wildcardSettings[c]) })),
+      { sep: true },
+      { label: 'Restore Defaults', action: () => app.resetWildcard() },
     ],
   },
   {
@@ -556,6 +572,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'k') app.toggleFreeze('kit');
   else if (k === 'e') app.toggleKeepEdits();
   else if (k === 'x') app.regenTracks();
+  else if (k === 'w') app.wildcard();
   else if (e.key === 'ArrowRight' && (t === document.body || t.classList.contains('btn'))) app.historyForward();
   else if (e.key === 'ArrowLeft' && (t === document.body || t.classList.contains('btn'))) app.historyBack();
   else if (n >= 1 && n <= BATCH_SIZE) app.pick(n - 1);

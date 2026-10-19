@@ -1,5 +1,5 @@
 /**
- * BAKE: generate (BAKE, BATCH), FREEZE (RHYTHM = beat + detail + feel, SAMPLES = the kit layer,
+ * BAKE: generate (BAKE, WILDCARD, BATCH), FREEZE (RHYTHM = beat + detail + feel, SAMPLES = the kit layer,
  * or single layers), play, loop, level and TAKEAWAY.
  */
 import { saveSwitchMode } from '../app/switchMode';
@@ -25,7 +25,13 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
   const G = 4;
   const half = Math.floor((W - 2 * G - G) / 2);
   const col2 = G + half + G;
-  new Button(b, [G, 4, W - 2 * G, 24], 'BAKE', { cls: 'bigbtn', tip: 'BAKE a new break from the recipe (B). Frozen layers are kept.', onPress: () => app.bake() });
+  new Button(b, [G, 4, half, 24], 'BAKE', { cls: 'bigbtn', tip: 'BAKE a new break from the recipe (B). Frozen layers are kept; the tempo never changes.', onPress: () => app.bake() });
+  const wild = new Button(b, [col2, 4, W - G - col2, 24], 'WILDCARD', {
+    cls: 'bigbtn',
+    tip: 'WILDCARD (W): re-imagine the break: a new recipe, tempo, controls, and now and then a personality, BREAK DNA, CHOP or DESTROY. Which of these it may change is in the Wildcard menu (samples, mixer and output effects are off unless you switch them on). FREEZE and TEMPO LOCK are respected; ⌘Z undoes all of it in one step.',
+    onPress: () => app.wildcard(),
+  });
+  wild.el.setAttribute('aria-label', 'Wildcard');
   new Button(b, [G, 32, half, 16], 'BATCH', { tip: 'BATCH: bake 8 candidates to compare (N). Click one in the BATCH tab to audition it.', onPress: () => app.bakeBatch() });
   new Button(b, [col2, 32, W - G - col2, 16], 'TAKEAWAY', { tip: 'TAKEAWAY: export the break as a WAV file, with stems and MIDI if you like (T)', onPress: () => ui.takeaway() });
 

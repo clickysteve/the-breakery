@@ -174,7 +174,35 @@ from any folder of any static server). `npm run evaluate` regenerates
    * **REGEN TRACK** (X, or **Bake ▸ Regen Track**): click a track name in the PATTERN to select
      it (shift-click for more), then regenerate just those tracks. Everything else stays exactly
      as it was; one ⌘Z goes back. It works even with FREEZE on, because you asked for it.
-8. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
+8. **Rhythmic intelligence and WILDCARD** (Phase 13).
+   * Every new break chooses a **groove approach** within its recipe (backbeat, sparse, pushed,
+     lopsided, half-time, break-derived, two-step, rolling, linear, ghost-led, syncopated,
+     four-to-the-floor, skip, fragments, shuffle), a **phrase form** (A A2 A T, A A2 B T,
+     A B A T …) and a way of developing its motif. So a new seed gives a different groove, not
+     the same one with a few kicks moved. VARIATION 0 still repeats exactly.
+   * **CYMBALS** tab (or the HATS · RIDE button in RECIPE):
+     * **HI-HAT ACTIVITY** (closed and open hats) and **RIDE ACTIVITY** choose what the cymbals
+       play, from sparse accents and quarters through off-beats, broken eighths, 3+3+2, eighths,
+       a jazz ride, linear and triplet figures, to skipping sixteenths, sixteenths and (with
+       ROLLS on) rapid bursts. 0% means none of that cymbal, whatever the personality.
+     * **RELATIONSHIP**: ALTERNATE (one keeps time, the other rests, punctuates or takes over
+       for some bars), LAYER or INDEPENDENT.
+     * The tab also shows what this break chose.
+   * **Tempo**:
+     * Choosing a recipe picks a tempo from its range (FUNK 86–124, D&B 160–182, and so on).
+     * **LOCK** beside the BPM box keeps the tempo through recipe changes, RANDOM RECIPE,
+       WILDCARD and REGEN.
+     * **RND** rolls a new tempo for the same break.
+     * BAKE never changes the tempo, and the BPM box always sets it.
+   * **WILDCARD** (W, beside BAKE): re-imagine the break.
+     * Each press gives a new recipe, tempo and controls, and now and then a personality, BREAK
+       DNA, CHOP or DESTROY, all drawn around the new recipe's own character.
+     * The **Wildcard** menu says what it may change. Samples, mixer and output effects are off
+       until you switch them on.
+     * FREEZE and TEMPO LOCK are respected, nothing is downloaded or deleted, and solo and mute
+       are never touched.
+     * One ⌘Z undoes all of it.
+9. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
    bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
    renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
    `_audible`; stems and MIDI follow the same choice). *+ Stems*
@@ -182,19 +210,19 @@ from any folder of any static server). `npm run evaluate` regenerates
    `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
    (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
    the break (inside the ZIP when there are stems, otherwise as a second download).
-9. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
+10. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
    (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
    38, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride 51, perc
    39) or each track's channel and note from the MIDI window, one named track per drum, with
    the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
-10. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
+11. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
    instruments (it lives in Slop Factory Core). Choose a palette, or edit any colour (a built-in
    palette is copied first), rename, duplicate, delete, import and export palette files (emmm and
    DOWNBEAT palettes import too), or go back to Atari, the original black and white. Remembered
    in this browser; never part of a break.
-11. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
+12. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
     once). Everything is remembered in this browser, devices included (found again by name if
     the browser renumbers them).
     * **Out**: choose the default OUT device; the break plays out to it while it plays here, every
@@ -222,14 +250,17 @@ from any folder of any static server). `npm run evaluate` regenerates
 
 A layered generator, deterministic from seeds (engine 2):
 
-1. **Phrase plan** for the length: A (groove), A2 (answer), B (development), F (a short half-way
-   fill), T (turnaround). 1 bar: A · 2: A T · 4: A A2 A T · 8: A A2 A F | A A2 B T. Answers
-   repeat; the half-way fill and the turnaround use the same kind of fill.
+1. **Approach and phrase form** (revision 3): a groove approach within the recipe, and a phrase
+   form for the length from A (groove), A2 (answer), B (development), F (a short half-way fill)
+   and T (turnaround). Four bars can be A A2 A T, A A A2 T, A A2 B T, A B A T and others; every
+   form ends in T. Revision 2 recipes keep the fixed plans (4 bars: A A2 A T).
 2. **Foundation**: backbeat snares (2 and 4, or 3 in HALF-TIME; displaced in some recipes), fixed
    kicks where the recipe has a skeleton (D&B), kicks chosen from metrical preferences, relations to
    the snares and a liking for pairs; many candidates are scored against target density and target
    *syncopation* (a moderate amount grooves best). HARDCORE can layer a four-on-the-floor kick.
-3. **Supporting voices**, conditioned on the foundation: hats/ride with one repeating accent cycle;
+3. **Supporting voices**, conditioned on the foundation: the hats and ride from a cymbal approach
+   chosen by HI-HAT and RIDE ACTIVITY, placed against each bar's kicks, snares and fills, and
+   developed through the phrase (revision 3; before, eighths with one repeating accent cycle);
    open-hat lifts; ghost-note figures around the true backbeats (anticipation, rebound, two-stroke
    pickups); percussion in the gaps, on the backbeat or on the off-beats.
 4. **Phrase development**: answers and development bars vary the groove, mostly in their second
@@ -298,6 +329,14 @@ drag, ⌘Z).
 * DESTROY works on events: GATE and TAPE STOP are approximations (hits removed, or moved,
   lowered and softened), not audio processing. Like CHOP, it is fixed once there are hand edits.
 * REGEN TRACK overrides FREEZE (it is an explicit request) and leaves a track with no hits alone.
+* **Phase 13 is not yet evaluated by ear.** The groove approaches, phrase forms, cymbal
+  vocabularies, tempo profiles and WILDCARD are checked by tests and measured event data
+  ([docs/diversity-report.md](docs/diversity-report.md)), not by listening.
+  * The per-recipe weights are hand-set from sources read only as search summaries
+    ([docs/rhythmic-research.md](docs/rhythmic-research.md)).
+  * New breaks are more varied and a little less self-similar from bar to bar than before.
+  * The tempo of a playing pattern changes at the switch point with the internal clock. An
+    external MIDI clock keeps its own tempo.
 * A sparse recipe with an energetic personality (FRANTIC) still gains some hits (up to about a
   fifth at 100 % INTENSITY in the measured recipes).
 * Recipe values are hand-set hypotheses; some genre rules are not from reliable sources (see
@@ -347,6 +386,8 @@ Senn et al. 2016; Hellmer et al. 2015; Danielsen et al. 2015; Câmara et al. 202
 (Hennig et al. 2011; Räsänen et al. 2015); syncopation and groove (Witek et al. 2014); Euclidean
 rhythms (Toussaint 2005). Phase 12 (personalities, DILLA, AMEN, expression):
 [docs/EXPRESSIVE_RESEARCH.md](docs/EXPRESSIVE_RESEARCH.md), adding Charnas, *Dilla Time* (2022).
+Phase 13 (groove approaches, cymbals, tempo): [docs/rhythmic-research.md](docs/rhythmic-research.md),
+adding Senn et al. 2018, Pressing 2002, Garcia 2005, Butler 2006 and genre sources.
 
 ## Licence
 
