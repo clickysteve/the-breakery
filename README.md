@@ -74,7 +74,9 @@ from any folder of any static server). `npm run evaluate` regenerates
 1. **Ingredients.** On a first visit the demo kit is loaded: original sounds synthesised in the
    browser, so you can try everything at once. To use your own: **LOAD…** for files, **FOLDER…**
    for a whole folder and its sub-folders, or drop files or folders anywhere on the screen.
-   Categories are suggested from folder and file names (`Kicks/`, `BD_01.wav`, `snare ghost.wav`,
+   Dropped on a category's row (or on its sample list), they go to that instrument whatever
+   their names say, and a sample already loaded moves there rather than loading twice; dropped
+   anywhere else, categories are suggested from folder and file names (`Kicks/`, `BD_01.wav`, `snare ghost.wav`,
    `OH.wav`, `Open Hats/hat 3.wav` …); ambiguous names go to UNSORTED (never discarded), and a
    folder import ends with a review list where you can correct every suggestion. Hidden files
    (`._kick.wav`) and non-audio files are skipped and counted. Select a category to see
@@ -87,7 +89,10 @@ from any folder of any static server). `npm run evaluate` regenerates
    loud hits the loudest), ALTERNATE (never twice in a row) or PER BAR. Every choice is
    deterministic, the same in playback and TAKEAWAY, and explained when you hover a hit.
    **KITS** (a tab of INGREDIENTS) keeps sets of sounds: SAVE, SAVE AS, LOAD, DUPLICATE, RENAME,
-   DELETE, SET DEFAULT, and EXPORT / IMPORT of portable kit files (`.kit.zip`: the kit with its
+   DELETE, SET DEFAULT, and EXPORT / IMPORT of portable kit files. The list tells the kit under
+   the pointer (dotted), the keyboard cursor (dashed), the selected kit (inverted) and the loaded
+   kit (▸) apart; passing over it never selects, a click or Enter does. NEW, SAVE AS and
+   DUPLICATE put the new kit in the list at once, selected and ready to RENAME (`.kit.zip`: the kit with its
    audio, readable by any Slop Factory instrument, DOWNBEAT included). Loading a kit changes the
    sounds only: the break, recipe and history stay. **LIBRARY** lists every sample kept in this
    browser: ▶ PREVIEW, add one to the current kit in the selected category (no second import),
@@ -241,27 +246,67 @@ from any folder of any static server). `npm run evaluate` regenerates
      **THIS BREAK** shows what the engine chose and what the break actually plays, with **REGEN**
      for each cymbal track. A break from Phase 13 keeps its HI-HAT and RIDE ACTIVITY until you
      change a cymbal control, which carries them over.
-10. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
-   bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
-   renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
-   `_audible`; stems and MIDI follow the same choice). *+ Stems*
-   adds one WAV per drum in a ZIP. 44.1 kHz, 16-bit stereo, named like
-   `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
+10. **New patch, CLAP and FX, the WILDCARD report** (Phase 15).
+    * **File ▸ New Patch…** (⌘N where the browser allows it; Chrome keeps ⌘N for a new window)
+      starts again: the break, recipe, every control, tempo, seed, FREEZE, PERSONALITY, BREAK
+      DNA, cymbals, CHOP, rolls, DESTROY, MUTATE and hand edits. Samples, saved kits, favourites
+      and preferences stay, and the previous break stays in the seed history (◀). It asks first
+      only when the patch has changes, with **KEEP CURRENT KIT** (on: the kit and mixer levels
+      stay; off: the demo kit as a new unsaved kit, nothing deleted). There is no SAVE in that
+      dialog because patches are not saved as files: FAV keeps a break. **New Patch with Default
+      Kit…** asks with KEEP CURRENT KIT off.
+    * **File ▸ Clear Pattern** removes every hit and keeps the settings (one ⌘Z brings them
+      back). **File ▸ Reset Controls** sets every control to the recipe's defaults and keeps the
+      recipe, tempo, seed and the pattern you hear until the next bake or control change.
+    * **13 tracks**: KICK, SNARE, GHOST, CLAP, HIGH TOM, MID TOM, LOW TOM, HAT, OPEN HAT, RIDE,
+      CRASH, PERC, FX. **CLAP ACTIVITY** layers claps on the backbeat, then answers and pushes, in
+      each recipe's own idiom (ELECTRO and GARAGE clap more than FUNK). **FX ACTIVITY** places
+      sparse, structural hits (the top of the phrase, section changes, fills; at most two a bar);
+      with no FX samples they are silent. FX are never rolled or chopped away. Both are new in
+      GROOVE revision 5: a break saved before keeps its exact hits. PERC keeps its role. MIDI:
+      CLAP is GM 39 (Hand Clap), FX 27, and PERC moves to 37 (Side Stick) so no two tracks share
+      a note; a saved routing with PERC on 39 keeps it and turns CLAP's input off.
+    * **WILDCARD** now ends in one status line (`WILDCARD · HARDCORE · 152 BPM · 12 SETTINGS
+      CHANGED`); click it (or **Wildcard ▸ Wildcard Report…**) for the **WILDCARD REPORT**: every
+      setting it changed, grouped, before and after, with **COPY REPORT**. It stays until the
+      next WILDCARD or NEW PATCH, and ⌘Z and redo bring the matching report back. **RANDOMISE
+      SAMPLE ASSIGNMENTS** and **RANDOMISE SAMPLE SELECTION MODES** are separate toggles (both
+      off by default); the modes change only tracks with two or more samples, never with KIT
+      frozen.
+    * **Undo** covers every action (DESTROY and RE-DESTROY, CHOP and RE-CHOP, rolls, personality,
+      DNA, cymbals, WILDCARD, REGEN, sample categories and PICK modes, CLEAR PATTERN, RESET
+      CONTROLS, hand edits): one step each, a slider sweep or a dropped folder is one step, and
+      redo is exact. Undo never deletes a sample.
+    * **PATTERN**: all 13 rows fit. Under the grid: SNAP, REGEN TRACK, the selected track, UNDO,
+      REDO, CLEAR EDITS; then `SELECTED: NONE` (or the selected hit), the MUTED and NO SAMPLE
+      counts, and **[?]** for the editing help.
+11. **Takeaway** (T). **LOOP** (one WAV), **LOOP + STEMS** (a ZIP: the mix and one aligned WAV per
+   track), **STEMS ONLY** (a ZIP of the stems) or **BATCH** (a ZIP with a WAV of each BATCH
+   candidate; also **File ▸ Takeaway Batch (ZIP)…**). *Bars + tail* lets the last hits ring out;
+   *Seamless loop* is exactly the bars' length with the tail folded onto the start, for looping
+   at the stated tempo. What you hear is what you get (SOLO and MUTE included). 44.1 kHz, 16-bit
+   stereo. **File names** are built from components you order and switch on: BPM, RECIPE, SEED,
+   KIT NAME, PERSONALITY, BREAK DNA and CUSTOM TEXT, joined by an UNDERSCORE, HYPHEN or SPACE
+   (`152_HARDCORE_CHICKENHAT.wav`, or `CHICKENHAT_HARDCORE_152.wav`). Stems add their track
+   (`_KICK.wav`, `_HIGH_TOM.wav`); the mix gets `_LOOP` as **LOOP SUFFIX** says (ALWAYS, ONLY
+   WITH STEMS, NEVER). Names are made safe for every common system (Unicode kept), never empty
+   and never doubled; the preview in the dialog is drawn by the same function as the export.
+   The earlier name settings carry over. If the mix would clip, it is turned down to −1 dBFS
    (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
    the break (inside the ZIP when there are stems, otherwise as a second download).
-11. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
+12. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
    (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
-   38, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride 51, perc
-   39) or each track's channel and note from the MIDI window, one named track per drum, with
+   38, clap 39, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride
+   51, perc 37, FX 27) or each track's channel and note from the MIDI window, one named track per drum, with
    the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
-12. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
+13. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
    instruments (it lives in Slop Factory Core). Choose a palette, or edit any colour (a built-in
    palette is copied first), rename, duplicate, delete, import and export palette files (emmm and
    DOWNBEAT palettes import too), or go back to Atari, the original black and white. Remembered
    in this browser; never part of a break.
-13. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
+14. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
     once). Everything is remembered in this browser, devices included (found again by name if
     the browser renumbers them).
     * **Out**: choose the default OUT device; the break plays out to it while it plays here, every
@@ -323,6 +368,13 @@ With revision 4 (Phase 14), BREAK DNA's grammar is blended into the developed ph
 cymbal engine then places every cymbal family (steps 3 and 4 above for the cymbals), before the
 personality and the performance. Saved breaks of revision 3 and earlier bake exactly as before.
 
+With revision 5 (Phase 15), CLAP and FX are layered on the finished groove after the rolls, from
+their own streams, so every other hit is exactly what revision 4 made: claps first layer the
+backbeat, then add the recipe's offbeats, answers and pushes as CLAP ACTIVITY rises (a prefix of
+one ranking, so more activity only adds claps); FX take structural places (the top of the
+phrase, the bars a MUTATE reaches, fills), at most two a bar. Revision 4 breaks bake exactly as
+before (a fingerprint test checks every recipe, personality, DNA, CHOP and DESTROY).
+
 Why each of these choices: [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). How the
 code is organised: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -361,7 +413,7 @@ drag, ⌘Z).
   with the demo kit gets its three new toms once; anyone else loads toms (or **DEMO**).
 * Hand edits are positional. A change to a generated hit whose seed or recipe no longer makes
   that hit is kept but inactive (the status line says so). Moving a hit keeps its category (no
-  dragging between rows). Undo covers hand edits, not recipe changes (◀ ▶ the history does).
+  dragging between rows).
 * While playing, an edit is heard from the next hit not yet scheduled: a hit deleted within the
   next 150 ms may still sound once.
 * Chops rearrange hits, not audio: no slice tails, time-stretch or resampling. Pitch is per hit
@@ -374,6 +426,14 @@ drag, ⌘Z).
   TAPE STOP are approximations (hits removed, or moved, lowered and softened), and like CHOP it is
   fixed once there are hand edits. The Phase 14 DESTROY tab shapes the sound of each hit instead.
 * REGEN TRACK overrides FREEZE (it is an explicit request) and leaves a track with no hits alone.
+* **Phase 15 is not yet evaluated by ear.** CLAP and FX placement is checked by tests and
+  measured event data, not listened to; the per-recipe CLAP and FX idioms are hand-set.
+  * Undoing an import moves samples back to their old categories but keeps samples that the
+    import added (undo never deletes a sample); remove them in INGREDIENTS.
+  * A patch is not a file: NEW PATCH offers no SAVE (FAV keeps a break, KITS keep sounds).
+  * ⌘N reaches the page in Safari and Firefox; Chrome keeps it for a new window.
+  * COPY REPORT needs the browser's clipboard permission; where it is refused, the report is
+    selected for copying by hand.
 * **Phase 14 is not yet evaluated by ear.** The BREAK DNA grammars, the cymbal engine and
   DESTROY are checked by tests and measured event data ([docs/phase14-report.md](docs/phase14-report.md));
   DESTROY's sound shaping is measured in a real Web Audio offline render (when a gated or
