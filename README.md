@@ -35,7 +35,7 @@ over: every hit can be added, moved, deleted or changed by hand.
 | **OUTPUT** | (a tab beside BATCH) A master output chain after the mixer and before the master level: up to eight engines in series (OUTPUT STAGE's ten characters, DRIVE, CRUNCH, TONE), each with ON, reorder and REMOVE, BYPASS ALL and presets. Heard at once and rendered into the TAKEAWAY mix; stems stay unprocessed. See [docs/MIXER.md](docs/MIXER.md#output). |
 | **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
 | **MIDI** | Play the break out to drum machines and DAWs (per-track device, channel and note), play the samples from pads or an external sequencer, follow an external MIDI clock or send one (MIDI ▸ MIDI Settings…). |
-| **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, or your own. |
+| **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, AMFAS, or your own. |
 
 OVERBAKE (destructive mutation) and BREED are planned; see *Next steps*.
 

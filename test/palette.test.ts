@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { completeColors, contrastWarnings, exportPalette, importPalette, PaletteLibrary, paletteCss, SHARED_PRESETS, type PaletteStore } from '@slopfactory/core/palette';
-import { BREAKERY_PALETTES } from '../src/ui/palette';
+import { BREAKERY_PALETTES, BREAKERY_PRESETS } from '../src/ui/palette';
 import { bake, seedsFrom } from '../src/engine/generate';
 import { defaultRecipe } from '../src/engine/styles';
 
@@ -18,11 +18,29 @@ const memStore = (): PaletteStore & { data: Record<string, string> } => {
 const css = readFileSync(new URL('../src/ui/style.css', import.meta.url), 'utf8');
 
 describe('The Breakery’s palettes', () => {
-  it('are Core’s shared presets, Atari (the original look) first and the default', () => {
+  it('are Core’s shared presets then AMFAS, Atari (the original look) first and the default', () => {
     const lib = new PaletteLibrary(BREAKERY_PALETTES, memStore());
-    expect(lib.all().map((p) => p.name)).toEqual(['Atari', 'Dark', 'Amber', 'Green Screen', 'C64', 'Phosphor', 'Pink Noise', 'Rave', 'Paper']);
+    expect(lib.all().map((p) => p.name)).toEqual(['Atari', 'Dark', 'Amber', 'Green Screen', 'C64', 'Phosphor', 'Pink Noise', 'Rave', 'Paper', 'AMFAS']);
     expect(lib.selected.name).toBe('Atari');
-    expect(BREAKERY_PALETTES.builtIns).toBe(SHARED_PRESETS);
+    expect(BREAKERY_PALETTES.builtIns).toEqual([...SHARED_PRESETS, ...BREAKERY_PRESETS]);
+  });
+
+  it('AMFAS is the palette file as given, every role its own colour, and reads well', () => {
+    const file = JSON.parse(readFileSync(new URL('../src/palettes/amfas.json', import.meta.url), 'utf8'));
+    expect(importPalette(BREAKERY_PALETTES, JSON.stringify(file)).colors).toEqual(file.colors);
+    const store = memStore();
+    const lib = new PaletteLibrary(BREAKERY_PALETTES, store);
+    const amfas = lib.find('amfas')!;
+    expect(amfas.builtIn).toBe(true);
+    expect(amfas.colors).toEqual(file.colors);
+    const c = completeColors(BREAKERY_PALETTES, amfas.colors);
+    expect(c).toEqual(file.colors);
+    expect(contrastWarnings(BREAKERY_PALETTES, c)).toEqual([]);
+    lib.select('amfas');
+    expect(new PaletteLibrary(BREAKERY_PALETTES, store).selected.name).toBe('AMFAS');
+    const sheet = paletteCss(BREAKERY_PALETTES, c);
+    expect(sheet).toContain('--hits:#ffc014');
+    expect(sheet).toContain('--edits:#ff1a1a');
   });
 
   it('the default palette is exactly the style sheet’s own colours (existing users see no change)', () => {

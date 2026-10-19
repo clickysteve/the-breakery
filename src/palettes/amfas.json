@@ -1,0 +1,15 @@
+{
+  "format": "breakery-palette",
+  "version": 1,
+  "name": "AMFAS",
+  "colors": {
+    "desktop": "#e26803",
+    "paper": "#0a1509",
+    "ink": "#ffffff",
+    "dim": "#ffae00",
+    "hits": "#ffc014",
+    "edits": "#ff1a1a",
+    "activity": "#ffc014",
+    "selection": "#7fa7d1"
+  }
+}
