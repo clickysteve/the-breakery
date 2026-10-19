@@ -3,15 +3,26 @@
  * rather than baked into them, so the generator stays deterministic and an edit can be undone,
  * re-applied or carried onto another break.
  *
- * The layer is positional. A generated hit is known by its KEY (category, bar, step, ticks after
- * the step), which the same seeds and recipe always reproduce. The layer says which generated hits
- * are REMOVED, which are CHANGED (velocity, microtiming, sample) and which hits were ADDED by hand
+ * A generated hit is known by its KEY (category, bar, step, ticks after the step), which the same
+ * seeds and recipe always reproduce. The layer says which generated hits are REMOVED, which are
+ * CHANGED (velocity, microtiming, sample, pitch, reverse) and which hits were ADDED by hand
  * (including generated hits that were MOVED: the original is removed and a hand-placed copy added).
  *
- * Re-baking the same seeds (a recipe control, the samples, the length, the engine) re-applies the
- * layer, so edits survive. A change whose generated hit is no longer there is kept (it applies
- * again if the hit comes back) and reported as inactive; hits in bars beyond the pattern's length
- * are kept the same way. Nothing is ever dropped silently.
+ * ANCHORS (Phase 17). A hit CHOP moved also knows its ORIGIN (`src`: the groove hit it is a copy
+ * of), and its ref is "<key>@<origin>". A removal or change is anchored to the hit it was made on:
+ *   1. it applies to the hit with that origin at that place (exactly where it was made);
+ *   2. otherwise to the nearest hit of that origin in the same bar (CHOP moved that hit: the edit
+ *      follows it, so a deleted hit does not come back elsewhere and a quieter snare stays quiet);
+ *   3. otherwise it waits (kept, reported as inactive, applied again when its hit returns).
+ * A different hit that CHOP puts on an edited place is never touched by that edit. Each hit takes
+ * at most one edit (exact matches first, then the follows in order of place), so nothing doubles.
+ * Hits ADDED by hand stay positional: one per place, whatever CHOP does under them.
+ * A layer saved before Phase 17 (no `v`) treats its plain keys positionally, as it always did, so
+ * saved breaks reproduce exactly; its next edit anchors it (upgradeEdits) without changing a note.
+ *
+ * Re-baking the same seeds (a recipe control, the samples, the length, the engine, CHOP) re-applies
+ * the layer, so edits survive. Hits in bars beyond the pattern's length are kept the same way.
+ * Nothing is ever dropped silently.
  *
  * Every function here is pure: it returns a new layer. Undo and redo are snapshots of the layer.
  */
@@ -55,17 +66,35 @@ export interface ManualHit {
 }
 
 export interface Edits {
+  /** 2: removals and changes are anchored to their hit's origin (Phase 17); absent: a positional layer saved before */
+  v?: 2;
   removed: string[];
   changed: Record<string, HitPatch>;
   added: ManualHit[];
 }
 
-export const noEdits = (): Edits => ({ removed: [], changed: {}, added: [] });
+export const noEdits = (): Edits => ({ v: 2, removed: [], changed: {}, added: [] });
 
 /** Manual timing range, milliseconds (wider than the generator's ±18 ms: the user may want a flam or a drag). */
 export const MANUAL_OFFSET_MS = 60;
 
 export const hitKey = (e: Pick<BreakEvent, 'cat' | 'bar' | 'step' | 'sub'>): string => `${e.cat}|${e.bar}|${e.step}|${e.sub}`;
+/** Where a hit came from: the groove hit CHOP copied it from, or its own key. */
+export const originOf = (e: Pick<BreakEvent, 'cat' | 'bar' | 'step' | 'sub' | 'src'>): string => e.src ?? hitKey(e);
+/** A generated hit's own ref: its key, with its origin when CHOP moved it there ("snare|1|10|0@snare|1|4|0"). */
+export const baseRef = (e: Pick<BreakEvent, 'cat' | 'bar' | 'step' | 'sub' | 'src'>): string => {
+  const k = hitKey(e);
+  return e.src && e.src !== k ? `${k}@${e.src}` : k;
+};
+/** An edit key's place and the origin it is anchored to (a plain key: the hit in its own place). */
+export function splitRef(ref: string): { pos: string; origin: string } {
+  const i = ref.indexOf('@');
+  return i < 0 ? { pos: ref, origin: ref } : { pos: ref.slice(0, i), origin: ref.slice(i + 1) };
+}
+const tickOfKey = (k: string) => {
+  const [, bar, step, sub] = k.split('|').map(Number);
+  return (bar ?? 0) * TPB + (step ?? 0) * TPS + (sub ?? 0);
+};
 const manualRef = (id: string) => `m:${id}`;
 const isManualRef = (ref: string) => ref.startsWith('m:');
 
@@ -105,6 +134,10 @@ export interface ApplyReport {
   inactive: number;
   /** hand-placed hits in bars beyond the pattern's length */
   outside: number;
+  /** removals and changes that followed their hit to another place (CHOP moved it) */
+  followed?: number;
+  /** a positional (pre-Phase 17) layer: each plain key that found a hit, and that hit's own ref (upgradeEdits) */
+  anchors?: Record<string, string>;
 }
 
 /**
@@ -115,13 +148,23 @@ export interface ApplyReport {
  */
 export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined, recipe: Pick<Recipe, 'swing' | 'bars'>): { events: BreakEvent[]; report: ApplyReport } {
   const report: ApplyReport = { inactive: 0, outside: 0 };
-  for (const e of events) e.ref = hitKey(e);
+  for (const e of events) e.ref = baseRef(e);
   if (!hasEdits(edits)) return { events, report };
   const ed = edits!;
-  const keys = new Set(events.map((e) => e.ref!));
   const removed = new Set(ed.removed);
-  for (const k of removed) if (!keys.has(k)) report.inactive++;
-  for (const k of Object.keys(ed.changed)) if (!keys.has(k) || removed.has(k)) report.inactive++;
+  // hand-placed hits replace a generated hit of their drum at their place: an edit never lands on one
+  const placedAt = new Set(ed.added.filter((m) => m.bar >= 0 && m.bar < recipe.bars).map(hitKey));
+  const { target, followed, anchors } = resolve(events, [...new Set([...ed.removed, ...Object.keys(ed.changed)])], ed.v !== 2, placedAt);
+  if (followed) report.followed = followed;
+  if (anchors) report.anchors = anchors;
+  for (const k of removed) if (!target.has(k)) report.inactive++;
+  for (const k of Object.keys(ed.changed)) if (!target.has(k) || removed.has(k)) report.inactive++;
+  // the edit each hit takes (by the edit's key: a followed hit answers to it from now on)
+  const editOf = new Map<BreakEvent, string>();
+  for (const [k, e] of target) {
+    editOf.set(e, k);
+    e.ref = k;
+  }
   const placed = new Set<string>();
   const added: BreakEvent[] = [];
   for (const m of ed.added) {
@@ -154,8 +197,9 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
   }
   const out: BreakEvent[] = [];
   for (const e of events) {
-    if (removed.has(e.ref!) || placed.has(e.ref!)) continue;
-    const p = ed.changed[e.ref!];
+    const k = editOf.get(e);
+    if ((k && removed.has(k)) || placed.has(hitKey(e))) continue;
+    const p = k ? ed.changed[k] : undefined;
     if (p) {
       const notes: string[] = [];
       if (p.vel !== undefined && p.vel !== e.vel) {
@@ -192,13 +236,80 @@ export function applyEdits(events: BreakEvent[], edits: Edits | null | undefined
   return { events: out, report };
 }
 
+/**
+ * Which hit each removal or change applies to (see ANCHORS above). `legacy`: plain keys are places
+ * (a layer saved before Phase 17). Deterministic: exact matches first, then the follows in order
+ * of their place (and key), each to the nearest unclaimed hit of its origin in its bar.
+ */
+function resolve(events: BreakEvent[], keys: string[], legacy: boolean, placedAt: Set<string>): { target: Map<string, BreakEvent>; followed: number; anchors?: Record<string, string> } {
+  const target = new Map<string, BreakEvent>();
+  const claimed = new Set<BreakEvent>();
+  const byRef = new Map<string, BreakEvent>();
+  const byPos = new Map<string, BreakEvent>();
+  for (const e of events) {
+    byRef.set(e.ref ?? baseRef(e), e);
+    byPos.set(hitKey(e), e);
+  }
+  const anchors: Record<string, string> = {};
+  const positional = (k: string) => legacy && !k.includes('@');
+  for (const k of keys) {
+    const e = positional(k) ? byPos.get(k) : byRef.get(k);
+    if (!e || claimed.has(e)) continue;
+    target.set(k, e);
+    claimed.add(e);
+    if (positional(k)) anchors[k] = baseRef(e);
+  }
+  let followed = 0;
+  const rest = keys.filter((k) => !target.has(k) && !positional(k)).sort((a, b) => tickOfKey(splitRef(a).pos) - tickOfKey(splitRef(b).pos) || (a < b ? -1 : a > b ? 1 : 0));
+  if (rest.length) {
+    const byOrigin = new Map<string, BreakEvent[]>();
+    for (const e of events) {
+      if (placedAt.has(hitKey(e))) continue;
+      const o = originOf(e);
+      byOrigin.set(o, [...(byOrigin.get(o) ?? []), e]);
+    }
+    for (const k of rest) {
+      const { pos, origin } = splitRef(k);
+      const [cat, bar] = pos.split('|');
+      const t = tickOfKey(pos);
+      let best: BreakEvent | null = null;
+      for (const e of byOrigin.get(origin) ?? []) {
+        if (claimed.has(e) || e.cat !== cat || String(e.bar) !== bar) continue;
+        if (!best || Math.abs(tickOf(e) - t) < Math.abs(tickOf(best) - t) || (Math.abs(tickOf(e) - t) === Math.abs(tickOf(best) - t) && tickOf(e) < tickOf(best))) best = e;
+      }
+      if (!best) continue;
+      target.set(k, best);
+      claimed.add(best);
+      followed++;
+    }
+  }
+  return { target, followed, ...(legacy && Object.keys(anchors).length ? { anchors } : {}) };
+}
+
+/**
+ * A positional layer (saved before Phase 17) made anchored, for its next edit: each plain key that
+ * found a hit takes that hit's ref (`report.anchors`), so what plays does not change; one waiting
+ * for its hit keeps its key (now: the hit in its own place). An anchored layer is returned as it is.
+ */
+export function upgradeEdits(edits: Edits, report: ApplyReport | null | undefined): Edits {
+  if (edits.v === 2) return edits;
+  const a = report?.anchors ?? {};
+  const to = (k: string) => a[k] ?? k;
+  const out = clone(edits);
+  out.v = 2;
+  out.removed = [...new Set(out.removed.map(to))];
+  out.changed = Object.fromEntries(Object.entries(out.changed).map(([k, p]) => [to(k), p]));
+  for (const m of out.added) if (m.from) m.from.key = to(m.from.key);
+  return out;
+}
+
 const fmtMs = (ms: number) => `${ms > 0 ? '+' : ''}${Math.round(ms * 10) / 10} ms`;
 /** "+7 st", "-12 st", "0 st" */
 export const fmtPitch = (st: number) => `${st > 0 ? '+' : ''}${st} st`;
 
 // ---------------------------------------------------------------------------- operations
 
-const clone = (e: Edits): Edits => ({ removed: [...e.removed], changed: Object.fromEntries(Object.entries(e.changed).map(([k, v]) => [k, { ...v }])), added: e.added.map((m) => ({ ...m, ...(m.from ? { from: { ...m.from } } : {}) })) });
+const clone = (e: Edits): Edits => ({ ...(e.v === 2 ? { v: 2 as const } : {}), removed: [...e.removed], changed: Object.fromEntries(Object.entries(e.changed).map(([k, v]) => [k, { ...v }])), added: e.added.map((m) => ({ ...m, ...(m.from ? { from: { ...m.from } } : {}) })) });
 
 function newId(e: Edits): string {
   let n = e.added.length + 1;
@@ -405,7 +516,9 @@ export function sanitiseEdits(v: unknown, cats: readonly string[]): Edits {
   const out = noEdits();
   if (!v || typeof v !== 'object') return out;
   const o = v as Partial<Edits>;
-  const okKey = (k: unknown): k is string => typeof k === 'string' && /^[a-z]+\|\d+\|\d+\|\d+$/.test(k) && cats.includes(k.split('|')[0]!);
+  // a layer saved before Phase 17 stays positional (it reproduces exactly); its next edit anchors it
+  if (o.v !== 2) delete out.v;
+  const okKey = (k: unknown): k is string => typeof k === 'string' && /^[a-z]+\|\d+\|\d+\|\d+(@~?[a-z]+\|\d+\|\d+\|\d+)?$/.test(k) && k.split('@').every((p) => cats.includes(p.replace('~', '').split('|')[0]!));
   if (Array.isArray(o.removed)) out.removed = [...new Set(o.removed.filter(okKey))];
   if (o.changed && typeof o.changed === 'object')
     for (const [k, p] of Object.entries(o.changed)) {
@@ -459,6 +572,7 @@ export function describeEdits(e: Edits | null | undefined, report?: ApplyReport)
     Object.keys(x.changed).length ? `${Object.keys(x.changed).length} changed` : '',
   ].filter(Boolean);
   let s = `Hand edits: ${parts.join(', ')}.`;
+  if (report?.followed) s += ` ${report.followed} followed ${report.followed === 1 ? 'its hit' : 'their hits'} to where CHOP moved ${report.followed === 1 ? 'it' : 'them'}.`;
   if (report?.inactive) s += ` ${report.inactive} not active (that generated hit is not in this break).`;
   if (report?.outside) s += ` ${report.outside} beyond the pattern length (kept; lengthen it to hear them).`;
   return s;

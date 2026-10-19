@@ -411,6 +411,12 @@ export interface BreakEvent extends Hit {
   free?: true;
   /** ROLLS (revision 6): a retrigger stroke of the roll leading into this source hit (its key) */
   rollOf?: string;
+  /**
+   * CHOP: where this hit came from when CHOP moved it (the key of the groove hit it is a copy of),
+   * or "~<its own key>" for a CHOP retrigger stroke. Absent: the hit is in its own place. Hand edits
+   * are anchored to it (edits.ts), so an edit follows its hit through RE-CHOP.
+   */
+  src?: string;
 }
 
 /** EXPRESSION: the pitch range of a hit, semitones either way. */

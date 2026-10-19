@@ -5,7 +5,7 @@
  * so each control's effect is heard on the same break; BAKE draws new seeds for every layer that
  * is not frozen; MUTATE varies the current groove a little.
  */
-import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, ratchetHit, RATCHET_SPAN_LABEL, refLabel, revertHit, sanitiseEdits, setPitch, setReverse, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, ratchetHit, RATCHET_SPAN_LABEL, refLabel, revertHit, sanitiseEdits, setPitch, setReverse, setSample, setTiming, setVelocity, upgradeEdits, type EditResult, type Edits } from '../engine/edits';
 import { defaultRollExpr, describeExpr, diceExpr, presetExpr, sanitiseRollExpr, type RollExpression, type RollPreset } from '../engine/rollExpr';
 import { defaultDestroy, describeDestroy, sanitiseDestroy, type DestroySettings } from '../engine/destroy';
 import { describePersonality, PERSONALITY_LABEL, sanitisePersonality, type PersonalitySetting } from '../engine/personality';
@@ -581,7 +581,7 @@ export class App {
     const generated = this.bakeWith(this.seeds, this.recipe, null).events;
     const removed = [...new Set(generated.map((e) => e.ref ?? hitKey(e)))];
     this.selected = null;
-    this.commit({ edits: { removed, changed: {}, added: [] }, ref: null }, false, { say: `Cleared the pattern (${n} hit${n === 1 ? '' : 's'}). The settings are as they were: ⌘Z brings the hits back, BAKE makes a new pattern.` });
+    this.commit({ edits: { v: 2, removed, changed: {}, added: [] }, ref: null }, false, { say: `Cleared the pattern (${n} hit${n === 1 ? '' : 's'}). The settings are as they were: ⌘Z brings the hits back, BAKE makes a new pattern.` });
   }
 
   /**
@@ -904,15 +904,18 @@ export class App {
   }
 
   /**
-   * Hand edits through a transformation change: they are a positional layer over the result
-   * (engine/edits.ts), so they are never deleted; one whose hit is not in the new result waits,
-   * inactive, and applies again when that result comes back (CHOP as it was, the same take).
+   * Hand edits through a transformation change: they are a layer over the result, anchored to the
+   * hits they were made on (engine/edits.ts), so they are never deleted. One whose hit CHOP moved
+   * follows it; one whose hit is not in the new result waits, inactive, and applies again when
+   * that hit comes back. Hits added by hand stay where they were put.
    */
   private get editsNote(): string {
     if (!hasEdits(this.edits)) return '';
     const n = editCount(this.edits);
     const off = this.current.editReport?.inactive ?? 0;
-    return ` Your ${n} hand edit${n === 1 ? ' is' : 's are'} kept${off ? ` (${off} waiting for ${off === 1 ? 'its' : 'their'} hit: ${off === 1 ? 'it applies' : 'they apply'} again when it returns)` : ''}.`;
+    const moved = this.current.editReport?.followed ?? 0;
+    const notes = [moved ? `${moved} followed ${moved === 1 ? 'its hit' : 'their hits'} to ${moved === 1 ? 'its' : 'their'} new place` : '', off ? `${off} waiting for ${off === 1 ? 'its' : 'their'} hit: ${off === 1 ? 'it applies' : 'they apply'} again when it returns` : ''].filter(Boolean);
+    return ` Your ${n} hand edit${n === 1 ? ' is' : 's are'} kept${notes.length ? ` (${notes.join('; ')})` : ''}.`;
   }
 
   /**
@@ -1159,7 +1162,7 @@ export class App {
     const all = this.current.events.filter((e) => e.role === 'roll' && e.ref);
     if (!all.length) return this.say('There are no rolls in this pattern.');
     const generated = this.rollLayer && all.some((e) => e.rollOf && !e.manual);
-    let edits = this.edits;
+    let edits = this.layer;
     for (const e of all) if (!(generated && e.rollOf && !e.manual)) edits = deleteHit(edits, e.ref!);
     const deleted = all.length - (generated ? all.filter((e) => e.rollOf && !e.manual).length : 0);
     if (generated) {
@@ -1174,9 +1177,9 @@ export class App {
 
   /** Delete several hits as one action (one undo step). */
   deleteHits(refs: string[], say?: string): void {
-    let edits = this.edits;
+    let edits = this.layer;
     for (const r of refs) if (findRef(this.current.events, r)) edits = deleteHit(edits, r);
-    if (edits === this.edits) return;
+    if (this.unchanged(edits)) return;
     this.commit({ edits, ref: null }, !!this.selected && refs.includes(this.selected), { say: say ?? `Deleted ${refs.length} hit${refs.length === 1 ? '' : 's'}.` });
   }
 
@@ -1293,6 +1296,21 @@ export class App {
     return hasEdits(this.edits);
   }
 
+  /** A layer saved before Phase 17, made anchored for its next edit (the same notes play); kept until the layer changes. */
+  private upgraded: { from: Edits; to: Edits } | null = null;
+
+  /** The edit layer that hand edits build on: anchored (engine/edits.ts upgradeEdits). */
+  private get layer(): Edits {
+    if (this.edits.v === 2) return this.edits;
+    if (this.upgraded?.from !== this.edits) this.upgraded = { from: this.edits, to: upgradeEdits(this.edits, this.current.editReport) };
+    return this.upgraded.to;
+  }
+
+  /** Is this the layer as it is (an operation that changed nothing)? */
+  private unchanged(e: Edits): boolean {
+    return e === this.edits || (this.upgraded?.from === this.edits && e === this.upgraded.to);
+  }
+
   get canUndo(): boolean {
     return this.undoStack.length > 0;
   }
@@ -1358,7 +1376,7 @@ export class App {
 
   /** Commit a new edit layer; pointer gestures group intermediate changes. */
   private commit(r: EditResult, select: boolean, opts: { gesture?: boolean; say?: string } = {}): boolean {
-    if (r.edits === this.edits) {
+    if (this.unchanged(r.edits)) {
       if (select && r.ref) this.select(r.ref);
       return false;
     }
@@ -1383,8 +1401,8 @@ export class App {
   addHit(cat: Category, tick: number, gesture = false): string | null {
     const p = posOf(tick);
     if (p.bar < 0 || p.bar >= this.recipe.bars) return null;
-    const r = addHit(this.edits, this.current.events, { cat, ...p });
-    this.commit(r, true, { gesture, say: r.edits === this.edits ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
+    const r = addHit(this.layer, this.current.events, { cat, ...p });
+    this.commit(r, true, { gesture, say: this.unchanged(r.edits) ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
     const e = this.selectedEvent;
     if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel, e);
     return r.ref;
@@ -1394,14 +1412,14 @@ export class App {
     const e = findRef(this.current.events, ref);
     if (!e || !ref) return;
     const label = refLabel(this.current.events, ref);
-    this.commit({ edits: deleteHit(this.edits, ref), ref: null }, ref === this.selected, { say: `Deleted ${label}${e.manual === 'added' ? '' : ' (⌘Z brings it back)'}.` });
+    this.commit({ edits: deleteHit(this.layer, ref), ref: null }, ref === this.selected, { say: `Deleted ${label}${e.manual === 'added' ? '' : ' (⌘Z brings it back)'}.` });
   }
 
   /** Move a hit to a grid tick (same category). False if refused (another hit of the category is there). */
   moveHit(ref: string, tick: number, gesture = false): boolean {
     const p = posOf(tick);
     if (p.bar < 0 || p.bar >= this.recipe.bars) return false;
-    const r = moveHit(this.edits, this.current.events, ref, p);
+    const r = moveHit(this.layer, this.current.events, ref, p);
     if (!r.ref) return false;
     this.commit(r, true, { gesture, say: `Moved to ${posLabel(p)}.` });
     return true;
@@ -1418,17 +1436,17 @@ export class App {
 
   setHitVelocity(v: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setVelocity(this.edits, this.current.events, ref, v), false);
+    this.commit(setVelocity(this.layer, this.current.events, ref, v), false);
   }
 
   setHitTiming(ms: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setTiming(this.edits, this.current.events, ref, ms), false);
+    this.commit(setTiming(this.layer, this.current.events, ref, ms), false);
   }
 
   setHitSample(sample: string | null, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setSample(this.edits, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
+    this.commit(setSample(this.layer, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
     const e = findRef(this.current.events, ref);
     if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
   }
@@ -1436,13 +1454,13 @@ export class App {
   /** EXPRESSION: transpose the hit (semitones, by playback rate). */
   setHitPitch(st: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    if (this.commit(setPitch(this.edits, this.current.events, ref, st), false)) this.status = `Pitch ${fmtPitch(findRef(this.current.events, ref)?.pitch ?? 0)} (by playback rate: higher is shorter).`;
+    if (this.commit(setPitch(this.layer, this.current.events, ref, st), false)) this.status = `Pitch ${fmtPitch(findRef(this.current.events, ref)?.pitch ?? 0)} (by playback rate: higher is shorter).`;
   }
 
   /** EXPRESSION: play the hit backwards (or forwards again). */
   setHitReverse(on: boolean, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setReverse(this.edits, this.current.events, ref, on), false, { say: on ? 'Reversed: the sample plays backwards from this hit.' : 'Forwards again.' });
+    this.commit(setReverse(this.layer, this.current.events, ref, on), false, { say: on ? 'Reversed: the sample plays backwards from this hit.' : 'Forwards again.' });
     const e = findRef(this.current.events, ref);
     if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
   }
@@ -1451,14 +1469,14 @@ export class App {
   ratchet(n: number, span: number, ref: string | null = this.selected): void {
     if (!ref) return;
     const { preset: _p, variant: _v, ratchet: _r, ...shape } = this.rollExpr;
-    const r = ratchetHit(this.edits, this.current.events, ref, n, span, shape, this.recipe.bpm, this.recipe.bars);
+    const r = ratchetHit(this.layer, this.current.events, ref, n, span, shape, this.recipe.bpm, this.recipe.bars);
     if (!r.ref) return this.say('No room to ratchet this hit there.');
     this.commit(r, true, { say: `Ratchet ×${n} over ${RATCHET_SPAN_LABEL[span] ?? `${span} ticks`} (${describeExpr(this.recipe.rollExpr)}) ⌘Z undoes it.` });
   }
 
   duplicateHit(ref: string | null = this.selected): void {
     if (!ref) return;
-    const r = duplicateHit(this.edits, this.current.events, ref, this.snap, this.recipe.bars);
+    const r = duplicateHit(this.layer, this.current.events, ref, this.snap, this.recipe.bars);
     if (!r.ref) return this.say('No free place for a copy after this hit.');
     this.commit(r, true, { say: `Duplicated: ${refLabel(this.current.events, ref)} → ${refLabel(this.bakeWith(this.seeds, this.recipe, r.edits).events, r.ref)}.` });
   }
@@ -1466,7 +1484,7 @@ export class App {
   /** Back to how the generator made this hit (a moved hit returns to its place). */
   revertHit(ref: string | null = this.selected): void {
     if (!ref) return;
-    const r = revertHit(this.edits, ref);
+    const r = revertHit(this.layer, ref);
     if (!r.ref) return this.say('This hit was placed by hand: there is nothing generated to go back to (DEL removes it).');
     this.commit(r, true, { say: 'Back to the generated hit.' });
   }
