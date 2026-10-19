@@ -13,6 +13,7 @@ import { destroyActive } from '../engine/destroy';
 import { exprActive } from '../engine/rollExpr';
 import { personaActive } from '../engine/personality';
 import { dnaActive } from '../engine/dna';
+import { destroy2Active } from '../engine/destroy2';
 import { sanitiseSampleSettings, type SampleSettings } from '../engine/samples';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, type Recipe, type Seeds } from '../engine/types';
@@ -50,6 +51,9 @@ export function entryKey(e: Pick<SeedEntry, 'recipe' | 'seeds'> & { edits?: Edit
   if (dnaActive(r.dna)) k.push(['dna', r.dna!.id, r.dna!.amount]);
   if (destroyActive(r.destroy)) k.push(['destroy', r.destroy!.amount, r.destroy!.style, r.destroy!.variant]);
   if (s.regen?.length) k.push(['regen', s.regen.map((x) => [x.cats, x.n])]);
+  // Phase 14 (absent before it, so earlier keys are unchanged)
+  if (r.cym) k.push(['cym', r.cym]);
+  if (destroy2Active(r.destroy2)) k.push(['destroy2', r.destroy2]);
   if (hasEdits(e.edits)) k.push(editsKey(e.edits));
   return JSON.stringify(k);
 }
@@ -145,16 +149,20 @@ export function sanitiseFavourite(v: unknown): Favourite | null {
 
 // ------------------------------------------------------------------ DICE
 
+// Single, plain, family-friendly words (checked by hand: no slurs, no body parts, no brands, nothing
+// that reads badly next to another word of the lists). Uppercase, joined by hyphens, with a number:
+// VELVET-THUNDER-17. 128 x 128 x 90 = about 1.5 million names, so DICE and BAKE rarely repeat one.
 // prettier-ignore
-const ADJ = ['dusty', 'broken', 'rainy', 'midnight', 'rusty', 'velvet', 'crooked', 'sunday', 'lost', 'sticky', 'heavy', 'loose', 'golden', 'wonky', 'secret', 'electric', 'tired', 'cosmic', 'paper', 'second-hand', 'borrowed', 'shaky', 'humid', 'concrete', 'neon', 'tin', 'last', 'early', 'basement', 'slow', 'restless', 'lucky'];
+export const DICE_ADJ = ['VELVET', 'DUSTY', 'RUSTY', 'GOLDEN', 'NEON', 'COSMIC', 'MIDNIGHT', 'SUNDAY', 'CROOKED', 'HEAVY', 'LOOSE', 'WONKY', 'SECRET', 'ELECTRIC', 'PAPER', 'SHAKY', 'HUMID', 'CONCRETE', 'TIN', 'EARLY', 'SLOW', 'RESTLESS', 'LUCKY', 'BRASS', 'COPPER', 'SILVER', 'AMBER', 'COBALT', 'CRIMSON', 'INDIGO', 'SCARLET', 'VIOLET', 'EMERALD', 'IVORY', 'SMOKY', 'FOGGY', 'RAINY', 'SNOWY', 'SUNNY', 'WINDY', 'STORMY', 'MISTY', 'FROSTY', 'MOSSY', 'SANDY', 'SALTY', 'SPICY', 'SWEET', 'BITTER', 'CRISPY', 'FUZZY', 'GROOVY', 'FUNKY', 'JAZZY', 'BOUNCY', 'WOBBLY', 'TWISTED', 'TANGLED', 'HOLLOW', 'HIDDEN', 'DISTANT', 'ANCIENT', 'MODERN', 'ATOMIC', 'LUNAR', 'SOLAR', 'STELLAR', 'ORBITAL', 'MAGNETIC', 'ANALOG', 'DIGITAL', 'STATIC', 'SONIC', 'ROLLING', 'TUMBLING', 'SPINNING', 'DRIFTING', 'GLOWING', 'HUMMING', 'BUZZING', 'RATTLING', 'CLATTERING', 'SWINGING', 'STOMPING', 'SHUFFLING', 'SKIPPING', 'MELLOW', 'MIGHTY', 'GENTLE', 'WILD', 'QUIET', 'LOUD', 'BRIGHT', 'DARK', 'GIANT', 'TINY', 'SWIFT', 'LAZY', 'SLEEPY', 'DIZZY', 'CURIOUS', 'CLEVER', 'BRAVE', 'NOBLE', 'ROYAL', 'RUSTIC', 'URBAN', 'COASTAL', 'ALPINE', 'ARCTIC', 'TROPIC', 'DESERT', 'MARBLE', 'WOODEN', 'GLASS', 'IRON', 'STEEL', 'CHROME', 'PLASTIC', 'VINYL', 'CASSETTE', 'TAPE', 'RADIO', 'BASEMENT', 'ROOFTOP', 'BACKSTREET', 'SATURDAY', 'AUTUMN', 'WINTER'];
 // prettier-ignore
-const NOUN = ['crate', 'chicken', 'washing machine', 'staircase', 'bus stop', 'teapot', 'radiator', 'pigeon', 'cassette', 'kettle', 'lift', 'biscuit', 'puddle', 'jukebox', 'carpet', 'tram', 'fire escape', 'drum stool', 'cardigan', 'trolley', 'aerial', 'gasworks', 'chip shop', 'flyover', 'pressing plant', 'basement', 'ferry', 'pylon', 'turntable', 'laundrette', 'arcade', 'shed'];
-// prettier-ignore
-const PLACE = ['glasgow', 'bristol', 'leeds', 'detroit', 'the bronx', 'peckham', 'sheffield', 'croydon', 'harlesden', 'cardiff', 'belfast', 'nottingham'];
+export const DICE_NOUN = ['THUNDER', 'KETTLE', 'PIGEON', 'TEAPOT', 'RADIATOR', 'CASSETTE', 'JUKEBOX', 'PUDDLE', 'TRAM', 'FERRY', 'PYLON', 'TURNTABLE', 'ARCADE', 'SHED', 'CRATE', 'STAIRCASE', 'BISCUIT', 'CARDIGAN', 'TROLLEY', 'AERIAL', 'FLYOVER', 'LIGHTHOUSE', 'HARBOUR', 'GARDEN', 'ORCHARD', 'MEADOW', 'RIVER', 'CANYON', 'GLACIER', 'VOLCANO', 'COMET', 'NEBULA', 'GALAXY', 'PLANET', 'ROCKET', 'SATELLITE', 'ROBOT', 'ENGINE', 'MACHINE', 'GADGET', 'LANTERN', 'CANDLE', 'MIRROR', 'WINDOW', 'DOORWAY', 'BALCONY', 'CHIMNEY', 'TUNNEL', 'BRIDGE', 'TOWER', 'CASTLE', 'PALACE', 'TEMPLE', 'MARKET', 'BAKERY', 'DINER', 'CAFE', 'LIBRARY', 'MUSEUM', 'STUDIO', 'GARAGE', 'WAREHOUSE', 'FACTORY', 'STATION', 'AIRPORT', 'HIGHWAY', 'AVENUE', 'BOULEVARD', 'ALLEYWAY', 'COURTYARD', 'FOUNTAIN', 'STATUE', 'PENGUIN', 'PELICAN', 'FLAMINGO', 'PANTHER', 'TIGER', 'BADGER', 'OTTER', 'BEAVER', 'WALRUS', 'DOLPHIN', 'OCTOPUS', 'LOBSTER', 'BEETLE', 'HORNET', 'FALCON', 'RAVEN', 'SPARROW', 'HERON', 'MOTH', 'LIZARD', 'TORTOISE', 'MAMMOTH', 'DRAGON', 'PHOENIX', 'GRIFFIN', 'GOBLIN', 'WIZARD', 'PIRATE', 'SAILOR', 'DRUMMER', 'DANCER', 'BOXER', 'JUGGLER', 'ACROBAT', 'MAGICIAN', 'ASTRONAUT', 'DETECTIVE', 'PROFESSOR', 'MECHANIC', 'GARDENER', 'POSTMAN', 'BAKER', 'ENGINEER', 'BREAKBEAT', 'BASSLINE', 'RHYTHM', 'GROOVE', 'TEMPO', 'ECHO', 'SIGNAL', 'CIRCUIT', 'VOLTAGE', 'PULSE', 'ORBIT', 'MOMENTUM'];
 
-/** A random seed name ("rusty kettle", "bristol 1993"). Uses `random` (Math.random in the app). */
+/**
+ * A random seed name from the word lists, "VELVET-THUNDER-17". Uses `random` (Math.random in the
+ * app; a seeded stream for WILDCARD, so it is deterministic). A name only ever reproduces a break
+ * together with its recipe and settings (and the layers FREEZE kept), never on its own.
+ */
 export function diceName(random: () => number = Math.random): string {
-  const pick = <T>(xs: T[]) => xs[Math.floor(random() * xs.length)]!;
-  if (random() < 0.2) return `${pick(PLACE)} ${1969 + Math.floor(random() * 32)}`;
-  return `${pick(ADJ)} ${pick(NOUN)}`;
+  const pick = <T>(xs: readonly T[]) => xs[Math.min(xs.length - 1, Math.floor(random() * xs.length))]!;
+  return `${pick(DICE_ADJ)}-${pick(DICE_NOUN)}-${10 + Math.floor(random() * 90)}`;
 }

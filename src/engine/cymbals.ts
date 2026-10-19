@@ -48,7 +48,8 @@ import { posName } from './meter';
 import { stream, type Rng } from './rng';
 import { VOCAB, type AccentCycle, type FillKind, type StyleDef } from './styles';
 import { timeLevel } from './support';
-import { clamp, STEPS, TPS, type BarRole, type Category, type Hit, type Mutation, type Recipe } from './types';
+import { clamp, CYMBAL_REVISION, STEPS, TPS, type BarRole, type Category, type Hit, type Mutation, type Recipe } from './types';
+import { cymSettings } from './cymbals4';
 
 /** Where a bar's fill starts and what kind it is (phrase.ts records it). */
 export interface FillMark {
@@ -67,9 +68,10 @@ const BY_DENSITY = [...CYMBAL_APPROACHES].sort((a, b) => PEAK[a] - PEAK[b]);
 const WIDTH = 0.24;
 export const affinity = (id: CymbalId, a: number): number => Math.exp(-(((a - PEAK[id]) / WIDTH) ** 2));
 
-/** The default activity of each family for a recipe (a recipe saved without them). */
-export const hatActivity = (r: Recipe): number => clamp(r.hats ?? VOCAB[r.style].hats, 0, 1);
-export const rideActivity = (r: Recipe): number => clamp(r.ride ?? VOCAB[r.style].ride, 0, 1);
+const rev4 = (r: Recipe) => r.engine === 2 && (r.revision ?? 0) >= CYMBAL_REVISION;
+/** The activity of each family for a recipe (a recipe saved without them: its default). Revision 4: CLOSED HAT and RIDE ACTIVITY (cymbals4.ts). */
+export const hatActivity = (r: Recipe): number => (rev4(r) ? cymSettings(r).closed : clamp(r.hats ?? VOCAB[r.style].hats, 0, 1));
+export const rideActivity = (r: Recipe): number => (rev4(r) ? cymSettings(r).ride : clamp(r.ride ?? VOCAB[r.style].ride, 0, 1));
 
 /** One family's choices for the phrase. */
 interface Voice {
@@ -471,7 +473,7 @@ export function addCymbals(bars: Hit[][], ctx: CymbalContext, rng: Rng): CymbalR
 }
 
 /** A small mutation of a bar's cymbals: one stroke goes, one comes, or an open hat moves. */
-function mutateCymbals(hits: Hit[], rng: Rng, cats: Category[]): Hit[] {
+export function mutateCymbals(hits: Hit[], rng: Rng, cats: Category[]): Hit[] {
   const mine = hits.filter((h) => cats.includes(h.cat));
   const op = rng.weighted([mine.length ? 1 : 0, 1, cats.includes('open') ? 0.6 : 0]);
   if (op === 0) {

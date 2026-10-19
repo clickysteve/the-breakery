@@ -28,6 +28,7 @@ over: every hit can be added, moved, deleted or changed by hand.
 | **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, or your hand EDITS, when baking again. |
 | **CHOP** | (a tab beside RECIPE) Transform the GROOVE: re-arrange its phrase (recalls, swaps, repeats, retriggers, drop-outs) with AMOUNT, SLICE SIZE (LARGE, MEDIUM, SMALL, MICRO) and RETRIGGER; RE-CHOP. Non-destructive: the GROOVE is kept. |
 | **ROLLS** | (a tab beside RECIPE) Roll generation on/off, probability, length, speed 1/16–1/64 and triplets, dynamics, placement, which drums; CLEAR ROLLS. |
+| **DESTROY** | (a tab beside RECIPE) Destroy the finished pattern: STUTTER, PITCH, REVERSE, GATE and TAPE STOP per track (a matrix), each with its own PROBABILITY and settings, a MASTER AMOUNT, RE-DESTROY and CHAOS. Non-destructive: off is the pattern exactly, and the settings are kept. |
 | **MUTATE** | (a tab beside RECIPE) MUTATE PATTERN with a style, depth, range and tracks; CREATE RELATED SECTION (verse, chorus, breakdown, build, fill, alternate). |
 | **PATTERN** | See every hit and why it is there; edit hits by hand (click to add or delete, shift+click to edit, drag to move; velocity, timing, sample) with undo; SOLO and MUTE each drum. Dense rolls show as one group (ROLL ×N): click to expand. |
 | **MIXER** | (a tab beside PATTERN) Level, pan, MUTE, SOLO and a meter for each drum, the master level with output meters and PEAK. |
@@ -96,8 +97,11 @@ from any folder of any static server). `npm run evaluate` regenerates
    for what it does. **Every number can be typed**: click it (the value is selected), type,
    Return; Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or
    drag, or double-click to type a value. **BARS** is 1–8. **SEED** takes a number or any words
-   ("funky chicken"): the same seed and recipe always bake the same break. **DICE** rolls a
-   named seed; **◀ ▶** (or ← →) move through the history; **FAV** saves the break (recipe, seeds,
+   ("funky chicken", VELVET-THUNDER-42): the same seed and recipe always bake the same break
+   (names ignore case and extra spaces; numbers stay numbers, so old numeric seeds bake as they
+   always did). A seed alone is not the break: the recipe and its settings come with it, which is
+   why the history and favourites keep both. **DICE** rolls a memorable named seed (BAKE, BATCH
+   and WILDCARD name their breaks the same way, and exports carry the name); **◀ ▶** (or ← →) move through the history; **FAV** saves the break (recipe, seeds,
    mutations and sample settings; favourites are in the **Seeds** menu). **TOM ACTIVITY** sets how
    much the toms play: from an occasional fill at the end of the phrase to tom phrases through
    it. The **MUTATE** tab (U) makes a related variation by changing the
@@ -172,11 +176,10 @@ from any folder of any static server). `npm run evaluate` regenerates
      PLAYFUL, HEAVY-HANDED, DELICATE, DILLA) and **INTENSITY** (0% = the recipe exactly). Your
      settings keep their meaning: TOMS 0 stays without toms, ROLLS off stays off, a sparse
      DENSITY stays sparse. **DILLA**: kick, snare and hats each in their own time, repeating.
-   * **BREAK DNA** (same tab): **NONE** or **AMEN**, with **INFLUENCE**: the Amen break's
-     construction (A A A′ B, the kick pair on 3, syncopated snares, the late backbeat, the
-     turnaround) blended into the recipe. No audio from the recording is used or shipped.
-   * **CHOP ▸ DESTROY**: STUTTER, PITCH, REVERSE, GATE or CHAOS over a share of the beats
-     (**AMOUNT**; 0 changes nothing), **DICE** for another take. The first beat is never touched.
+   * **BREAK DNA** (same tab): **NONE** or **AMEN**, with **INFLUENCE** (Phase 14 adds seven
+     more; see item 9).
+   * **CHOP ▸ DESTROY** (Phase 12): replaced by the **DESTROY** tab in Phase 14. A break saved
+     with it still plays as saved, and the DESTROY tab can remove it.
    * **REGEN TRACK** (X, or **Bake ▸ Regen Track**): click a track name in the PATTERN to select
      it (shift-click for more), then regenerate just those tracks. Everything else stays exactly
      as it was; one ⌘Z goes back. It works even with FREEZE on, because you asked for it.
@@ -208,7 +211,37 @@ from any folder of any static server). `npm run evaluate` regenerates
      * FREEZE and TEMPO LOCK are respected, nothing is downloaded or deleted, and solo and mute
        are never touched.
      * One ⌘Z undoes all of it.
-9. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
+9. **BREAK DNA, DESTROY, seeds and cymbals** (Phase 14).
+   * **BREAK DNA** (PERSONALITY tab): eight generative grammars informed by classic breaks and
+     drumming traditions: AMEN, FUNKY DRUMMER, APACHE, THINK, IMPEACH, ROACHCLIP (recordings),
+     BOOGIE and MOTORIK (traditions). Each is a vocabulary (kick cells per beat, a backbeat,
+     ghosts and percussion, a phrase unit and how it develops, cymbal and CHOP leans), so every
+     seed gives a different break in that language, not a copy of the record. **INFLUENCE** 0% is
+     NONE exactly and more influence is the same break with more of the DNA. It never changes the
+     tempo, the kit, the mixer or the samples, never adds toms or rolls, and leaves the
+     personality to you. **DICE** picks another DNA. No audio from any recording is used or
+     shipped. Research: [docs/break-dna-research.md](docs/break-dna-research.md).
+   * **DESTROY** tab: switch it on (**ENABLED**), choose which effects may touch which tracks
+     (the matrix), then each effect's **PROBABILITY** (how many hits) and how hard: STUTTER
+     (repeats, subdivision, even, accelerating or decelerating, a velocity and pitch contour),
+     PITCH (range, up, down or both, semitones or free, fixed, dive or rise), REVERSE (whole or
+     partial, every hit, alternating or clusters), GATE (length, hard or soft, rhythmic) and TAPE
+     STOP (duration, pitch fall, cut or resume). **MASTER AMOUNT** scales every probability,
+     **RE-DESTROY** draws another take, **CHAOS** randomises the settings. One undo step each.
+     It is heard the same live, in the WAV and in the stems. Hand-edited hits are never
+     destroyed, and the repeats are not rolls (ROLL GENERATION stays as you set it). MIDI has the
+     hits (repeats included) on each drum's own note: pitch, reverse, gate and tape stop are
+     sample playback, which General MIDI cannot carry.
+   * **CYMBALS** tab: **CLOSED HAT**, **OPEN HAT**, **RIDE** and **CRASH** activity, each 0–100%.
+     For the closed hats and the ride, activity is coverage of the **SUBDIVISION** (AUTO, 1/4,
+     1/8, 1/16, 1/32, TRIPLET): 100% plays every position, 0% none, and more activity plays the
+     same strokes and more. **HATS ↔ RIDE** (ACCENT, INDEPENDENT, ALTERNATE, LAYER, EXCLUSIVE,
+     CALL & RESPONSE) shares the time between them; **OPEN / CLOSED** (ACCENT, ALTERNATE, LAYER,
+     INDEPENDENT) and **CHOKE** (on: a closed hat cuts a ringing open hat) shape the hi-hat.
+     **THIS BREAK** shows what the engine chose and what the break actually plays, with **REGEN**
+     for each cymbal track. A break from Phase 13 keeps its HI-HAT and RIDE ACTIVITY until you
+     change a cymbal control, which carries them over.
+10. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
    bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
    renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
    `_audible`; stems and MIDI follow the same choice). *+ Stems*
@@ -216,19 +249,19 @@ from any folder of any static server). `npm run evaluate` regenerates
    `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
    (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
    the break (inside the ZIP when there are stems, otherwise as a second download).
-10. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
+11. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
    (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
    38, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride 51, perc
    39) or each track's channel and note from the MIDI window, one named track per drum, with
    the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
-11. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
+12. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
    instruments (it lives in Slop Factory Core). Choose a palette, or edit any colour (a built-in
    palette is copied first), rename, duplicate, delete, import and export palette files (emmm and
    DOWNBEAT palettes import too), or go back to Atari, the original black and white. Remembered
    in this browser; never part of a break.
-12. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
+13. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
     once). Everything is remembered in this browser, devices included (found again by name if
     the browser renumbers them).
     * **Out**: choose the default OUT device; the break plays out to it while it plays here, every
@@ -284,6 +317,11 @@ A layered generator, deterministic from seeds (engine 2):
 8. **Transformations**: CHOP, roll EXPRESSION, DESTROY, then REGEN TRACK and the PERSONALITY's
    performance (DILLA's timing), each from the GROOVE every time, so they never compound.
 9. **Sample selection** per category (PICK), then your **hand edits**.
+10. **DESTROY** (the tab, Phase 14) on the finished events.
+
+With revision 4 (Phase 14), BREAK DNA's grammar is blended into the developed phrase and the
+cymbal engine then places every cymbal family (steps 3 and 4 above for the cymbals), before the
+personality and the performance. Saved breaks of revision 3 and earlier bake exactly as before.
 
 Why each of these choices: [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). How the
 code is organised: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -332,9 +370,21 @@ drag, ⌘Z).
   DESTROY, REGEN TRACK and the recalibrated TOM ACTIVITY are checked by tests and by measured
   event data ([docs/expressive-report.md](docs/expressive-report.md)), not by listening. The
   personality and DILLA numbers are hand-set characterisations, not fitted to recordings.
-* DESTROY works on events: GATE and TAPE STOP are approximations (hits removed, or moved,
-  lowered and softened), not audio processing. Like CHOP, it is fixed once there are hand edits.
+* The Phase 12 CHOP ▸ DESTROY (kept for breaks saved with it) works on events: its GATE and
+  TAPE STOP are approximations (hits removed, or moved, lowered and softened), and like CHOP it is
+  fixed once there are hand edits. The Phase 14 DESTROY tab shapes the sound of each hit instead.
 * REGEN TRACK overrides FREEZE (it is an explicit request) and leaves a track with no hits alone.
+* **Phase 14 is not yet evaluated by ear.** The BREAK DNA grammars, the cymbal engine and
+  DESTROY are checked by tests and measured event data ([docs/phase14-report.md](docs/phase14-report.md));
+  DESTROY's sound shaping is measured in a real Web Audio offline render (when a gated or
+  stopped hit falls silent), not listened to.
+  * The grammars are informed by sources read only as search summaries; no recording was
+    listened to ([docs/break-dna-research.md](docs/break-dna-research.md)). They are
+    interpretations, not transcriptions.
+  * With activity meaning coverage, the default cymbals use fewer timekeeping classes than
+    Phase 13 (the figures show at moderate activity; at high activity a grid fills).
+  * TAPE STOP slows one track, not the whole mix. MIDI files leave out pitch, reverse, gate and
+    tape stop.
 * **Phase 13 is not yet evaluated by ear.** The groove approaches, phrase forms, cymbal
   vocabularies, tempo profiles and WILDCARD are checked by tests and measured event data
   ([docs/diversity-report.md](docs/diversity-report.md)), not by listening.

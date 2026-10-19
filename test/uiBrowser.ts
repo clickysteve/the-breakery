@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS', 'LIBRARY'], ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
+  const groups = [['INGREDIENTS', 'KITS', 'LIBRARY'], ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'DESTROY', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
   const tabs = $$('.mtab');
-  check(tabs.length === 13, `13 tabs, got ${tabs.length}`);
+  check(tabs.length === 14, `14 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);
@@ -132,20 +132,22 @@ export async function run(): Promise<string> {
   app.undo();
   await tick();
   check(app.recipe.style === styleBefore && app.recipe.bpm === bpm0, 'the recipe change and the tempo DICE are undo steps (TEMPO LOCK is not)');
-  const cym = $$('.btn', recipeWin).find((b) => /^HATS \d+% RIDE \d+%$/.test(b.textContent ?? ''));
+  const cym = $$('.btn', recipeWin).find((b) => /^HAT \d+ OPN \d+ RDE \d+$/.test(b.textContent ?? ''));
   check(cym && visible(cym), 'the HATS · RIDE button in the CHOP and ROLLS row');
   down(cym!);
   await tick();
   check($$('.mtab').find((x) => x.textContent === 'CYMBALS')!.classList.contains('on'), 'it opens the CYMBALS tab');
   const cymPane = $$('.pane', recipeWin).find((p) => !p.hidden)!;
-  check(cymPane.querySelector('[aria-label="Hi-hat activity"]') && cymPane.querySelector('[aria-label="Ride activity"]'), 'HI-HAT and RIDE ACTIVITY bars');
-  check(['ALTERNATE', 'LAYER', 'INDEPENDENT'].every((t) => $$('.btn', cymPane).some((b) => b.textContent === t && visible(b))), 'the three RELATIONSHIP buttons');
-  check($$('.btn.on', cymPane).some((b) => b.textContent === 'ALTERNATE'), 'ALTERNATE is the default relationship');
-  check(/GROOVE: /.test(cymPane.textContent ?? '') && /HATS: /.test(cymPane.textContent ?? ''), 'the CYMBALS tab shows what this break chose');
+  check(['Closed hat activity', 'Open hat activity', 'Ride activity', 'Crash activity'].every((a) => cymPane.querySelector(`[aria-label="${a}"]`)), 'CLOSED HAT, OPEN HAT, RIDE and CRASH ACTIVITY bars');
+  check(['AUTO', '1/4', '1/8', '1/16', '1/32', 'TRIPLET'].every((t) => $$('.btn', cymPane).some((b) => b.textContent === t && visible(b))), 'the SUBDIVISION buttons');
+  check(['ACCENT', 'INDEPENDENT', 'ALTERNATE', 'LAYER', 'EXCLUSIVE', 'CALL & RESP'].every((t) => $$('.btn', cymPane).some((b) => b.textContent === t && visible(b))), 'the six PRIMARY RELATIONSHIP buttons');
+  check($$('.btn.on', cymPane).filter((b) => b.textContent === 'ACCENT').length === 2, 'ACCENT is the default primary and open/closed relationship');
+  check($$('.btn', cymPane).some((b) => b.textContent === 'CHOKE ON' && b.classList.contains('on')), 'OPEN-HAT CHOKE on by default');
+  check(/HATS .* ON /.test(cymPane.textContent ?? '') && /CLOSED \d+/.test(cymPane.textContent ?? ''), 'the CYMBALS tab shows what this break chose and plays');
   for (const b of $$('.btn, .label, .range', cymPane).filter(visible)) check(rect(b).right <= wr.right + 1 && rect(b).bottom <= wr.bottom + 1, `${b.textContent} inside the CYMBALS tab`);
-  app.setRecipe({ hats: 0, ride: 0 });
+  app.setCym({ closed: 0, open: 0, ride: 0, crash: 0 });
   await tick();
-  check(!app.current.events.some((e) => e.cat === 'hat' || e.cat === 'open' || e.cat === 'ride'), 'activity 0: no hats and no ride');
+  check(!app.current.events.some((e) => e.cat === 'hat' || e.cat === 'open' || e.cat === 'ride' || e.cat === 'crash'), 'activity 0: no cymbals at all');
   app.undo();
   await tick();
   await chooseTab('RECIPE');
@@ -169,9 +171,8 @@ export async function run(): Promise<string> {
   check(recipeWin.querySelector('.mtab.on')?.textContent === 'CHOP', 'the CHOP button opens the CHOP tab');
   const cbtn = (t: string) => $$('.btn', recipeWin).filter(visible).find((b) => b.textContent === t)!;
   for (const t of ['DISABLED', 'RE-CHOP', 'LARGE', 'MEDIUM', 'SMALL', 'MICRO']) check(cbtn(t), `CHOP tab: ${t}`);
-  check($$('.range', recipeWin).filter(visible).length === 3, 'CHOP tab: AMOUNT, RETRIGGER and DESTROY AMOUNT range bars');
+  check($$('.range', recipeWin).filter(visible).length === 2, 'CHOP tab: AMOUNT and RETRIGGER range bars (DESTROY has its own tab)');
   check($$('.label', recipeWin).filter(visible).some((l) => l.textContent === 'PATTERN = GROOVE'), 'CHOP tab: the state (the flow is in the report\'s tooltip since DESTROY took its row)');
-  for (const t of ['STUTTER', 'PITCH', 'REVERSE', 'GATE', 'CHAOS']) check(cbtn(t), `CHOP tab: DESTROY ${t}`);
   await press(cbtn('DISABLED'), 3, 3);
   check(app.chopped && JSON.stringify(app.current.events) !== groove && JSON.stringify(app.seeds) === grooveSeeds, 'ENABLED chops the same GROOVE (same seeds)');
   check(cbtn('ENABLED')?.classList.contains('on'), 'ENABLED shown on');
@@ -187,6 +188,22 @@ export async function run(): Promise<string> {
   app.undo();
   await tick();
   check(!app.chopped && JSON.stringify(app.current.events) === groove, 'CHOP undone back to the GROOVE');
+  await chooseTab('RECIPE');
+
+  // DESTROY tab: off by default; ENABLED destroys the same GROOVE (same seeds); one undo step
+  await chooseTab('DESTROY');
+  const dbtn = (t: string) => $$('.btn', recipeWin).filter(visible).find((b) => b.textContent === t)!;
+  for (const t of ['DISABLED', 'RE-DESTROY', 'CHAOS', 'STUTTER', 'PITCH', 'REVERSE', 'GATE', 'TAPE STOP']) check(dbtn(t), `DESTROY tab: ${t}`);
+  check(recipeWin.querySelector('[aria-label="Destroy master amount"]') && recipeWin.querySelector('[aria-label="Effect probability"]'), 'DESTROY tab: MASTER AMOUNT and PROBABILITY');
+  check(recipeWin.querySelectorAll('[aria-label$=" on kick"]').length === 5, 'DESTROY tab: a matrix row of five effects for the kick');
+  const preDestroy = JSON.stringify(app.current.events);
+  await press(dbtn('DISABLED'), 3, 3);
+  check(app.destroy2.on && JSON.stringify(app.seeds) === grooveSeeds, 'DESTROY enabled on the same seeds');
+  check(JSON.stringify(app.current.events) !== preDestroy, 'DESTROY changed the events');
+  for (const b of $$('.btn, .label, .range', recipeWin).filter(visible)) check(rect(b).right <= wr.right + 1 && rect(b).left >= wr.left - 1 && rect(b).bottom <= wr.bottom + 1, `${b.textContent} inside the RECIPE window (DESTROY)`);
+  app.undo();
+  await tick();
+  check(!app.destroy2.on && JSON.stringify(app.current.events) === preDestroy, 'one undo step turns DESTROY off');
   await chooseTab('RECIPE');
 
   // ROLL GENERATION: the ROLLS button opens its tab; the switch is the user's, kept through recipe changes

@@ -23,7 +23,9 @@ import { emptyKit, type KitIndex } from './kit';
 import { perform } from './performance';
 import { developPhrase, mutateCell, planBars, tidy } from './phrase';
 import { chooseForm, chooseGroove, chooseMotif, GROOVE_DEFS, type GrooveId } from './approaches';
-import { addCymbals, hatActivity, rideActivity, type FillMark } from './cymbals';
+import { addCymbals, hatActivity, mutateCymbals, rideActivity, type FillMark } from './cymbals';
+import { addCymbals4, cymSettings, sanitiseCym, type CymbalReport } from './cymbals4';
+import { blendGrammar, grammarCymbals } from './dnaGrammar';
 import { freshSeed, hashString, stream } from './rng';
 import { applyEdits, hasEdits, type Edits } from './edits';
 import { autoSamples, finishSamples, type SampleContext } from './samples';
@@ -35,12 +37,13 @@ import { sanitiseChop } from './chopper';
 import { transform } from './transform';
 import { sanitiseRollExpr } from './rollExpr';
 import { personaBars, personaPerform, personaRecipe, sanitisePersonality } from './personality';
-import { dnaBars, sanitiseDna } from './dna';
+import { dnaActive, dnaBars, sanitiseDna } from './dna';
 import { sanitiseDestroy } from './destroy';
+import { destroy2, sanitiseDestroy2 } from './destroy2';
 import { applyRegen, sanitiseRegen } from './regen';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
-import { CATEGORIES, clamp, CURRENT_REVISION, CYMBAL_MODES, LAYERS, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
+import { CATEGORIES, clamp, CURRENT_REVISION, CYMBAL_MODES, CYMBAL_REVISION, LAYERS, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
 
 /** Recipe values made safe (clamped, known style and engine, whole bars 1–8). */
 export function sanitiseRecipe(r: Recipe): Recipe {
@@ -71,7 +74,7 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   if (chop) out.chop = chop;
   else delete out.chop;
   // Phase 12: absent unless set, so every recipe saved before them bakes exactly as it did
-  const opt = <K extends 'rollExpr' | 'personality' | 'dna' | 'destroy'>(k: K, v: Recipe[K] | undefined) => {
+  const opt = <K extends 'rollExpr' | 'personality' | 'dna' | 'destroy' | 'destroy2'>(k: K, v: Recipe[K] | undefined) => {
     if (v) out[k] = v;
     else delete out[k];
   };
@@ -79,6 +82,8 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   opt('personality', sanitisePersonality(r.personality));
   opt('dna', sanitiseDna(r.dna));
   opt('destroy', sanitiseDestroy(r.destroy));
+  // Phase 14: DESTROY (any revision: it works on the finished pattern)
+  opt('destroy2', sanitiseDestroy2(r.destroy2));
   // Phase 13 (revision 3): HI-HAT ACTIVITY, RIDE ACTIVITY (absent = the recipe's default) and the RELATIONSHIP (absent = ALTERNATE)
   const unit = (x: unknown) => (x !== undefined && x !== null && Number.isFinite(Number(x)) ? clamp(Number(x), 0, 1) : undefined);
   const hats = rev >= VOCAB_REVISION ? unit(r.hats) : undefined;
@@ -89,8 +94,23 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   else delete out.ride;
   if (rev >= VOCAB_REVISION && r.cymbals !== 'alternate' && (CYMBAL_MODES as readonly string[]).includes(String(r.cymbals))) out.cymbals = r.cymbals;
   else delete out.cymbals;
+  // Phase 14 (revision 4): the cymbal engine's settings replace revision 3's (absent = the recipe's defaults)
+  if (rev >= CYMBAL_REVISION) {
+    delete out.hats;
+    delete out.ride;
+    delete out.cymbals;
+    const cym = sanitiseCym(r.cym, def.style);
+    if (cym) out.cym = cym;
+    else delete out.cym;
+  } else delete out.cym;
   return out;
 }
+
+/** Does this recipe use the Phase 14 BREAK DNA grammar and cymbal engine (revision 4)? */
+export const usesCym4 = (r: Recipe): boolean => r.engine === 2 && (r.revision ?? 0) >= CYMBAL_REVISION;
+
+/** The cymbal categories the revision 4 engine owns. */
+const CYMBAL_CATS = new Set(['hat', 'open', 'ride', 'crash']);
 
 /** Does this recipe use the Phase 13 rhythmic vocabulary (revision 3)? */
 export const usesVocab = (r: Recipe): boolean => r.engine === 2 && (r.revision ?? 0) >= VOCAB_REVISION;
@@ -187,30 +207,60 @@ function bakeV2(recipe: Recipe, seeds: Seeds): Omit<Break, 'recipe' | 'seeds'> {
   // revision 3: a shuffle moves the off-beats to the triplet grid, then the cymbals are generated per bar (cymbals.ts)
   let timekeeper = plan.timekeeper;
   let approach: Approach | undefined;
-  if (v3) {
-    if (GROOVE_DEFS[grooveId].triplet) bars.splice(0, bars.length, ...bars.map(onTriplets));
+  let cymReport: CymbalReport | undefined;
+  const v4 = usesCym4(recipe);
+  if (v4) {
+    // revision 4: the BREAK DNA builds into the kick, snare, ghost and percussion first, then the cymbal engine hears it
+    const dna = dnaActive(recipe.dna) ? recipe.dna : null;
+    const prep = (bs: Hit[][]): Hit[][] => {
+      let out = bs.map((b) => (GROOVE_DEFS[grooveId].triplet ? onTriplets(b) : b).filter((h) => !CYMBAL_CATS.has(h.cat)));
+      if (dna) out = blendGrammar(out, roles, dna.id, dna.amount, { beatSeed: seeds.beat, halftime: def.backbeat === 'three', recipe }).map(tidy);
+      return out;
+    };
+    const built = prep(bars);
+    // a bar reached only by SELECTED TRACKS mutations: its cymbals follow the phrase as it was before them
+    const limited = roles.map((_, i) => {
+      const ms = muts.filter((_m, k) => reach[k]![i]);
+      return ms.length > 0 && ms.every((m) => m.cats);
+    });
+    const context = limited.some(Boolean) ? prep(develop('')).map((b, i) => (limited[i] ? b : built[i]!)) : undefined;
     const mutations = roles.map((_, i) => muts.filter((m, k) => reach[k]![i] && m.detail));
-    const cy = addCymbals(bars, { def, recipe, groove: grooveId, roles, marks: barMarks, cycle: plan.cycle, mutations }, stream(seeds.detail, 'cymbals'));
-    bars.splice(0, bars.length, ...cy.bars.map(tidy));
+    const cy = addCymbals4(built, { def, recipe, groove: grooveId, roles, marks: barMarks, cycle: plan.cycle, mutations, detailSeed: seeds.detail, mutate: mutateCymbals, ...(context ? { context } : {}), ...(dna ? { dna: grammarCymbals(dna.id, dna.amount, roles) } : {}) });
+    // then the PERSONALITY plays the phrase its way; a cymbal family at 100% keeps every stroke whatever it did
+    const shaped = personaBars(cy.bars.map(tidy), roles, recipe, recipe.personality, seeds.beat).map((b, i) => {
+      const add = cy.full[i]!.filter((h) => !b.some((x) => x.cat === h.cat && x.step === h.step && x.sub === h.sub));
+      return add.length ? tidy([...b, ...add]) : b;
+    });
+    bars.splice(0, bars.length, ...shaped);
     timekeeper = cy.timekeeper;
+    cymReport = cy.report;
     approach = { groove: `${GROOVE_DEFS[grooveId].label}${note ? ` ${note}` : ''}`, form: roles.join(' '), motif: motif!, hats: cy.hats, ride: cy.ride, development: cy.development };
-  }
+  } else {
+    if (v3) {
+      if (GROOVE_DEFS[grooveId].triplet) bars.splice(0, bars.length, ...bars.map(onTriplets));
+      const mutations = roles.map((_, i) => muts.filter((m, k) => reach[k]![i] && m.detail));
+      const cy = addCymbals(bars, { def, recipe, groove: grooveId, roles, marks: barMarks, cycle: plan.cycle, mutations }, stream(seeds.detail, 'cymbals'));
+      bars.splice(0, bars.length, ...cy.bars.map(tidy));
+      timekeeper = cy.timekeeper;
+      approach = { groove: `${GROOVE_DEFS[grooveId].label}${note ? ` ${note}` : ''}`, form: roles.join(' '), motif: motif!, hats: cy.hats, ride: cy.ride, development: cy.development };
+    }
 
-  // BREAK DNA builds with its vocabulary, then the PERSONALITY plays the phrase its way (both off: the bars as they are)
-  const shaped = personaBars(dnaBars(bars, roles, recipe.dna, { beatSeed: seeds.beat, halftime: def.backbeat === 'three' }), roles, recipe, recipe.personality, seeds.beat);
-  bars.splice(0, bars.length, ...shaped);
+    // BREAK DNA builds with its vocabulary, then the PERSONALITY plays the phrase its way (both off: the bars as they are)
+    const shaped = personaBars(dnaBars(bars, roles, recipe.dna, { beatSeed: seeds.beat, halftime: def.backbeat === 'three' }), roles, recipe, recipe.personality, seeds.beat);
+    bars.splice(0, bars.length, ...shaped);
 
-  const crash = (i: number, why: string) => {
-    bars[i] = tidy([...bars[i]!.filter((h) => !((h.cat === 'hat' || h.cat === 'ride' || h.cat === 'open') && h.step === 0)), { cat: 'crash', step: 0, sub: 0, level: 0.85, role: 'crash', why }]);
-  };
-  if (crashAtTop) {
-    crash(0, 'crash at the top of the phrase');
-    // a new section after a half-way fill starts with a crash too
-    roles.forEach((r, i) => r === 'F' && i + 1 < roles.length && crash(i + 1, 'crash: a new four-bar section after the half-way fill'));
+    const crash = (i: number, why: string) => {
+      bars[i] = tidy([...bars[i]!.filter((h) => !((h.cat === 'hat' || h.cat === 'ride' || h.cat === 'open') && h.step === 0)), { cat: 'crash', step: 0, sub: 0, level: 0.85, role: 'crash', why }]);
+    };
+    if (crashAtTop) {
+      crash(0, 'crash at the top of the phrase');
+      // a new section after a half-way fill starts with a crash too
+      roles.forEach((r, i) => r === 'F' && i + 1 < roles.length && crash(i + 1, 'crash: a new four-bar section after the half-way fill'));
+    }
   }
 
   const { events, feel } = perform(bars, roles, def, recipe, stream(seeds.feel, 'performance'), plan.cycle);
-  return { plan: roles, feel, timekeeper, events, ...(approach ? { approach } : {}) };
+  return { plan: roles, feel, timekeeper, events, ...(approach ? { approach } : {}), ...(cymReport ? { cymReport } : {}) };
 }
 
 /** Does this recipe hold back every new roll (ROLL GENERATION off, revision 1 on)? Before revision 1 it held back only the ROLLS layer. */
@@ -260,12 +310,33 @@ export function groove(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(
   // the toms are the same whatever ROLL GENERATION is: the GROOVE's rolls become plain fills after them
   const played = holdsRolls(recipe) ? plainFills(flourished) : flourished;
   // revision 3: HI-HAT ACTIVITY or RIDE ACTIVITY at 0% means none of that family, whatever a later layer added
-  const events = usesVocab(recipe) ? silence(played, recipe) : played;
+  let events = usesVocab(recipe) ? silence(played, recipe) : played;
+  // revision 4: a family at 100% keeps every stroke (a tom phrase or a roll may have taken some), and OPEN-HAT CHOKE off frees the closed hats
+  if (usesCym4(recipe)) events = keepFull(events, core.events, recipe);
   return { core, events, main };
 }
 
-/** The generated events without the cymbal families whose activity is 0 (revision 3). */
+/** Revision 4: the strokes of a cymbal family at 100% that a later layer removed, put back; with OPEN-HAT CHOKE off, the closed hats marked `free`. */
+function keepFull(events: BreakEvent[], performed: BreakEvent[], recipe: Recipe): BreakEvent[] {
+  const cs = cymSettings(recipe);
+  const full = new Set<string>([...(cs.closed >= 1 ? ['hat'] : []), ...(cs.ride >= 1 ? ['ride'] : []), ...(cs.open >= 1 ? ['open'] : [])]);
+  let out = events;
+  if (full.size) {
+    const at = new Set(events.map((e) => `${e.cat}|${e.bar}|${e.step}|${e.sub}`));
+    const back = performed.filter((e) => full.has(e.cat) && !at.has(`${e.cat}|${e.bar}|${e.step}|${e.sub}`));
+    if (back.length) out = [...events, ...back.map((e) => ({ ...e }))].sort((a, b) => a.bar - b.bar || a.step - b.step || a.sub - b.sub);
+  }
+  if (!cs.choke) out = out.map((e) => (e.cat === 'hat' ? { ...e, free: true as const } : e));
+  return out;
+}
+
+/** The generated events without the cymbal families whose activity is 0 (revision 3; revision 4 per family, the crash included). */
 export function silence(events: BreakEvent[], recipe: Recipe): BreakEvent[] {
+  if (usesCym4(recipe)) {
+    const cs = cymSettings(recipe);
+    const off = new Set<string>([...(cs.closed <= 0 ? ['hat'] : []), ...(cs.open <= 0 ? ['open'] : []), ...(cs.ride <= 0 ? ['ride'] : []), ...(cs.crash <= 0 ? ['crash'] : [])]);
+    return off.size ? events.filter((e) => !off.has(e.cat)) : events;
+  }
   const noHats = hatActivity(recipe) <= 0;
   const noRide = rideActivity(recipe) <= 0;
   if (!noHats && !noRide) return events;
@@ -293,9 +364,11 @@ export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(),
   const performed = personaPerform(rg.events, recipe.personality, { plan: g.core.plan, feelSeed: seeds.feel, bpm: recipe.bpm, swing: recipe.swing, busyFrom: t.events });
   const { events, report } = applyEdits(performed, edits, recipe);
   finishSamples(events, kit, seeds.kit, samples, names, g.main);
+  // DESTROY (Phase 14): on the finished pattern, hand edits and samples included; hand-edited hits are never touched
+  const d2 = destroy2(events, recipe.destroy2, { seed: seeds.beat, bars: recipe.bars });
   const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
   const copy: Seeds = { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}), ...(seeds.regen ? { regen: seeds.regen.map((x) => ({ cats: [...x.cats], n: x.n })) } : {}) };
-  return { recipe, seeds: copy, ...g.core, events, ...ed, ...(t.chop ? { chop: t.chop } : {}), ...(t.destroy ? { destroy: t.destroy } : {}), ...(rg.report ? { regen: rg.report } : {}) };
+  return { recipe, seeds: copy, ...g.core, events: d2.events, ...ed, ...(d2.report ? { destroy2: d2.report } : {}), ...(t.chop ? { chop: t.chop } : {}), ...(t.destroy ? { destroy: t.destroy } : {}), ...(rg.report ? { regen: rg.report } : {}) };
 }
 
 export function randomSeeds(): Seeds {
@@ -323,12 +396,17 @@ export function reseed(current: Seeds, frozen: Partial<Record<Layer, boolean>>, 
 /** The largest seed typed as a number (larger numbers, and anything else, are hashed as text). */
 export const MAX_NUMERIC_SEED = 999999999;
 
-/** Normalise a seed name: trimmed, lower case, single spaces (so "Funky  Chicken" = "funky chicken"). */
+/**
+ * Normalise a seed's text for hashing: Unicode NFC, trimmed, lower case, runs of whitespace as one
+ * space. So "Velvet  Thunder" and "velvet thunder" are the same seed (case and spacing never
+ * matter); hyphens, digits, accents and every other character do ("VELVET-THUNDER" is not
+ * "VELVET THUNDER"). Unchanged since named seeds were introduced, so every saved name reproduces.
+ */
 export function normaliseSeedName(text: string): string {
   return text.normalize('NFC').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-/** 32-bit FNV-1a over the name's UTF-8 bytes: stable across browsers and versions. */
+/** 32-bit FNV-1a over the normalised name's UTF-8 bytes: stable across browsers, platforms and versions. */
 export function hashSeedName(text: string): number {
   const bytes = new TextEncoder().encode(normaliseSeedName(text));
   let h = 0x811c9dc5;
@@ -340,14 +418,15 @@ export function hashSeedName(text: string): number {
 }
 
 /**
- * A seed from what was typed: a whole number is that seed (so every numeric seed from the
- * first release still works); any other text is a NAMED seed, hashed.
+ * A seed from what was typed: a whole number of up to nine digits is that seed (so every numeric
+ * seed ever saved or shared still works exactly); any other text is a NAMED seed, hashed (any
+ * language, emoji included). The name keeps the case it was typed in, for display.
  */
 export function parseSeed(text: string): { seed: number; name: string | null } | null {
   const t = normaliseSeedName(text);
   if (!t) return null;
   if (/^\d+$/.test(t) && Number(t) <= MAX_NUMERIC_SEED) return { seed: Number(t), name: null };
-  return { seed: hashSeedName(t), name: t };
+  return { seed: hashSeedName(t), name: text.normalize('NFC').trim().replace(/\s+/g, ' ') };
 }
 
 /** The name or number to show for a seed. */

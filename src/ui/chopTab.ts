@@ -5,12 +5,13 @@
  * recalculated from the GROOVE with the same seeds, so AMOUNT 0 or ENABLED off is the GROOVE again.
  * Fixed (APPLIED) while the pattern has hand edits, which were made on the chopped result.
  *
- * DESTROY, under CHOP: stutters, reverses, pitch dives and rises, gates, skips, freezes and tape
- * stops after the chop (destroy.ts), with its own AMOUNT, STYLE and DICE. Fixed with CHOP.
+ * DESTROY has its own tab (destroyTab.ts, Phase 14). A break saved with the earlier CHOP ▸ DESTROY
+ * (destroy.ts) still plays it; the DESTROY tab shows it and can remove it.
  */
 import { CHOP_STYLE, describeChop } from '../engine/chopper';
-import { describeDestroy, DESTROY_STYLE_LABEL, DESTROY_STYLES } from '../engine/destroy';
+import { describeDestroy } from '../engine/destroy';
 import { STYLE_DEFS } from '../engine/styles';
+import { DNA_LABEL } from '../engine/dna';
 import { SLICE_SIZES, SLICE_STEPS, type SliceSize, type Style } from '../engine/types';
 import { el, label, setTip } from './dom';
 import { Button, RangeBar } from './widgets';
@@ -88,34 +89,10 @@ export function chopTab(b: HTMLElement, ui: UiContext, W: number) {
   });
   el('div', 'rule', b, [4, 80, W - 8]);
 
-  // ---- DESTROY
-  label(b, 5, 87, 'DESTROY', 'head');
-  const dEnable = new Button(b, [56, 83, 58, 14], 'DISABLED', {
-    cls: 'small',
-    tip: 'DESTROY: after CHOP, some beats are wrecked on purpose: stutters, reversed beats, pitch dives and rises, gates, skips, frozen beats, tape stops. All event edits (no audio processing: GATE and TAPE STOP are approximations, each hit says so). AMOUNT 0 changes nothing; ROLL GENERATION off means its stutters are sixteenth repeats, not rolls. ⌘Z undoes.',
-    onPress: () => app.setDestroy({ on: !app.destroySettings.on }),
-  });
-  const dsw = 44;
-  const dStyles = DESTROY_STYLES.map((st, i) => new Button(b, [118 + i * (dsw + 2), 83, dsw, 14], DESTROY_STYLE_LABEL[st], {
-    cls: 'small',
-    tip: `STYLE ${DESTROY_STYLE_LABEL[st]}: ${{ stutter: 'stutters, frozen beats and skips', pitch: 'pitch dives, rises and tape stops', reverse: 'reversed beats (mirrored at high AMOUNT)', gate: 'gated beats and skips', chaos: 'every operation' }[st]}.`,
-    onPress: () => app.setDestroy({ style: st }),
-  }));
-  const dDice = new Button(b, [118 + 5 * (dsw + 2) + 2, 83, 36, 14], 'DICE', { cls: 'small', tip: 'DICE: another take of the destruction (a new seed): other beats, other operations. ⌘Z returns to the previous one.', onPress: () => app.diceDestroy() });
-  label(b, 5, 102, 'AMOUNT');
-  const dAmount = new RangeBar(b, [72, 99, W - 76, 13], {
-    get: () => app.destroySettings.amount,
-    set: (v) => app.setDestroy({ amount: v }),
-    format: pct,
-    label: 'Destroy amount',
-    tip: 'DESTROY AMOUNT: how many beats are destroyed (0 = none). A higher AMOUNT destroys the same beats and more; the loop’s first beat and the crashes are never touched.',
-  });
-  el('div', 'rule', b, [4, 114, W - 8]);
-  const report = el('div', 'label', b, [5, 118, W - 10]);
-  const style = el('div', 'label tiny', b, [5, 129, W - 10]);
-  const note = el('div', 'label tiny', b, [5, 137, W - 10]);
+  const report = el('div', 'label', b, [5, 86, W - 10]);
+  const style = el('div', 'label tiny', b, [5, 99, W - 10]);
+  const note = el('div', 'label tiny', b, [5, 109, W - 10]);
   const settings = [amount.el, retrig.el, again.el, ...slices.map((s) => s.el)];
-  const dSettings = [dAmount.el, dDice.el, ...dStyles.map((x) => x.el)];
 
   function update(): void {
     const c = app.chop;
@@ -130,19 +107,12 @@ export function chopTab(b: HTMLElement, ui: UiContext, W: number) {
     again.disabled = locked || !c.on;
     state.textContent = !app.chopped ? 'PATTERN = GROOVE' : locked ? 'APPLIED' : 'PREVIEW';
     const d = app.destroySettings;
-    dEnable.text = d.on ? 'ENABLED' : 'DISABLED';
-    dEnable.on = d.on;
-    dEnable.disabled = locked;
-    dAmount.update();
-    dStyles.forEach((x, i) => (x.on = DESTROY_STYLES[i] === d.style));
-    for (const x of dSettings) x.classList.toggle('inactive', !d.on || locked);
-    dDice.disabled = locked || !d.on;
     setTip(state, locked ? 'APPLIED: this pattern has hand edits on the chopped result, so CHOP is fixed (a new chop would move hits under them). ⌘Z the edits, or Edit ▸ Clear All Hand Edits, to change CHOP again.' : 'PREVIEW: every CHOP change is recalculated from the GROOVE. The first hand edit in the PATTERN applies it.');
     report.textContent = (c.on && !app.chopped ? 'CHOP: AMOUNT 0, the pattern is the GROOVE.' : describeChop(app.current.chop)).toUpperCase();
-    setTip(report, `${describeChop(app.current.chop)} ${describeDestroy(app.current.destroy, d)} RECIPE ▸ GROOVE ▸ CHOP ▸ EXPRESSION ▸ DESTROY ▸ PATTERN: CHOP and DESTROY never compound on their own result; turning them off gives the GROOVE back.`);
+    setTip(report, `${describeChop(app.current.chop)}${app.recipe.destroy?.on ? ` ${describeDestroy(app.current.destroy, d)}` : ''} RECIPE ▸ GROOVE ▸ CHOP ▸ EXPRESSION ▸ HAND EDITS ▸ DESTROY ▸ PATTERN: CHOP never compounds on its own result; turning it off gives the GROOVE back. DESTROY has its own tab.`);
     const def = STYLE_DEFS[app.recipe.style];
     const cs = CHOP_STYLE[app.recipe.style];
-    style.textContent = d.on ? describeDestroy(app.current.destroy, d).toUpperCase() : `${def.label}: ${STYLE_CHOP[app.recipe.style]} · SUGGESTED SLICE ${cs.slice.toUpperCase()}${app.dna ? ' · AMEN DNA LEANS THE CUTS' : ''}`;
+    style.textContent = `${def.label}: ${STYLE_CHOP[app.recipe.style]} · SUGGESTED SLICE ${cs.slice.toUpperCase()}${app.dna ? ` · ${DNA_LABEL[app.dna.id]} DNA LEANS THE CUTS` : ''}`;
     setTip(style, `How ${def.label} chops: the recipe weighs the same operations (recall, swap, repeat, double, retrigger, drop-out) differently, and chooses how fragments are joined or split around the SLICE SIZE. The seed is the BEAT seed: FREEZE BEAT keeps the chop, BAKE makes a new one.`);
     note.textContent = locked
       ? 'APPLIED: HAND EDITS ARE ON THE CHOPPED RESULT · ⌘Z THEM TO CHANGE CHOP'

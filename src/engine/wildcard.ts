@@ -13,16 +13,21 @@
  *     RHYTHM (all three) also keeps the personality, DNA, CHOP, ROLL EXPRESSION and DESTROY; a
  *     frozen KIT keeps the sample assignments
  *   - ROLL GENERATION off: no CHOP retriggers are chosen (the recipe keeps rollsOn as the app sets it)
+ *   - the cymbals (Phase 14): GENERATION CONTROLS scatters CLOSED HAT, OPEN HAT, RIDE and CRASH
+ *     ACTIVITY around the new recipe's own (CYM_DEFAULTS), mostly with AUTO subdivision and ACCENT
+ *   - DESTROY draws the DESTROY tab's engine (destroy2.ts): usually off, sometimes a CHAOS take at
+ *     a moderate MASTER AMOUNT; an earlier CHOP ▸ DESTROY (Phase 12) is switched off
  *   - samples are never downloaded or deleted: SAMPLE ASSIGNMENTS only draws a new KIT seed
  *   - SOLO and MUTE are never changed
  */
-import { CYMBAL_MODES, clamp, RECIPE_KEYS, SLICE_SIZES, STYLES, type Category, type Layer, type Recipe, type Style } from './types';
-import { DESTROY_STYLES } from './destroy';
+import { clamp, RECIPE_KEYS, SLICE_SIZES, STYLES, type Category, type Layer, type Recipe, type Style } from './types';
+import { CYM_DEFAULTS, HAT_RELS, PRIMARY_RELS, SUBDIVISIONS } from './cymbals4';
+import { chaosDestroy, defaultDestroy2 } from './destroy2';
 import { DNA_IDS } from './dna';
 import { PERSONALITIES } from './personality';
 import { ROLL_PRESETS, presetExpr } from './rollExpr';
 import { hashString, stream, type Rng } from './rng';
-import { defaultRecipe, STYLE_DEFS, VOCAB } from './styles';
+import { defaultRecipe, STYLE_DEFS } from './styles';
 import { pickTempo } from './tempo';
 
 export const WILDCARD_CATEGORIES = ['recipe', 'tempo', 'personality', 'dna', 'controls', 'chop', 'rollExpr', 'destroy', 'samples', 'mixer', 'output'] as const;
@@ -48,10 +53,10 @@ export const WILDCARD_TIP: Record<WildcardCategory, string> = {
   tempo: 'A tempo from the recipe’s range (not with TEMPO LOCK).',
   personality: 'Sometimes a personality, at a moderate intensity; otherwise NEUTRAL.',
   dna: 'Sometimes BREAK DNA, at a moderate influence; otherwise NONE.',
-  controls: 'The recipe’s controls, scattered around its defaults (hats and ride included).',
+  controls: 'The recipe’s controls, scattered around its defaults (the four cymbal activities included).',
   chop: 'Sometimes CHOP, at a moderate amount; otherwise off.',
   rollExpr: 'A roll expression preset (CLASSIC most often).',
-  destroy: 'Now and then a light DESTROY; usually off.',
+  destroy: 'Now and then a DESTROY take at a moderate amount; usually off.',
   samples: 'Another choice of samples from the kit (nothing is downloaded or deleted).',
   mixer: 'Levels and pans moved a little (solo and mute untouched).',
   output: 'An output chain preset (CLEAN included).',
@@ -108,10 +113,11 @@ export function wildcardRecipe(cur: Recipe, ctx: WildcardContext, seed: number):
   }
   if (style !== cur.style || (S.controls && !rhythmFrozen)) {
     const d = defaultRecipe(style, cur.bars);
-    const v = VOCAB[style];
-    const keep = { chop: out.chop, destroy: out.destroy, rollExpr: out.rollExpr, personality: out.personality, dna: out.dna };
-    // a new recipe comes with its own defaults; GENERATION CONTROLS scatters them
+    const keep = { chop: out.chop, destroy: out.destroy, destroy2: out.destroy2, rollExpr: out.rollExpr, personality: out.personality, dna: out.dna };
+    // a new recipe comes with its own defaults (its own cymbals too); GENERATION CONTROLS scatters them
     out = { ...out, ...d, ...keep, bpm: cur.bpm, bars: cur.bars, rollsOn: cur.rollsOn };
+    if (style !== cur.style) delete out.cym;
+    for (const k of ['chop', 'destroy', 'destroy2', 'rollExpr', 'personality', 'dna'] as const) if (out[k] === undefined) delete out[k];
     if (S.controls) {
       const rc = r('controls');
       for (const k of RECIPE_KEYS) {
@@ -119,10 +125,22 @@ export function wildcardRecipe(cur: Recipe, ctx: WildcardContext, seed: number):
         const sd = k === 'swing' || k === 'humanise' ? 0.08 : k === 'toms' || k === 'rolls' ? 0.1 : 0.15;
         out[k] = round2(gaussAround(rc, d[k], sd));
       }
-      out.hats = round2(gaussAround(rc, v.hats, 0.18));
-      out.ride = round2(gaussAround(rc, v.ride, 0.15));
-      out.cymbals = CYMBAL_MODES[Math.max(0, rc.weighted([0.6, 0.25, 0.15]))]!;
-      if (out.cymbals === 'alternate') delete out.cymbals;
+      // the cymbals (revision 4): each activity near the recipe's own; AUTO and ACCENT most of the time
+      const cd = CYM_DEFAULTS[style];
+      const pick = <T>(xs: readonly T[], w: number[]) => xs[Math.max(0, rc.weighted(w))]!;
+      out.cym = {
+        closed: round2(gaussAround(rc, cd.closed, 0.15)),
+        open: round2(gaussAround(rc, cd.open, 0.1)),
+        ride: round2(gaussAround(rc, cd.ride, 0.15)),
+        crash: round2(gaussAround(rc, cd.crash, 0.12)),
+        sub: pick(SUBDIVISIONS, SUBDIVISIONS.map((x) => (x === 'auto' ? 6 : x === '32' ? 0.3 : 1))),
+        rel: pick(PRIMARY_RELS, PRIMARY_RELS.map((x) => (x === 'accent' ? 4 : 1))),
+        hatRel: pick(HAT_RELS, HAT_RELS.map((x) => (x === 'accent' ? 4 : 1))),
+        choke: !rc.chance(0.15),
+      };
+      delete out.hats;
+      delete out.ride;
+      delete out.cymbals;
       changed.push('controls');
     }
   } else if (S.controls && rhythmFrozen) kept.push('GENERATION CONTROLS (frozen)');
@@ -167,7 +185,21 @@ export function wildcardRecipe(cur: Recipe, ctx: WildcardContext, seed: number):
     const p = ROLL_PRESETS[Math.max(0, i)]!;
     return p === 'classic' ? undefined : presetExpr(p, g.int(1000));
   });
-  treat('destroy', (g) => (g.chance(0.8) ? (cur.destroy ? { ...cur.destroy, on: false } : undefined) : { on: true, amount: round2(g.range(0.15, 0.45)), style: DESTROY_STYLES[g.int(DESTROY_STYLES.length)]!, variant: g.int(1000) }));
+  if (S.destroy) {
+    if (allFrozen) kept.push(`${WILDCARD_LABEL.destroy} (FREEZE RHYTHM)`);
+    else {
+      const g = r('destroy');
+      if (g.chance(0.8)) {
+        if (cur.destroy2) out.destroy2 = { ...cur.destroy2, on: false };
+        else delete out.destroy2;
+      } else {
+        const take = chaosDestroy(cur.destroy2 ?? defaultDestroy2(), g.int(0x7fffffff));
+        out.destroy2 = { ...take, master: round2(g.range(0.3, 0.7)), take: g.int(1000) };
+      }
+      if (cur.destroy) out.destroy = { ...cur.destroy, on: false };
+      if (JSON.stringify([out.destroy ?? null, out.destroy2 ?? null]) !== JSON.stringify([cur.destroy ?? null, cur.destroy2 ?? null])) changed.push('destroy');
+    }
+  }
   return { recipe: out, changed, kept };
 }
 

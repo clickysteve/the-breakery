@@ -1,5 +1,5 @@
 /**
- * RECIPE · CYMBALS · PERSONALITY · CHOP · ROLLS · MUTATE, one window with six tabs.
+ * RECIPE · CYMBALS · PERSONALITY · CHOP · ROLLS · DESTROY · MUTATE, one window with seven tabs.
  *
  * RECIPE: style (with RANDOM RECIPE), tempo (with TEMPO LOCK and the tempo DICE), bars, seed (with DICE, history and favourite), a row
  * showing CHOP (the transformation), ROLL GENERATION and the cymbals' activity, each opening its tab (a LEGACY break offers
@@ -8,10 +8,14 @@
  * seeds, so you hear what the control does to this break. Every number can be clicked and typed
  * (emmm's numerical fields). CHOP: the phrase transformation (chopTab.ts). ROLLS: roll generation
  * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts). PERSONALITY: who plays the
- * break and its BREAK DNA (personalityTab.ts). CYMBALS: HI-HAT and RIDE ACTIVITY and how they share
- * the time (cymbalsTab.ts).
+ * break and its BREAK DNA (personalityTab.ts). CYMBALS: CLOSED HAT, OPEN HAT, RIDE and CRASH
+ * ACTIVITY, the subdivision and the relationships (cymbalsTab.ts). DESTROY: the effect matrix
+ * (destroyTab.ts).
  */
 import { hatActivity, rideActivity } from '../engine/cymbals';
+import { destroy2Active } from '../engine/destroy2';
+import { CYMBAL_REVISION } from '../engine/types';
+import { destroyTab } from './destroyTab';
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
 import { tempoRange } from '../engine/tempo';
@@ -27,7 +31,7 @@ import type { UiContext } from './context';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
 /** The window's tabs, by index. */
-export const TAB = { recipe: 0, cymbals: 1, persona: 2, chop: 3, rolls: 4, mutate: 5 } as const;
+export const TAB = { recipe: 0, cymbals: 1, persona: 2, chop: 3, rolls: 4, destroy: 5, mutate: 6 } as const;
 const num = (t: string) => (/^\d+(\.\d+)?$/.test(t) ? Number(t) : null);
 
 const CONTROLS: { key: RecipeKey; label: string; tip: string; format?: (v: number) => string; parse?: (t: string) => number | null }[] = [
@@ -60,13 +64,14 @@ const BAR_PLAN: Record<number, string> = {
 
 export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
-  const [b, cymbalsPane, personaPane, chopPane, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
+  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'DESTROY', 'MUTATE'], ...rect, onTab: () => update() });
+  const [b, cymbalsPane, personaPane, chopPane, rollsPane, destroyPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
   const W = rect.w - 2;
   const cymbals = cymbalsTab(cymbalsPane, ui, W);
   const persona = personalityTab(personaPane, ui, W);
   const chop = chopTab(chopPane, ui, W);
   const rolls = rollsTab(rollsPane, ui, W);
+  const destroy = destroyTab(destroyPane, ui, W);
   const mut = mutateTab(mutatePane, ui, W);
 
   // RECIPE: two rows of recipes (the last cell of the second row is RANDOM RECIPE). What is done with
@@ -136,12 +141,12 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     editText: () => app.seedText,
     entry: (t) => app.setSeedText(t),
     anyText: true,
-    maxLength: 40,
+    maxLength: 64,
     pxPerUnit: 6,
     label: 'Seed: a number or a name',
-    tip: 'The seed: a number, or any words ("funky chicken", "glasgow 1993"). The same seed and recipe always bake the same break. Click and type, then Return. ↑ ↓ step to neighbouring numbers (not related breaks: MUTATE makes those). +N = mutations.',
+    tip: 'The seed: any words (VELVET-THUNDER-17, "funky chicken", any language), or a number (every numeric seed ever saved still bakes exactly as it did). Case and extra spaces do not matter. The same seed with the same recipe and settings bakes the same break: the seed alone does not (and FREEZE keeps some layers from before). Click and type, then Return. ↑ ↓ step to neighbouring numbers (not related breaks: MUTATE makes those). +N = mutations.',
   });
-  const dice = new Button(b, [bx, y2, 26, 15], 'DICE', { cls: 'small', tip: 'DICE: roll a new named seed for every layer (D)', onPress: () => app.dice() });
+  const dice = new Button(b, [bx, y2, 26, 15], 'DICE', { cls: 'small', tip: 'DICE: roll a new seed of memorable words (VELVET-THUNDER-17) for every layer and bake it (D). BAKE, BATCH, RANDOM RECIPE and WILDCARD name their seeds the same way.', onPress: () => app.dice() });
   const back = new Button(b, [bx + 28, y2, 12, 15], '◀', { cls: 'small', tip: 'Back to the previous seed in the history (←)', onPress: () => app.historyBack() });
   const fwd = new Button(b, [bx + 41, y2, 12, 15], '▶', { cls: 'small', tip: 'Forward in the history (→)', onPress: () => app.historyForward() });
   const fav = new Button(b, [W - 4 - 24, y2, 24, 15], 'FAV', { cls: 'small', tip: 'Save this break to the favourites (S): recipe, seeds, mutations and sample settings. Inverted when it is one; press again to remove it. Favourites are in the Seeds menu.', onPress: () => app.toggleFavourite() });
@@ -159,7 +164,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   });
   const cymBtn = new Button(b, [4 + 2 * (bw + 23), 51, bw + 28, 13], 'HATS · RIDE', {
     cls: 'small',
-    tip: 'HI-HAT and RIDE ACTIVITY, and how they share the time. Opens the CYMBALS tab.',
+    tip: 'CLOSED HAT, OPEN HAT, RIDE and CRASH ACTIVITY, the subdivision and how the hats and the ride share the time. Opens the CYMBALS tab.',
     onPress: () => win.setTab(TAB.cymbals),
   });
   const gx = 4 + 2 * (bw + 23) + bw + 31;
@@ -207,12 +212,13 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     rollsBtn.on = app.rollGeneration && !app.legacy;
     rollsBtn.text = app.legacy ? 'NO ROLLS' : app.rollGeneration ? 'ROLLS ON' : 'ROLLS OFF';
     useGroove.el.style.display = app.legacy ? '' : 'none';
-    cymBtn.text = app.legacy ? 'LEGACY CYMBALS' : `HATS ${Math.round(hatActivity(app.recipe) * 100)}% RIDE ${Math.round(rideActivity(app.recipe) * 100)}%`;
+    const cy = app.cym;
+    cymBtn.text = app.legacy ? 'LEGACY CYMBALS' : (app.recipe.revision ?? 0) >= CYMBAL_REVISION ? `HAT ${Math.round(cy.closed * 100)} OPN ${Math.round(cy.open * 100)} RDE ${Math.round(cy.ride * 100)}` : `HATS ${Math.round(hatActivity(app.recipe) * 100)}% RIDE ${Math.round(rideActivity(app.recipe) * 100)}%`;
     cymBtn.on = false;
     lock.on = app.tempoLock;
     tdice.disabled = app.tempoLock;
     setTip(tdice.el, app.tempoLock ? 'TEMPO DICE is off while TEMPO LOCK is on: unlock it to roll a new tempo (the BPM box still sets it).' : `TEMPO DICE: a new tempo from ${STYLE_DEFS[app.recipe.style].label}’s range (${tempoRange(app.recipe.style)}), for the same break. The pattern is not regenerated.`);
-    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : '';
+    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : destroy2Active(app.recipe.destroy2) ? 'DESTROY ON' : '';
     bpm.update();
     bars.update();
     seed.update();
@@ -231,6 +237,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     if (win.tab === TAB.persona) persona.update();
     if (win.tab === TAB.chop) chop.update();
     if (win.tab === TAB.rolls) rolls.update();
+    if (win.tab === TAB.destroy) destroy.update();
     if (win.tab === TAB.mutate) mut.update();
   }
   function setTipBars(): void {

@@ -1,37 +1,46 @@
 /**
- * BREAK DNA: a break built from the construction vocabulary of a famous break, not a copy of it.
- * It is not a personality (who plays) but what is played: which figures the kick and snare use,
- * how the four-bar phrase is built and where it breaks. INFLUENCE blends the vocabulary into the
- * recipe's own GROOVE (0 = the GROOVE exactly), so an AMEN-influenced HIP-HOP break is still
- * HIP-HOP. Nothing here is audio: no recording is sampled, copied or shipped.
+ * BREAK DNA: a break built from the construction vocabulary of a famous break or a drumming
+ * tradition, not a copy of it. It is not a personality (who plays) but what is played: which
+ * figures the kick, snare, ghosts and percussion use, how the four-bar phrase is built and where it
+ * breaks, and which way its cymbals lean. INFLUENCE blends the vocabulary into the recipe's own
+ * GROOVE (0 = the GROOVE exactly), so an AMEN-influenced HIP-HOP break is still HIP-HOP. Nothing
+ * here is audio: no recording is sampled, copied or shipped. Research: docs/break-dna-research.md.
  *
- * AMEN, after the commonly cited description of the drum break in The Winstons' "Amen, Brother"
- * (1969, drummer Gregory C. Coleman; docs/EXPRESSIVE_RESEARCH.md for sources):
+ * GROOVE revision 4 (Phase 14) builds every DNA from its grammar (dnaGrammar.ts): AMEN, FUNKY
+ * DRUMMER, APACHE, THINK, IMPEACH, ROACHCLIP (recordings), BOOGIE and MOTORIK (traditions), blended
+ * before the cymbals so the cymbal engine hears the DNA's kicks and snares.
+ *
+ * Revision 3 and earlier (Phase 12) knew AMEN only, blended after the cymbals with the tables
+ * below (dnaBars); breaks saved with them are rebuilt with exactly those tables:
  *   - a four-bar unit, A A A' B: two bars of the same funk pattern, a third that shifts its last
  *     backbeat (a gap), a fourth that leaves out its downbeat for a syncopated figure, an early
  *     crash and a turnaround
  *   - kicks on 1 and the "and" of 1, a kick pair on the "and" and "a" of 3
  *   - snares on 2 and 4 with the syncopated snares on the "a" of 2, the "e" of 3 and the "a" of 4
  *   - a steady eighth-note timekeeper
- * Which of several A' and B variants a break uses comes from its BEAT seed, so two AMEN breaks are
- * related, not identical; the same seed always builds the same one.
  *
- * It never adds a tom or a roll (TOM ACTIVITY 0 and ROLL GENERATION off keep their meaning), and
- * HALFTIME keeps its own backbeat on 3. With CHOP on, AMEN steers the chop towards the way the
- * Amen was cut up in jungle: snare-led edits, repeated motifs, gaps and turnarounds (amenChop).
- *
- * The registry (DNA_DEFS) takes another DNA as one more entry.
+ * A DNA never adds a tom or a roll (TOM ACTIVITY 0 and ROLL GENERATION off keep their meaning), and
+ * HALFTIME keeps its own backbeat on 3. With CHOP on, a DNA leans the chop (dnaChopStyle): AMEN
+ * towards the way the Amen was cut up in jungle, the others by their own leans.
  */
 import type { ChopStyle } from './chopper';
 import { stream } from './rng';
 import { tidy } from './phrase';
+import { DNA_DEFS, type GrammarId } from './dnaGrammar';
 import { clamp, STEPS, type BarRole, type Category, type Hit, type Role } from './types';
 
-export const DNA_IDS = ['amen'] as const;
+export const DNA_IDS = ['amen', 'funky', 'apache', 'think', 'impeach', 'roachclip', 'boogie', 'motorik'] as const satisfies readonly GrammarId[];
 export type DnaId = (typeof DNA_IDS)[number];
 /** The BREAK DNA selector's choices (NONE = no DNA). */
 export const DNA_CHOICES = ['none', ...DNA_IDS] as const;
-export const DNA_LABEL: Record<(typeof DNA_CHOICES)[number], string> = { none: 'NONE', amen: 'AMEN' };
+export const DNA_LABEL = { none: 'NONE', ...Object.fromEntries(DNA_IDS.map((id) => [id, DNA_DEFS[id].label])) } as Record<(typeof DNA_CHOICES)[number], string>;
+/** The selector's groups: specific recordings, broader traditions. */
+export const DNA_GROUPS: { label: string; ids: DnaId[] }[] = [
+  { label: 'RECORDINGS', ids: DNA_IDS.filter((id) => DNA_DEFS[id].kind === 'recording') },
+  { label: 'TRADITIONS', ids: DNA_IDS.filter((id) => DNA_DEFS[id].kind === 'tradition') },
+];
+export const dnaBlurb = (id: DnaId): string => DNA_DEFS[id].blurb;
+export const dnaSource = (id: DnaId): string => DNA_DEFS[id].source;
 
 export interface DnaSetting {
   id: DnaId;
@@ -107,7 +116,8 @@ export function amenSlots(roles: readonly BarRole[]): Slot[] {
 
 /** The DNA's bars blended into the developed bars at its INFLUENCE (before personality and performance). */
 export function dnaBars(bars: Hit[][], roles: BarRole[], d: DnaSetting | undefined, ctx: { beatSeed: number; halftime: boolean }): Hit[][] {
-  if (!dnaActive(d)) return bars;
+  // revision 3 and earlier knew AMEN only (a later DNA on such a recipe moves it to revision 4: App.fresh)
+  if (!dnaActive(d) || d.id !== 'amen') return bars;
   const a = d.amount;
   const rng = stream(ctx.beatSeed, `dna:${d.id}`);
   const gVariant = rng.int(AMEN_G.length);
@@ -152,17 +162,23 @@ export function dnaBars(bars: Hit[][], roles: BarRole[], d: DnaSetting | undefin
 }
 
 /**
- * CHOP with AMEN DNA: the chop leans the way jungle producers cut the Amen (snare-led edits,
- * repeated motifs, gaps, turnarounds); its retriggers grow only when ROLL GENERATION is on.
+ * CHOP with a BREAK DNA. AMEN leans the way jungle producers cut the Amen (snare-led edits,
+ * repeated motifs, gaps, turnarounds) and its retriggers grow only when ROLL GENERATION is on (the
+ * Phase 12 formula, unchanged); the others add their own leans (dnaGrammar.ts DNA_DEFS chop),
+ * scaled by INFLUENCE, and leave the retriggers as the recipe has them.
  */
 export function dnaChopStyle(cs: ChopStyle, d: DnaSetting | undefined, rollsOn: boolean): ChopStyle {
   if (!dnaActive(d)) return cs;
   const a = d.amount;
-  return { ...cs, snareLed: cs.snareLed + a * 0.7, motif: cs.motif + a * 0.8, gap: cs.gap + a * 0.25, tail: cs.tail + a * 0.6, swap: cs.swap + a * 0.3, retrigger: rollsOn ? cs.retrigger * (1 + 0.5 * a) : cs.retrigger };
+  if (d.id === 'amen') return { ...cs, snareLed: cs.snareLed + a * 0.7, motif: cs.motif + a * 0.8, gap: cs.gap + a * 0.25, tail: cs.tail + a * 0.6, swap: cs.swap + a * 0.3, retrigger: rollsOn ? cs.retrigger * (1 + 0.5 * a) : cs.retrigger };
+  const lean = DNA_DEFS[d.id].chop;
+  const out = { ...cs };
+  for (const [k, x] of Object.entries(lean) as [keyof typeof lean, number][]) out[k] = cs[k] + a * x;
+  return out;
 }
 
 /** One line on the DNA (the PERSONALITY tab). */
 export function describeDna(d: DnaSetting | undefined): string {
   if (!dnaActive(d)) return 'BREAK DNA: NONE. The recipe builds its own phrase.';
-  return `AMEN ${Math.round(d.amount * 100)}%: A A A' B phrase, kick pair on 3, syncopated snares, late backbeat, turnaround.`;
+  return `${DNA_DEFS[d.id].label} ${Math.round(d.amount * 100)}%: ${DNA_DEFS[d.id].blurb}`;
 }

@@ -9,18 +9,20 @@ import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editC
 import { defaultRollExpr, describeExpr, diceExpr, presetExpr, sanitiseRollExpr, type RollExpression, type RollPreset } from '../engine/rollExpr';
 import { defaultDestroy, describeDestroy, sanitiseDestroy, type DestroySettings } from '../engine/destroy';
 import { describePersonality, PERSONALITY_LABEL, sanitisePersonality, type PersonalitySetting } from '../engine/personality';
-import { describeDna, sanitiseDna, type DnaSetting } from '../engine/dna';
+import { describeDna, DNA_IDS, DNA_LABEL, sanitiseDna, type DnaSetting } from '../engine/dna';
+import { chaosDestroy, defaultDestroy2, describeDestroy2, sanitiseDestroy2, type DestroyEffect, type DestroySettings2 } from '../engine/destroy2';
+import { cymSettings, migrateCym, sanitiseCym, type CymbalSettings } from '../engine/cymbals4';
 import { regenStep } from '../engine/regen';
 import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
 import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from '../engine/chopper';
 import { rollGroups } from '../engine/rolls';
 import { SECTION_DEFS, type Section } from '../engine/sections';
-import { freshSeed, hashString, stream } from '../engine/rng';
+import { freshSeed, stream } from '../engine/rng';
 import { defaultWildcard, sanitiseWildcard, WILDCARD_LABEL, wildcardMix, wildcardOutput, wildcardRecipe, type WildcardCategory, type WildcardSettings } from '../engine/wildcard';
 import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, CYMBAL_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -251,6 +253,9 @@ export class App {
   }
 
   private show(b: Break): void {
+    // the seed's words travel with the break (the batch, exports and the pattern card show them)
+    if (this.seedName) b.seedName = this.seedName;
+    else delete b.seedName;
     this.current = b;
     this.player.setBreak(b);
     if (this.selected && !findRef(b.events, this.selected)) this.selected = null;
@@ -299,7 +304,15 @@ export class App {
    * undo, a reload) bakes a recipe as it was saved.
    */
   private fresh(r: Recipe): Recipe {
-    return sanitiseRecipe({ ...r, rollsOn: this.rollGeneration, ...(r.engine === 2 ? { revision: CURRENT_REVISION } : {}) });
+    // a revision 3 recipe moving to revision 4 brings its HI-HAT and RIDE ACTIVITY and RELATIONSHIP with it (cymbals4.ts migrateCym)
+    const cym = r.engine === 2 && (r.revision ?? 0) < CYMBAL_REVISION && !r.cym && (r.hats !== undefined || r.ride !== undefined || r.cymbals !== undefined) ? { cym: migrateCym(r) } : {};
+    return sanitiseRecipe({ ...r, ...cym, rollsOn: this.rollGeneration, ...(r.engine === 2 ? { revision: CURRENT_REVISION } : {}) });
+  }
+
+  /** A new named seed (DICE's words): its name and the seed it hashes to. `random` is Math.random in the app; WILDCARD passes its own stream. */
+  private named(random: () => number = Math.random): { name: string; seed: number } {
+    const name = diceName(random);
+    return { name, seed: parseSeed(name)!.seed };
   }
 
   /** A new break is never LEGACY: the recipe moves to the current GROOVE. Returns a note for the status line. */
@@ -363,7 +376,7 @@ export class App {
    */
   private carried(): Partial<Recipe> {
     const r = this.recipe;
-    return JSON.parse(JSON.stringify({ ...(r.chop ? { chop: r.chop } : {}), ...(r.destroy ? { destroy: r.destroy } : {}), ...(r.rollExpr ? { rollExpr: r.rollExpr } : {}), ...(r.personality ? { personality: r.personality } : {}), ...(r.dna ? { dna: r.dna } : {}) })) as Partial<Recipe>;
+    return JSON.parse(JSON.stringify({ ...(r.chop ? { chop: r.chop } : {}), ...(r.destroy ? { destroy: r.destroy } : {}), ...(r.destroy2 ? { destroy2: r.destroy2 } : {}), ...(r.rollExpr ? { rollExpr: r.rollExpr } : {}), ...(r.personality ? { personality: r.personality } : {}), ...(r.dna ? { dna: r.dna } : {}) })) as Partial<Recipe>;
   }
 
   /** Is this break LEGACY (baked by the first release's generator, kept so saved breaks reproduce)? */
@@ -395,14 +408,15 @@ export class App {
     const choices = others.length ? others : pool;
     const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
     const note = this.leaveEdits();
-    const seeds = reseed(this.seeds, this.frozen);
+    const n = this.named();
+    const seeds = reseed(this.seeds, this.frozen, n.seed);
     this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried(), bpm: this.tempoOf(style, seeds.beat) });
     this.seeds = seeds;
-    this.seedName = null;
+    this.seedName = n.name;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Random recipe: ${STYLE_DEFS[style].label} at ${this.recipe.bpm} BPM${this.tempoLock ? ' (TEMPO LOCK)' : ''}, seed ${this.seeds.beat}.${note}`;
+    this.status = `Random recipe: ${STYLE_DEFS[style].label} at ${this.recipe.bpm} BPM${this.tempoLock ? ' (TEMPO LOCK)' : ''}, seed ${this.seedText}${this.frozenNote}.${note}`;
     this.changed();
     return style;
   }
@@ -437,7 +451,8 @@ export class App {
     try {
       const note = this.leaveEdits() + this.leaveLegacy();
       const res = wildcardRecipe(this.recipe, { settings: S, frozen: this.frozen, tempoLock: this.tempoLock, rollGeneration: this.rollGeneration }, seed);
-      const seeds = reseed(this.seeds, this.frozen, hashString(`wildcard:seeds:${seed}`) % 1000000);
+      const wn = this.named(stream(seed, 'wildcard:seed-name').next);
+      const seeds = reseed(this.seeds, this.frozen, wn.seed);
       // the samples change only with SAMPLE ASSIGNMENTS (and never with KIT frozen)
       if (!S.samples || this.frozen.kit) seeds.kit = this.seeds.kit;
       else res.changed.push('samples');
@@ -454,12 +469,12 @@ export class App {
       }
       this.recipe = this.fresh(res.recipe);
       this.seeds = seeds;
-      this.seedName = null;
+      this.seedName = wn.name;
       this.picked = null;
       this.show(this.bakeWith(this.seeds));
       this.remember();
       const a = this.current.approach;
-      status = `WILDCARD: ${STYLE_DEFS[this.recipe.style].label} at ${this.recipe.bpm} BPM, seed ${this.seeds.beat}${a ? ` (${a.groove}, hats ${a.hats || 'none'})` : ''}. Changed ${res.changed.map((c) => WILDCARD_LABEL[c]).join(', ') || 'only the seeds'}${res.kept.length ? `; kept ${res.kept.join(', ')}` : ''}. ⌘Z undoes all of it.${note}`;
+      status = `WILDCARD: ${STYLE_DEFS[this.recipe.style].label} at ${this.recipe.bpm} BPM, seed ${this.seedText}${this.frozenNote}${a ? ` (${a.groove}, hats ${a.hats || 'none'})` : ''}. Changed ${res.changed.map((c) => WILDCARD_LABEL[c]).join(', ') || 'only the seeds'}${res.kept.length ? `; kept ${res.kept.join(', ')}` : ''}. ⌘Z undoes all of it.${note}`;
     } finally {
       this.gesture = false;
     }
@@ -475,12 +490,13 @@ export class App {
   /** BAKE: new seeds for the layers that are not frozen, baked by the current GROOVE (a LEGACY recipe moves to it). */
   bake(): void {
     const note = this.leaveEdits() + this.leaveLegacy();
-    this.seeds = reseed(this.seeds, this.frozen);
-    this.seedName = null;
+    const n = this.named();
+    this.seeds = reseed(this.seeds, this.frozen, n.seed);
+    this.seedName = n.name;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
     this.remember();
-    this.status = `Baked: ${STYLE_DEFS[this.recipe.style].label}, seed ${this.seeds.beat}.${note}`;
+    this.status = `Baked: ${STYLE_DEFS[this.recipe.style].label}, seed ${this.seedText}${this.frozenNote}.${note}`;
     this.changed();
   }
 
@@ -488,7 +504,12 @@ export class App {
   bakeBatch(n = BATCH_SIZE): void {
     const note = this.leaveEdits() + this.leaveLegacy();
     this.batch = [];
-    for (let i = 0; i < n; i++) this.batch.push(this.bakeWith(reseed(this.seeds, this.frozen)));
+    for (let i = 0; i < n; i++) {
+      const nm = this.named();
+      const b = this.bakeWith(reseed(this.seeds, this.frozen, nm.seed));
+      b.seedName = nm.name;
+      this.batch.push(b);
+    }
     this.pick(0);
     this.status = `A batch of ${n}: click one (or press 1–${n}) to audition it.${note}`;
     this.changed();
@@ -503,7 +524,7 @@ export class App {
     }
     this.picked = i;
     this.seeds = { ...b.seeds };
-    this.seedName = null;
+    this.seedName = b.seedName ?? null;
     // a candidate is baked with the edits it was made with; bake it again with the current ones
     this.show(hasEdits(this.edits) || b.edits ? this.bakeWith(this.seeds) : b);
     this.batch[i] = this.current;
@@ -527,20 +548,28 @@ export class App {
   setSeedText(text: string): boolean {
     const p = parseSeed(text);
     if (!p) return false;
+    // the same seed typed again (Return in an unchanged box) changes nothing and adds no undo step
+    if (p.seed === this.seeds.beat && seedsFrom(p.seed).detail === this.seeds.detail && seedsFrom(p.seed).feel === this.seeds.feel && seedsFrom(p.seed).kit === this.seeds.kit && !this.seeds.mut?.length && !this.seeds.regen?.length && (p.name ?? null) === this.seedName) return true;
     const had = hasEdits(this.edits) && !this.keepEdits;
     this.setSeed(p.seed, p.name);
     const note = had ? ' Your hand edits stay with the previous break (◀).' : '';
-    this.status = (p.name ? `Seed “${p.name}” (${p.seed}): the same name always bakes the same break with the same recipe.` : `Seed ${p.seed}.`) + note;
+    this.status = (p.name ? `Seed ${p.name} (${p.seed}): the same words always bake the same break with the same recipe and settings (case and extra spaces do not matter).` : `Seed ${p.seed}.`) + note;
     this.changed(false);
     return true;
   }
 
-  /** DICE: a new random named seed for every layer. */
+  /** DICE: a new random named seed (memorable words, VELVET-THUNDER-17) for every layer. */
   dice(): void {
     const name = diceName();
     this.setSeedText(name);
-    this.status = `Rolled “${name}”.`;
+    this.status = `Rolled ${name}: type it into SEED to bake it again (with the same recipe and settings).`;
     this.changed(false);
+  }
+
+  /** A note for the status line when FREEZE kept some layers: the seed then names only the others. */
+  get frozenNote(): string {
+    const f = LAYERS.filter((l) => this.frozen[l]);
+    return f.length ? ` (${f.map((l) => l.toUpperCase()).join(', ')} frozen: kept from before)` : '';
   }
 
   /** MUTATE's options from the MUTATE tab; none for the plain settings, so a plain MUTATE replays exactly as before. */
@@ -757,7 +786,7 @@ export class App {
     return this.recipe.dna ?? null;
   }
 
-  /** BREAK DNA: NONE (null) or AMEN, with its INFLUENCE. */
+  /** BREAK DNA: NONE (null) or one of the DNAs, with its INFLUENCE (kept when the DNA changes). */
   setDna(patch: Partial<DnaSetting> | null): void {
     const next = patch === null ? undefined : sanitiseDna({ id: 'amen', amount: this.dna?.amount ?? 0.6, ...(this.dna ?? {}), ...patch });
     const { dna: _old, ...rest } = this.recipe;
@@ -766,6 +795,84 @@ export class App {
     this.rebake();
     this.status = describeDna(this.recipe.dna);
     this.changed(false);
+  }
+
+  /**
+   * BREAK DNA DICE: a different DNA at random, heard at once on the same seeds and INFLUENCE (the
+   * break is rebuilt from its new vocabulary, nothing else changes). One undo step.
+   */
+  diceDna(roll = Math.random()): void {
+    const others = DNA_IDS.filter((id) => id !== this.dna?.id);
+    const id = others[Math.min(others.length - 1, Math.floor(roll * others.length))]!;
+    this.setDna({ id });
+    this.status = `BREAK DNA ${DNA_LABEL[id]}: ${describeDna(this.recipe.dna).replace(/^[^:]*: /, '')}`;
+    this.changed(false);
+  }
+
+  // ---------------------------------------------------------------- cymbals (revision 4)
+
+  /** The cymbal settings (CLOSED HAT, OPEN HAT, RIDE, CRASH, SUBDIVISION, the relationships, CHOKE). */
+  get cym(): CymbalSettings {
+    return cymSettings(this.recipe);
+  }
+
+  setCym(patch: Partial<CymbalSettings>): void {
+    if (this.legacy) return this.say('CYMBALS: this is a LEGACY break, kept exactly as released. RECIPE ▸ USE GROOVE first.');
+    const next = sanitiseCym({ ...this.cym, ...patch }, this.recipe.style)!;
+    if (JSON.stringify(next) === JSON.stringify(this.recipe.cym)) return;
+    this.recipe = this.fresh({ ...this.recipe, cym: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+  }
+
+  // ---------------------------------------------------------------- DESTROY (Phase 14)
+
+  get destroy2(): DestroySettings2 {
+    return this.recipe.destroy2 ?? defaultDestroy2();
+  }
+
+  /**
+   * Change DESTROY (ENABLED, MASTER AMOUNT, an effect's settings). It works on the finished
+   * pattern, hand edits included, so it is never locked; a drag is one undo step.
+   */
+  setDestroy2(patch: Partial<DestroySettings2>): void {
+    const next = sanitiseDestroy2({ ...this.destroy2, ...patch })!;
+    if (JSON.stringify(next) === JSON.stringify(this.recipe.destroy2)) return;
+    this.recipe = this.fresh({ ...this.recipe, destroy2: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describeDestroy2(this.recipe.destroy2, this.current.destroy2);
+    this.changed(false);
+  }
+
+  /** One cell of the matrix: may `fx` touch `cat`? */
+  setDestroyCell(cat: Category, fx: DestroyEffect, on: boolean): void {
+    const cur = this.destroy2.matrix[cat] ?? [];
+    const list = on ? [...new Set([...cur, fx])] : cur.filter((x) => x !== fx);
+    this.setDestroy2({ matrix: { ...this.destroy2.matrix, [cat]: list } });
+  }
+
+  /** RE-DESTROY: another take (a new draw of which hits each effect takes), same settings. One undo step. */
+  reDestroy(): void {
+    if (!this.destroy2.on) return this.say('DESTROY: switch it on first.');
+    this.setDestroy2({ take: this.destroy2.take + 1 });
+  }
+
+  /** CHAOS: every effect the matrix uses gets random settings (the matrix and MASTER AMOUNT stay). One undo step. */
+  chaos(seed = freshSeed()): void {
+    this.setDestroy2(chaosDestroy(this.destroy2, seed));
+    this.status = `CHAOS: ${describeDestroy2(this.recipe.destroy2, this.current.destroy2)}`;
+    this.changed(false);
+  }
+
+  /** Remove the Phase 12 CHOP ▸ DESTROY a saved break may still have (the DESTROY tab offers it). */
+  removeLegacyDestroy(): void {
+    if (!this.recipe.destroy) return;
+    const { destroy: _d, ...rest } = this.recipe;
+    this.recipe = this.fresh(rest as Recipe);
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.say('The earlier CHOP ▸ DESTROY of this break is removed (⌘Z brings it back).');
   }
 
   /** A short line comparing this break with the same seeds played by NEUTRAL (the PERSONALITY tab's feedback). */

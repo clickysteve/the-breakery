@@ -3,7 +3,7 @@
  * options and related sections, roll grouping, the grid's click/drag rules, and that grid edits
  * reach the player (and so MIDI out) and the MIDI file.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { App, defaultMutate, sanitiseMutate } from '../src/app/app';
 import { entryKey, sanitiseEntry } from '../src/app/seeds';
 import { bake, mutate, mutationBars, sanitiseRecipe, seedsFrom, toggleTarget } from '../src/engine/generate';
@@ -370,6 +370,10 @@ describe('MUTATE options', () => {
     });
 
     it('MUTATE uses the tab settings, is one undo step, and the original stays in the history', () => {
+      // a mutation can rarely leave this break unchanged (about 1 seed in 300); pin MUTATE's fresh seed
+      let x = 0;
+      const rand = vi.spyOn(Math, 'random').mockImplementation(() => ((x = (x * 7919 + 1237) % 10007) + 0.5) / 10008);
+      onTestFinished(() => rand.mockRestore());
       const { app } = makeApp('777');
       app.setRecipe(r);
       const before = JSON.stringify(strip(app.current));

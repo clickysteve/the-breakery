@@ -5,9 +5,11 @@
  * Measurements of the rendered audio, not listening.
  */
 import { readZip, wavInfo } from '@slopfactory/core/export';
+import type { SampleInstrument } from '@slopfactory/core/sampler';
 import { Ingredients } from '../src/audio/ingredients';
 import { Player } from '../src/audio/player';
 import { defaultTakeaway, takeaway } from '../src/audio/takeaway';
+import { fxSuffix } from '../src/audio/shaped';
 import { REVERSED, ROOT_PITCH } from '../src/audio/timeline';
 import { bake, seedsFrom } from '../src/engine/generate';
 import { defaultRecipe } from '../src/engine/styles';
@@ -31,7 +33,7 @@ export async function run() {
   const ing = new Ingredients(null);
   ing.loadDemo();
   const snare = ing.kit().snare[0]!;
-  const base = ing.instrument(snare)!;
+  const base = ing.instrument(snare) as SampleInstrument;
   const before = Array.from(base.buffer.getChannelData(0).slice(0, 64));
   const b0 = bake({ ...defaultRecipe('funk', 1), bpm: 120 }, seedsFrom(7));
   const one = (expr: Partial<BreakEvent>): Break => ({ ...b0, events: [{ cat: 'snare', bar: 0, step: 4, sub: 0, level: 1, role: 'backbeat', why: '', vel: 120, swing: 0, offsetMs: 0, sample: snare, ...expr }] });
@@ -55,6 +57,20 @@ export async function run() {
   check(last(up.d) < last(fwd.d) && last(fwd.d) < last(down.d), 'pitch by playback rate: +12 is shorter, -12 longer');
   const fwdLen = last(fwd.d) - hit, upLen = last(up.d) - hit;
   check(upLen > fwdLen * 0.35 && upLen < fwdLen * 0.65, `+12 st is about half the length (${(upLen / fwdLen).toFixed(2)})`);
+
+  // DESTROY's shaping (audio/shaped.ts), measured in the offline render: a quarter note is 0.5 s at 120 BPM
+  const q = 0.5 * fwd.rate;
+  const gated = await render({ gate: { len: 0.25, fade: 0.01 } });
+  check(last(gated.d) - hit <= 0.25 * q + 0.003 * fwd.rate, `GATE 1/16: silent after the gate (${ms(last(gated.d) - hit)} ms)`);
+  check(last(gated.d) - hit > 0.25 * q * 0.7, `GATE 1/16: sounds until near the gate (${ms(last(gated.d) - hit)} ms)`);
+  const taped = await render({ tape: { len: 0.5, from: 1, to: 0.2 } });
+  check(last(taped.d) - hit <= 0.5 * q + 0.003 * fwd.rate, `TAPE STOP (CUT): silent after the stop (${ms(last(taped.d) - hit)} ms)`);
+  const partial = await render({ reverse: true, revFrac: 0.3 });
+  check(first(partial.d) - hit < 0.01 * fwd.rate, 'partial REVERSE starts on the hit');
+  check(last(partial.d) - hit < (last(rev.d) - hit) * 0.5, `partial REVERSE (30%) is shorter than the whole reversed sound (${ms(last(partial.d) - hit)} vs ${ms(last(rev.d) - hit)} ms)`);
+  const detuned = await render({ detune: 1200 });
+  check(Math.abs((last(detuned.d) - hit) - (last(up.d) - hit)) < 0.01 * fwd.rate, 'detune +1200 cents plays as +12 st');
+  lines.push(`DESTROY: gate 1/16 audible until +${ms(last(gated.d) - hit)} ms; tape stop (cut after 1/8) until +${ms(last(taped.d) - hit)} ms; partial reverse 30% until +${ms(last(partial.d) - hit)} ms (whole: +${ms(last(rev.d) - hit)} ms)`);
 
   // stems: the reversed hit is in the snare stem, nowhere else
   const zip = await readZip((await takeaway(one({ reverse: true, pitch: 5 }), ing, { ...opts, stems: true, dryStems: true }, 0.8)).bytes);
@@ -81,13 +97,14 @@ export async function run() {
   });
   const player = new Player(spy as never);
   await player.ensure();
-  const live = { ...b0, events: [one({ reverse: true, pitch: -7 }).events[0]!, { ...one({ pitch: 3 }).events[0]!, step: 0 }] };
+  const live = { ...b0, events: [one({ reverse: true, pitch: -7 }).events[0]!, { ...one({ pitch: 3 }).events[0]!, step: 0 }, { ...one({ gate: { len: 0.25, fade: 0.01 } }).events[0]!, step: 8 }] };
   await player.play(live);
   await new Promise((r) => setTimeout(r, 1400));
   player.stop();
   await player.ctx!.close();
   check(asked.some((a) => a.id === snare + REVERSED && a.pitch === ROOT_PITCH - 7), `live: reversed at -7 st requested (${JSON.stringify(asked.slice(0, 4))})`);
   check(asked.some((a) => a.id === snare && a.pitch === ROOT_PITCH + 3), 'live: forwards at +3 st requested');
+  check(asked.some((a) => a.id === snare + fxSuffix({ gate: { len: 0.25, fade: 0.01 } }, 120)), 'live: the gated hit asks for the same shaped instrument as the export');
   lines.push(`live player: ${asked.length} notes scheduled with their instrument and pitch`);
 
   // the interface: the new controls are there, visible, and use no native dropdowns
@@ -98,11 +115,13 @@ export async function run() {
   const visible = (text: string) => [...document.querySelectorAll<HTMLElement>('.btn, .label')].some((x) => x.textContent === text && x.getBoundingClientRect().width > 0);
   check(document.querySelectorAll('select').length === 0, 'no native dropdowns');
   tab('PERSONALITY');
-  for (const n of ['NEUTRAL', 'ANGRY', 'DILLA', 'HEAVY-HANDED', 'NONE', 'AMEN', 'INTENSITY', 'INFLUENCE']) check(visible(n), `PERSONALITY shows ${n}`);
+  for (const n of ['NEUTRAL', 'ANGRY', 'DILLA', 'HEAVY-HANDED', 'INTENSITY', 'INFLUENCE']) check(visible(n), `PERSONALITY shows ${n}`);
+  const dnaSel = document.querySelector<HTMLElement>('[aria-label="Break DNA"]');
+  check(dnaSel && dnaSel.getBoundingClientRect().width > 0 && /NONE/.test(dnaSel.textContent ?? ''), 'PERSONALITY shows the BREAK DNA selector (NONE)');
   press([...document.querySelectorAll('.btn')].find((x) => x.textContent === 'LAZY')!);
   check(app.recipe.personality?.id === 'lazy', 'clicking LAZY sets the personality');
-  tab('CHOP');
-  for (const n of ['DESTROY', 'STUTTER', 'CHAOS', 'DICE']) check(visible(n), `CHOP shows ${n}`);
+  tab('DESTROY');
+  for (const n of ['RE-DESTROY', 'STUTTER', 'TAPE STOP', 'CHAOS']) check(visible(n), `DESTROY shows ${n}`);
   tab('ROLLS');
   press([...document.querySelectorAll('.btn')].find((x) => x.textContent === 'EXPRESSION')!);
   for (const n of ['PRESET', 'PITCH', 'VELOCITY', 'TIMING', 'RATCHET', 'REVERSE']) check(visible(n), `ROLLS ▸ EXPRESSION shows ${n}`);
