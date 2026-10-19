@@ -1,10 +1,11 @@
 /**
- * BAKE: GENERATION (GROOVE), then TRANSFORMATION (CHOP), then the hand edits.
+ * BAKE: GENERATION (GROOVE), then TRANSFORMATION (CHOP, ROLLS from revision 6), then the hand edits.
  *
  *   GROOVE   phrase plan  ->  foundation (kick, snare)  ->  supporting voices  ->  [mutations]
  *            ->  phrase development (answer, development, chops, fills)
  *            ->  performance (velocity, swing, microtiming)  ->  AUTO samples  ->  TOMS, ROLLS
  *   CHOP     transform.ts: fragments of the GROOVE rearranged (chopper.ts), from the GROOVE every time
+ *   ROLLS    revision 6: retriggers leading into eligible hits of the chopped groove (rollLayer.ts)
  *   EDITS    the hand-edit layer (edits.ts)  ->  PICK modes and hand-chosen samples
  *
  * Deterministic: the same recipe (including its ENGINE), seeds, kit and sample settings give the
@@ -35,6 +36,7 @@ import { addRolls } from './rolls';
 import { addTomPhrases, addToms, tomVoices } from './toms';
 import { sanitiseChop } from './chopper';
 import { transform } from './transform';
+import { usesRollLayer } from './rollLayer';
 import { sanitiseRollExpr } from './rollExpr';
 import { personaBars, personaPerform, personaRecipe, sanitisePersonality } from './personality';
 import { dnaActive, dnaBars, sanitiseDna } from './dna';
@@ -44,7 +46,7 @@ import { applyRegen, sanitiseRegen } from './regen';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
 import { addClapFx, usesClapFx } from './clapfx';
-import { CATEGORIES, clamp, CLAPFX_REVISION, CURRENT_REVISION, CYMBAL_MODES, CYMBAL_REVISION, LAYERS, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
+import { CATEGORIES, clamp, CLAPFX_REVISION, CURRENT_REVISION, CYMBAL_MODES, CYMBAL_REVISION, LAYERS, ROLLS_REVISION, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
 
 /** Recipe values made safe (clamped, known style and engine, whole bars 1–8). */
 export function sanitiseRecipe(r: Recipe): Recipe {
@@ -64,10 +66,17 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   out.rollTargets = Array.isArray(r.rollTargets) ? ROLL_TARGETS.filter((t) => (r.rollTargets as unknown[]).includes(t)) : [...fl.rollTargets];
   if (r.rollsOn === false) out.rollsOn = false;
   else delete out.rollsOn;
+  // RE-ROLL's take (revision 6 rolls; absent = 0)
+  const take = Number(r.rollTake);
+  if (Number.isFinite(take) && take > 0) out.rollTake = Math.min(Math.floor(take), 999999);
+  else delete out.rollTake;
   // the GROOVE revision (engine 2 only; absent = 0, as every recipe saved before revisions)
   const rev = engine === 2 ? clamp(Math.floor(Number(r.revision) || 0), 0, CURRENT_REVISION) : 0;
   if (rev) out.revision = rev;
   else delete out.revision;
+  // an older engine 2 break whose rolls became the transformation (implied from revision 6 on)
+  if (r.rollLayer === true && engine === 2 && rev < ROLLS_REVISION) out.rollLayer = true;
+  else delete out.rollLayer;
   // the new JUNGLE phrase belongs to engine 2's JUNGLE only; anything else (or anything saved before it) keeps the old
   if (r.jungleCuts === true && def.style === 'jungle' && engine === 2) out.jungleCuts = true;
   else delete out.jungleCuts;
@@ -300,7 +309,8 @@ function flourish(core: Omit<Break, 'recipe' | 'seeds'>, recipe: Recipe, seeds: 
   if (off) recipe = { ...recipe, rollTargets: recipe.rollTargets.filter((t) => t !== 'hat') };
   const ctx = { def: STYLE_DEFS[recipe.style], fl: FLOURISH[recipe.style], recipe, feel: core.feel, roles: core.plan };
   const withToms = (recipe.revision ?? 0) >= 1 ? addTomPhrases(core.events, ctx, stream(seeds.beat, 'tom-phrases'), stream(seeds.feel, 'toms'), tomVoices(kit)) : addToms(core.events, ctx, stream(seeds.beat, 'toms'), stream(seeds.feel, 'toms'));
-  if (recipe.rollsOn === false) return withToms;
+  // revision 6: ROLLS is a transformation after CHOP (rollLayer.ts), not part of the GROOVE
+  if (recipe.rollsOn === false || usesRollLayer(recipe)) return withToms;
   return addRolls(withToms, { ...ctx, timekeeper: core.timekeeper }, stream(seeds.beat, 'rolls'), stream(seeds.feel, 'rolls'));
 }
 
@@ -378,7 +388,7 @@ export function bake(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(),
   const d2 = destroy2(events, recipe.destroy2, { seed: seeds.beat, bars: recipe.bars });
   const ed = hasEdits(edits) ? { edits: JSON.parse(JSON.stringify(edits)) as Edits, editReport: report } : {};
   const copy: Seeds = { ...seeds, ...(seeds.mut ? { mut: seeds.mut.map((m) => ({ ...m })) } : {}), ...(seeds.regen ? { regen: seeds.regen.map((x) => ({ cats: [...x.cats], n: x.n })) } : {}) };
-  return { recipe, seeds: copy, ...g.core, events: d2.events, ...ed, ...(d2.report ? { destroy2: d2.report } : {}), ...(t.chop ? { chop: t.chop } : {}), ...(t.destroy ? { destroy: t.destroy } : {}), ...(rg.report ? { regen: rg.report } : {}) };
+  return { recipe, seeds: copy, ...g.core, events: d2.events, ...ed, ...(d2.report ? { destroy2: d2.report } : {}), ...(t.chop ? { chop: t.chop } : {}), ...(t.rolls ? { rollReport: t.rolls } : {}), ...(t.destroy ? { destroy: t.destroy } : {}), ...(rg.report ? { regen: rg.report } : {}) };
 }
 
 export function randomSeeds(): Seeds {

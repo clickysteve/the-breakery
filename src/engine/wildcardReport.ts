@@ -5,7 +5,7 @@
  * plain data, and the report is plain data (kept in the undo snapshots, so ⌘Z and redo bring the
  * matching report back).
  */
-import { CATEGORIES, CATEGORY_LABEL, RECIPE_KEYS, type Category, type Recipe } from './types';
+import { CATEGORIES, CATEGORY_LABEL, RECIPE_KEYS, ROLL_SPEED_LABEL, type Category, type Recipe } from './types';
 import { clapActivity, fxActivity } from './clapfx';
 import { SAMPLE_MODE_LABEL, modeOf, type SampleSettings } from './samples';
 import { STYLE_DEFS } from './styles';
@@ -101,6 +101,9 @@ export function wildcardReport(a: ReportState, b: ReportState, kept: string[] = 
   add('BREAK DNA', row('BREAK DNA', dna(ra), dna(rb)));
   const chopOn = (r: Recipe) => !!r.chop?.on;
   add('CHOP', chopOn(ra) || chopOn(rb) ? diffMaps(flatten(chopOn(ra) ? ra.chop : { on: false }), flatten(chopOn(rb) ? rb.chop : { on: false }), 'CHOP ') : []);
+  // the roll settings that are not generation controls (PROBABILITY is there, as ROLLS): a new recipe brings its own
+  const rollRows = (r: Recipe) => new Map([['ROLL LENGTH', `${r.rollLength} HITS`], ['ROLL SPEED', ROLL_SPEED_LABEL[r.rollSpeed]], ['ROLL DYNAMICS', r.rollDynamics.toUpperCase()], ['ROLL PLACEMENT', r.rollPlace.toUpperCase()], ['ROLL TARGETS', r.rollTargets.length ? r.rollTargets.join(', ').toUpperCase() : NONE], ['ROLL GENERATION', r.rollsOn === false ? 'OFF' : 'ON']]);
+  add('ROLLS', diffMaps(rollRows(ra), rollRows(rb)));
   add('ROLL EXPRESSION', diffMaps(flatten(ra.rollExpr ?? { preset: 'classic' }), flatten(rb.rollExpr ?? { preset: 'classic' }), 'ROLL '));
   const destroyOn = (r: Recipe) => !!r.destroy2?.on;
   add('DESTROY', destroyOn(ra) || destroyOn(rb) ? diffMaps(flatten(destroyOn(ra) ? ra.destroy2 : { on: false }), flatten(destroyOn(rb) ? rb.destroy2 : { on: false }), 'DESTROY ') : row('DESTROY', ra.destroy?.on ? 'ON (CHOP ▸ DESTROY)' : 'OFF', rb.destroy?.on ? 'ON (CHOP ▸ DESTROY)' : 'OFF'));

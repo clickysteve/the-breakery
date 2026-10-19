@@ -116,7 +116,8 @@ describe('JUNGLE phrases', () => {
         }
       }
     }
-    const jungleHits = mean(SEEDS.map((s) => bake(jungle(4), seedsFrom(s)).events.length));
+    // revision 5 (the GROOVE with its ROLLS layer, as before revision 6 made the rolls a transformation over it)
+    const jungleHits = mean(SEEDS.map((s) => bake(jungle(4, { revision: 5 }), seedsFrom(s)).events.length));
     expect(jungleHits).toBeLessThan(100); // 4 bars of the default recipe: about 82 hits, as before this phase
   });
 

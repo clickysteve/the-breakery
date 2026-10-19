@@ -1,10 +1,12 @@
 /**
  * ROLLS (a tab of the RECIPE window): roll generation. ROLL GENERATION switches every new roll on
- * and off (the ROLLS layer, the fills' rolls, CHOP's retriggers). It is the user's preference: off
- * until switched on, and kept through recipe changes, new breaks and reloads; no recipe turns it
- * on. Off, new breaks get no rolls and the rolls already in the pattern are kept until CLEAR ROLLS
- * deletes them. Then how likely rolls are, how long and fast, their dynamics, where they go and
- * which drums roll: part of the recipe, every change re-bakes the same seeds.
+ * and off (the ROLLS transformation, the fills' rolls, CHOP's retriggers). It is the user's
+ * preference: off until switched on, and kept through recipe changes, new breaks and reloads; no
+ * recipe turns it on. From revision 6 the rolls are a TRANSFORMATION of the current groove
+ * (engine/rollLayer.ts): switching on applies them at once (no BAKE), RE-ROLL draws another take,
+ * every setting is heard on the same groove, and off takes the generated rolls away (on again
+ * brings the same ones back); rolls made or kept by hand stay until CLEAR ROLLS. The line under
+ * the settings says what is in the pattern, or why there are no rolls (from the actual events).
  *
  * Two pages: SETTINGS (where rolls go and which drums roll) and EXPRESSION (how every roll moves:
  * a preset, or its pitch, velocity and timing contours, RATCHET and REVERSE by hand; DICE draws a
@@ -67,7 +69,7 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   label(b, 5, 6, 'ROLL GENERATION', 'head');
   const enable = new Button(b, [90, 3, 58, 14], 'ENABLED', {
     cls: 'small',
-    tip: 'ROLL GENERATION: off until you switch it on, and it stays as you set it (changing recipe, RANDOM RECIPE, BAKE, BATCH, seeds, MUTATE, CHOP and reloading never change it). On, the ROLLS settings add rolls to every break; off, new breaks get no rolls at all: fills play their rolls as plain fills, and CHOP makes no retrigger rolls. Toms do not need it (RECIPE ▸ TOM ACTIVITY). Turning it off does not delete the rolls already in this pattern: they are kept as hits, and CLEAR ROLLS deletes them. ⌘Z undoes either.',
+    tip: 'ROLL GENERATION: off until you switch it on, and it stays as you set it (changing recipe, RANDOM RECIPE, WILDCARD, BAKE, BATCH, seeds, MUTATE, CHOP and reloading never change it). On, the ROLLS settings apply to the CURRENT groove at once (no BAKE) and to every new break; off, no generated rolls: fills play their rolls as plain fills, CHOP makes no retrigger rolls, and the generated rolls leave this pattern (on again brings the same ones back). Rolls made or kept by hand stay; CLEAR ROLLS deletes them. Toms do not need it (RECIPE ▸ TOM ACTIVITY). ⌘Z undoes either.',
     onPress: () => app.setRollsOn(!on()),
   });
   const pageBtns = (['SETTINGS', 'EXPRESSION'] as const).map((t, i) => new Button(b, [154 + i * 60, 3, i ? 66 : 56, 14], t, {
@@ -80,8 +82,12 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   }));
   const clear = new Button(b, [W - 4 - 72, 3, 72, 14], 'CLEAR ROLLS', {
     cls: 'small',
-    tip: 'CLEAR ROLLS: delete every roll hit in this pattern (from ROLLS, from fills, or kept when generation was turned off). ROLL GENERATION is not changed. ⌘Z brings them back.',
-    onPress: () => app.clearRolls(),
+    tip: 'CLEAR ROLLS: no rolls in this pattern, no other hit touched. The generated rolls go by switching ROLL GENERATION off; the rolls in fills and CHOP, and roll hits made or kept by hand (RATCHET), are deleted (it asks first when hand-made ones are among them). One undo step: ⌘Z brings them all back.',
+    onPress: () => {
+      const n = app.manualRollHits;
+      if (!n) return app.clearRolls();
+      void ui.confirm(`CLEAR ROLLS deletes ${n} roll hit${n === 1 ? '' : 's'} made or kept by hand (RATCHET, kept rolls) along with the generated rolls. ⌘Z brings them back.`, 'Clear Rolls').then((ok) => ok && app.clearRolls());
+    },
   });
   el('div', 'rule', b, [4, 21, W - 8]);
 
@@ -90,15 +96,15 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   label(pg1, 5, 29, 'PROBABILITY');
   const amount = new RangeBar(pg1, [72, 26, W - 76, 14], {
     get: () => app.recipe.rolls,
-    set: (v) => app.setRecipe({ rolls: v }),
+    set: (v) => app.setRolls({ rolls: v }),
     format: pct,
     label: 'Roll probability',
-    tip: 'PROBABILITY: how readily rolls come at the places PLACEMENT allows. 0 = no new rolls. The recipe has its own appetite for rolls (jungle, D&B and breakcore most); this setting scales it. Every roll is real hits, editable in the PATTERN.',
+    tip: 'PROBABILITY: the chance that each ELIGIBLE hit (a hit of a TARGET TRACK where PLACEMENT allows a roll, with room for one) gets a roll: 0% none, 50% about half of them, 100% every one (at most two rolls a bar). Raising it only adds rolls; RE-ROLL draws again. Every roll is real hits, editable in the PATTERN.',
   });
   label(pg1, 5, 47, 'LENGTH');
   const length = new NumBox(pg1, [72, 44, 24, 14], {
     get: () => app.recipe.rollLength,
-    set: (v) => app.setRecipe({ rollLength: v }),
+    set: (v) => app.setRolls({ rollLength: v }),
     min: MIN_ROLL,
     max: MAX_ROLL,
     pxPerUnit: 6,
@@ -107,16 +113,16 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   });
   label(pg1, 100, 47, 'HITS');
   label(pg1, c2, 47, 'SPEED');
-  const speed = sel(c2 + 58, 44, W - 4 - c2 - 58, 'Roll speed', ROLL_SPEEDS, (o) => ROLL_SPEED_LABEL[o as RollSpeed], (v) => app.setRecipe({ rollSpeed: v as RollSpeed }));
+  const speed = sel(c2 + 58, 44, W - 4 - c2 - 58, 'Roll speed', ROLL_SPEEDS, (o) => ROLL_SPEED_LABEL[o as RollSpeed], (v) => app.setRolls({ rollSpeed: v as RollSpeed }));
   setTip(speed.el, 'SPEED: the subdivision of a roll’s strokes: sixteenths, sixteenth triplets, 32nds, 32nd triplets, 64ths. The strokes keep that spacing exactly (they are not put back on the sixteenth grid).');
   label(pg1, 5, 65, 'DYNAMICS');
-  const dyn = sel(72, 62, c2 - 8 - 72, 'Roll dynamics', ROLL_DYNAMICS, (o) => DYN_LABEL[o as RollDynamics], (v) => app.setRecipe({ rollDynamics: v as RollDynamics }));
+  const dyn = sel(72, 62, c2 - 8 - 72, 'Roll dynamics', ROLL_DYNAMICS, (o) => DYN_LABEL[o as RollDynamics], (v) => app.setRolls({ rollDynamics: v as RollDynamics }));
   label(pg1, c2, 65, 'PLACEMENT');
-  const place = sel(c2 + 58, 62, W - 4 - c2 - 58, 'Where rolls go', ROLL_PLACES, (o) => PLACE_LABEL[o as RollPlace], (v) => app.setRecipe({ rollPlace: v as RollPlace }));
+  const place = sel(c2 + 58, 62, W - 4 - c2 - 58, 'Where rolls go', ROLL_PLACES, (o) => PLACE_LABEL[o as RollPlace], (v) => app.setRolls({ rollPlace: v as RollPlace }));
 
   label(pg1, 5, 85, 'TARGET TRACKS');
   const tw = Math.floor((W - 8 - 4 * 3) / 5);
-  const targets = ROLL_TARGETS.map((t, i) => new Button(pg1, [4 + i * (tw + 3), 95, i === 4 ? W - 8 - 4 * (tw + 3) : tw, 14], TARGET_LABEL[t], { cls: 'small', tip: `${TARGET_TIP[t]}. Inverted: these may roll. The recipe weighs between the drums you allow.`, onPress: () => app.setRecipe({ rollTargets: toggleTarget(app.recipe.rollTargets, t) }) }));
+  const targets = ROLL_TARGETS.map((t, i) => new Button(pg1, [4 + i * (tw + 3), 95, i === 4 ? W - 8 - 4 * (tw + 3) : tw, 14], TARGET_LABEL[t], { cls: 'small', tip: `${TARGET_TIP[t]}. Inverted: these may roll. The recipe weighs between the drums you allow.`, onPress: () => app.setRolls({ rollTargets: toggleTarget(app.recipe.rollTargets, t) }) }));
 
   // ---- EXPRESSION
   host = pg2;
@@ -156,7 +162,12 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
   host = b;
 
   el('div', 'rule', b, [4, 114, W - 8]);
-  const count = el('div', 'label', b, [5, 119, W - 10]);
+  const count = el('div', 'label', b, [5, 119, W - 66]);
+  const reroll = new Button(b, [W - 4 - 56, 116, 56, 14], 'RE-ROLL', {
+    cls: 'small',
+    tip: 'RE-ROLL: another set of rolls on the CURRENT groove, with these settings and the EXPRESSION. Not BAKE: no other hit, sample, seed, recipe, tempo, kit or mixer setting changes, and the previous rolls are replaced, never added to. ⌘Z returns to the previous rolls; redo brings these back exactly.',
+    onPress: () => app.reRoll(),
+  });
   const note = el('div', 'label tiny', b, [5, 132, W - 10]);
   const settings = [amount.el, length.el, speed.el, dyn.el, place.el, ...targets.map((t) => t.el)];
 
@@ -193,22 +204,25 @@ export function rollsTab(b: HTMLElement, ui: UiContext, W: number) {
     for (const c of settings) c.classList.toggle('inactive', !live);
     enable.disabled = e1;
     const n = app.rollCount;
+    const sum = app.rollSummary;
     clear.disabled = !n.hits;
-    count.textContent = n.rolls ? `ROLLS IN CURRENT PATTERN: ${n.rolls} (${n.hits} HIT${n.hits === 1 ? '' : 'S'})` : 'NO ROLLS IN CURRENT PATTERN';
-    setTip(count, 'Rolls in this pattern, from ROLLS, from fills (stutters and fill rolls), or kept by hand. A roll round the toms counts once. Tom hits that are not rolls are not counted (RECIPE ▸ TOM ACTIVITY).');
+    reroll.disabled = e1 || !on();
+    count.textContent = sum.text;
+    const rep = sum.report;
+    setTip(count, `What is in this pattern now, from its events (after hand edits and DESTROY): the generated rolls and their retriggers, rolls made or kept by hand, and rolls inside fills and CHOP.${rep ? ` ${rep.candidates} candidate hit${rep.candidates === 1 ? '' : 's'} for these settings, ${rep.eligible} with room for a roll${rep.capped ? `, ${rep.capped} left out by the two-a-bar ceiling` : ''}; take ${rep.take}.` : ''} When there are no rolls it says why.`);
     const kit = app.ingredients.kit();
     const missing = TOMS.filter((t) => !kit[t].length);
     note.textContent = e1
       ? 'LEGACY BREAK: NO ROLLS · RECIPE ▸ USE GROOVE'
       : !on()
-        ? 'GENERATION OFF: NO NEW ROLLS (YOUR SETTING, KEPT) · EXISTING ROLLS ARE KEPT'
+        ? 'GENERATION OFF: NO GENERATED ROLLS (YOUR SETTING, KEPT) · MANUAL ROLLS ARE KEPT'
         : r.rolls <= 0
           ? 'PROBABILITY 0: NO NEW ROLLS'
           : !r.rollTargets.length
             ? 'NO TARGET TRACKS: NO NEW ROLLS'
             : r.rollTargets.includes('tom') && missing.length
               ? `NO SAMPLE FOR ${missing.map((t) => CATEGORY_LABEL[t]).join(', ')}: SILENT`
-              : 'EVERY ROLL HIT IS EDITABLE IN THE PATTERN';
+              : 'ON THE CURRENT GROOVE (NO BAKE) · EVERY ROLL HIT IS EDITABLE IN THE PATTERN';
   }
   update();
   return { update };

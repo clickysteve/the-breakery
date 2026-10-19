@@ -376,7 +376,7 @@ describe('PERSONALITIES', () => {
         if (normal > own * 1.25) expect(m, `${id} ${style}`).toBeLessThan(normal);
       }
     }
-  });
+  }, 15000); // about 1,000 bakes: 3.5 s locally, over 5 s on a loaded CI runner
 
   it('offsets stay within ±40 ms and the loop’s first hit is never early', () => {
     for (const id of PERSONALITIES)

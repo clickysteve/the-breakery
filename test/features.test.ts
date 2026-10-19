@@ -90,7 +90,8 @@ describe('pattern length 1–8 bars', () => {
       expect(grid(b, 5)).toBe(grid(b, 1));
     }
     for (const style of ['funk', 'hiphop', 'jungle', 'dnb'] as const) {
-      const sims = SEEDS.map((s) => analyse(bake(defaultRecipe(style, 8), seedsFrom(s)).events, 8).barSimilarity);
+      // the groove's own structure (revision 6 rolls are a transformation over it: rollLayer.ts)
+      const sims = SEEDS.map((s) => analyse(bake({ ...defaultRecipe(style, 8), rolls: 0 }, seedsFrom(s)).events, 8).barSimilarity);
       expect(mean(sims)).toBeGreaterThan(0.6);
     }
   });

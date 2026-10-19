@@ -47,7 +47,7 @@ interface Anchor {
 
 const HANDS: Category[] = ['hat', 'open', 'ride', 'ghost', 'perc'];
 /** Faster rolls are softer. */
-const SPEED_LEVEL: Record<number, number> = { 12: 1, 8: 0.95, 6: 0.9, 4: 0.85, 3: 0.78 };
+export const SPEED_LEVEL: Record<number, number> = { 12: 1, 8: 0.95, 6: 0.9, 4: 0.85, 3: 0.78 };
 /** How each drum suits each anchor. */
 const SUITS: Record<AnchorKind, Record<RollTarget, number>> = {
   backbeat: { snare: 1.6, hat: 0.5, perc: 0.5, tom: 0.4, kick: 0.15 },

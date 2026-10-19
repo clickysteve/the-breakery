@@ -26,8 +26,8 @@ over: every hit can be added, moved, deleted or changed by hand.
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
 | **FREEZE** | Keep RHYTHM (beat, detail and feel) or SAMPLES, or single layers, or your hand EDITS, when baking again. |
-| **CHOP** | (a tab beside RECIPE) Transform the GROOVE: re-arrange its phrase (recalls, swaps, repeats, retriggers, drop-outs) with AMOUNT, SLICE SIZE (LARGE, MEDIUM, SMALL, MICRO) and RETRIGGER; RE-CHOP. Non-destructive: the GROOVE is kept. |
-| **ROLLS** | (a tab beside RECIPE) Roll generation on/off, probability, length, speed 1/16–1/64 and triplets, dynamics, placement, which drums; CLEAR ROLLS. |
+| **CHOP** | (a tab beside RECIPE) Transform the current groove, no BAKE: re-arrange its phrase (recalls, swaps, repeats, retriggers, drop-outs) with AMOUNT, SLICE SIZE (LARGE, MEDIUM, SMALL, MICRO) and RETRIGGER; RE-CHOP. Non-destructive: the GROOVE is kept, and hand edits stay. |
+| **ROLLS** | (a tab beside RECIPE) Rolls on the current groove, no BAKE: roll generation on/off, probability per eligible hit, length, speed 1/16–1/64 and triplets, dynamics, placement, which drums; RE-ROLL, CLEAR ROLLS, and what is in the pattern (or why there are no rolls). |
 | **DESTROY** | (a tab beside RECIPE) Destroy the finished pattern: STUTTER, PITCH, REVERSE, GATE and TAPE STOP per track (a matrix), each with its own PROBABILITY and settings, a MASTER AMOUNT, RE-DESTROY and CHAOS. Non-destructive: off is the pattern exactly, and the settings are kept. |
 | **MUTATE** | (a tab beside RECIPE) MUTATE PATTERN with a style, depth, range and tracks; CREATE RELATED SECTION (verse, chorus, breakdown, build, fill, alternate). |
 | **PATTERN** | See every hit and why it is there; edit hits by hand (click to add or delete, shift+click to edit, drag to move; velocity, timing, sample) with undo; SOLO and MUTE each drum. Dense rolls show as one group (ROLL ×N): click to expand. |
@@ -119,8 +119,10 @@ from any folder of any static server). `npm run evaluate` regenerates
    The **CHOP** tab re-arranges the GROOVE's phrase as a producer would chop a break: **AMOUNT**
    (0 is the GROOVE exactly; low keeps it recognisable, high fragments it), **SLICE SIZE** and
    **RETRIGGER** (fast re-strikes, written as rolls you can edit). Each recipe chops in its own way.
-   Every change is recalculated from the GROOVE (seeds unchanged); **RE-CHOP** tries another chop.
-   Once you edit a hit by hand, CHOP is applied and stays fixed until you undo the edits.
+   Every change is recalculated from the GROOVE (seeds unchanged, no BAKE); **RE-CHOP** tries
+   another chop; off gives the groove back and on again the same chop. Hand edits never lock it:
+   they stay, and one whose hit a chop moves waits until that chop returns
+   ([docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md)).
 3. **Bake.** **BAKE** (B) for a new break; **BATCH** (N) for eight candidates (1–8 to audition).
    **FREEZE RHYTHM** keeps hit placement and performance and changes only the samples; **FREEZE
    SAMPLES** keeps the sample choices; or freeze single layers: BEAT (kick and snare), DETAIL
@@ -153,13 +155,17 @@ from any folder of any static server). `npm run evaluate` regenerates
    onto new breaks instead.
 6. **Rolls and toms.** The **ROLLS** tab: **ROLL GENERATION** (ENABLED / DISABLED: your
    setting, off to begin with and kept through recipe changes, BAKE, BATCH, seeds, MUTATE and
-   reloads; off, new breaks get no rolls (a fill's roll plays as a plain fill, CHOP's RETRIGGER
-   makes none), and the rolls already in the pattern are kept until **CLEAR ROLLS** deletes them), **PROBABILITY** (0 = no new rolls), **LENGTH** (hits per roll), **SPEED** (1/16,
+   reloads; on, the rolls apply to the CURRENT groove at once, no BAKE; off, no generated rolls (a
+   fill's roll plays as a plain fill, CHOP's RETRIGGER makes none, and the generated rolls leave
+   the pattern until it is on again), while rolls made or kept by hand stay until **CLEAR
+   ROLLS**), **RE-ROLL** (another set of rolls on the same groove), **PROBABILITY** (the chance
+   each eligible hit gets a roll: 0 none, 100% every one, at most two a bar), **LENGTH** (hits per roll), **SPEED** (1/16,
    1/16T, 1/32, 1/32T, 1/64), **DYNAMICS** (EVEN, CRESCENDO, DECRESCENDO, ALTERNATING, HUMAN),
    **PLACEMENT** (BEFORE ACCENT, PHRASE END, FILLS, ANYWHERE) and the **TARGET TRACKS** that may
-   roll (SNARE, HATS, PERC, TOMS, KICK), with the number of rolls in the pattern. Every roll leads
-   into something (a backbeat, the loop point, a tom fill, a beat) and its strokes are real hits
-   you can edit one by one. **TOM ACTIVITY** (RECIPE) is independent of ROLLS and sets how much
+   roll (SNARE, HATS, PERC, TOMS, KICK), with what is in the pattern (3 ROLLS · 9 RETRIGGERS) or
+   why there are none (0 ROLLS · NO SNARE HITS NEAR PHRASE ENDS). Every roll leads into a hit of
+   its drum (PHRASE END: one in the last two beats of a phrase-ending bar) and its strokes are real
+   hits you can edit one by one. **TOM ACTIVITY** (RECIPE) is independent of ROLLS and sets how much
    the toms play: how many phrases, how long, on how many toms and where. 0% is none; 20% an
    occasional short fill at a phrase end; 50% noticeable fills and the odd answer; 75% frequent
    multi-tom phrases; 100% very active (descending and rising runs, snare into toms, linear fills,
@@ -357,10 +363,11 @@ A layered generator, deterministic from seeds (engine 2):
    each four bars), then inside bars, more and longer as TOM ACTIVITY rises (revision 2: a
    steeper curve, tom-led at 100 %), never in the loop's first beat; re-voicing a snare run or playing their own figure, never on a backbeat; after the
    performance and from their own streams, so they change no other hit.
-7. **Rolls**: runs of strokes at their own subdivision, each leading into an anchor, at most one
-   a bar, never in the first groove bar; also after the performance, so they change no other hit.
-8. **Transformations**: CHOP, roll EXPRESSION, DESTROY, then REGEN TRACK and the PERSONALITY's
-   performance (DILLA's timing), each from the GROOVE every time, so they never compound.
+7. **Rolls** (before revision 6): runs of strokes at their own subdivision, each leading into an
+   anchor, at most one a bar, never in the first groove bar; also after the performance.
+8. **Transformations**: CHOP, ROLLS (revision 6), roll EXPRESSION, DESTROY, then REGEN TRACK and
+   the PERSONALITY's performance (DILLA's timing), each from the GROOVE every time, so they never
+   compound.
 9. **Sample selection** per category (PICK), then your **hand edits**.
 10. **DESTROY** (the tab, Phase 14) on the finished events.
 
@@ -374,6 +381,12 @@ backbeat, then add the recipe's offbeats, answers and pushes as CLAP ACTIVITY ri
 one ranking, so more activity only adds claps); FX take structural places (the top of the
 phrase, the bars a MUTATE reaches, fills), at most two a bar. Revision 4 breaks bake exactly as
 before (a fingerprint test checks every recipe, personality, DNA, CHOP and DESTROY).
+
+With revision 6 (Phase 16), ROLLS leaves the GROOVE and becomes a transformation after CHOP:
+retriggers leading into eligible hits of the target tracks, PROBABILITY per candidate, RE-ROLL
+takes, never changing a source hit. Every other track is exactly what revision 5 made; older
+breaks keep their rolls until a roll action moves just their rolls to the transformation
+([docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md)).
 
 Why each of these choices: [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). How the
 code is organised: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -406,7 +419,11 @@ drag, ⌘Z).
 * Breaks saved with the first release's generator open as LEGACY and reproduce exactly, but a
   typed seed now always bakes with the current GROOVE (before, with engine 1 selected, it baked an
   engine 1 break). There is no engine selector.
-* CHOP is fixed once a pattern has hand edits (they are positional, on the chopped result).
+* Hand edits are positional, also through CHOP: an edit made on a chopped hit applies to
+  whatever hit of that drum is at that place in another chop, or waits (kept, inactive) when
+  there is none. Turning CHOP back to the same setting brings every edit back exactly.
+* **Phase 16 rolls are denser at the recipes' default PROBABILITY** than the old ROLLS layer
+  (PROBABILITY is now the chance per eligible hit, not a scaled count); lower it for fewer.
 * 4/4 only. Hits sit on a grid of 12 ticks per sixteenth (so 1/32, 1/64 and 16th and 32nd
   triplets, not quintuplets).
 * Toms never borrow another drum's sound: with no tom samples, tom hits are silent. A visitor
@@ -423,8 +440,7 @@ drag, ⌘Z).
   event data ([docs/expressive-report.md](docs/expressive-report.md)), not by listening. The
   personality and DILLA numbers are hand-set characterisations, not fitted to recordings.
 * The Phase 12 CHOP ▸ DESTROY (kept for breaks saved with it) works on events: its GATE and
-  TAPE STOP are approximations (hits removed, or moved, lowered and softened), and like CHOP it is
-  fixed once there are hand edits. The Phase 14 DESTROY tab shapes the sound of each hit instead.
+  TAPE STOP are approximations (hits removed, or moved, lowered and softened). The Phase 14 DESTROY tab shapes the sound of each hit instead.
 * REGEN TRACK overrides FREEZE (it is an explicit request) and leaves a track with no hits alone.
 * **Phase 15 is not yet evaluated by ear.** CLAP and FX placement is checked by tests and
   measured event data, not listened to; the per-recipe CLAP and FX idioms are hand-set.

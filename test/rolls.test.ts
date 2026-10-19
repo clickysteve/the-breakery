@@ -21,7 +21,8 @@ const fullKit = (): KitIndex => {
   for (const c of CATEGORIES) k[c] = [`${c}-a`, `${c}-b`, `${c}-c`];
   return k;
 };
-const r = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), toms: 0, ...patch });
+/** Revision 5: the ROLLS layer inside the GROOVE (rolls.ts addRolls), which every break saved before revision 6 still bakes. Revision 6's transformation: phase16.test.ts. */
+const r = (style: Recipe['style'], bars: Bars, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), revision: 5, toms: 0, ...patch });
 const tick = (e: BreakEvent) => e.bar * TPB + e.step * TPS + e.sub;
 const posKey = (e: BreakEvent) => `${e.cat}|${e.bar}|${e.step}|${e.sub}`;
 /** the hits ROLLS added, grouped into rolls */

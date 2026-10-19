@@ -16,6 +16,7 @@ import { regenStep } from '../engine/regen';
 import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
 import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from '../engine/chopper';
 import { rollGroups } from '../engine/rolls';
+import { usesRollLayer } from '../engine/rollLayer';
 import { SECTION_DEFS, type Section } from '../engine/sections';
 import { freshSeed, stream } from '../engine/rng';
 import { defaultWildcard, sanitiseWildcard, wildcardMix, wildcardOutput, wildcardRecipe, wildcardSampleModes, type WildcardCategory, type WildcardSettings } from '../engine/wildcard';
@@ -24,7 +25,7 @@ import { chooseMain } from '../engine/kit';
 import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
-import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, CYMBAL_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, CYMBAL_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type RollReport, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
@@ -229,7 +230,7 @@ export class App {
     player.setLevel(typeof s?.level === 'number' ? s.level : player.level);
     player.setMix(this.mix);
     this.current = this.bakeWith(this.seeds);
-    // a saved break whose recipe disagrees with the preference follows it (its rolls are kept as hits)
+    // a saved break whose recipe disagrees with the preference follows it (the ROLLS layer just switches; an older engine keeps its rolls as hits)
     if (this.rollsDisagree) {
       this.switchRolls(this.rollGeneration);
       this.current = this.bakeWith(this.seeds);
@@ -746,27 +747,121 @@ export class App {
     return { rolls: g.length, hits: g.reduce((n, x) => n + x.events.length, 0) };
   }
 
+  /**
+   * Are this break's ROLLS the transformation of the finished groove (revision 6, or an older
+   * break moved to it by a roll action)? Then ROLL GENERATION, RE-ROLL and the roll settings
+   * change only the rolls, never the groove.
+   */
+  get rollLayer(): boolean {
+    return usesRollLayer(this.recipe);
+  }
+
+  /**
+   * What the ROLLS tab shows about this pattern, from its actual events (after hand edits and
+   * DESTROY): the generated rolls (the ROLLS transformation) and their retriggers, the rolls made
+   * or kept by hand, the rolls inside fills and CHOP, and why there are none.
+   */
+  get rollSummary(): { generated: number; strokes: number; manual: number; other: number; report: RollReport | null; text: string } {
+    const evs = this.current.events.filter((e) => e.role === 'roll');
+    const gen = evs.filter((e) => e.rollOf && !e.manual?.match(/added|moved/));
+    const manual = evs.filter((e) => e.manual === 'added' || e.manual === 'moved');
+    const other = evs.filter((e) => !gen.includes(e) && !manual.includes(e));
+    const generated = new Set(gen.map((e) => e.rollOf)).size;
+    const m = rollGroups(manual).length;
+    const o = rollGroups(other).length;
+    const report = this.current.rollReport ?? null;
+    const s = (n: number) => (n === 1 ? '' : 'S');
+    const extra = `${m ? ` · ${m} MANUAL ROLL${s(m)}` : ''}${o ? ` · ${o} IN FILLS/CHOP` : ''}`;
+    let text: string;
+    if (this.legacy) text = 'LEGACY BREAK: NO ROLLS';
+    else if (!this.rollGeneration) text = `ROLL GENERATION OFF · ${m} MANUAL ROLL${s(m)} RETAINED${o ? ` · ${o} IN FILLS/CHOP` : ''}`;
+    else if (!this.rollLayer) {
+      const c = this.rollCount;
+      text = c.rolls ? `${c.rolls} ROLL${s(c.rolls)} · ${c.hits} HIT${c.hits === 1 ? '' : 'S'} (EARLIER ROLL ENGINE: RE-ROLL MOVES THIS BREAK TO THE NEW ONE)` : '0 ROLLS · RE-ROLL APPLIES ROLLS TO THIS GROOVE';
+    } else if (generated) text = `${generated} ROLL${s(generated)} · ${gen.length} RETRIGGER${s(gen.length)}${extra}`;
+    else text = `0 ROLLS · ${report?.rolls ? 'THE GENERATED ROLLS WERE DELETED BY HAND (⌘Z)' : (report?.reason ?? 'NONE')}${extra}`;
+    return { generated, strokes: gen.length, manual: m, other: o, report, text };
+  }
+
   /** Does the current recipe disagree with ROLL GENERATION (a restored engine-2 break baked the other way)? */
   private get rollsDisagree(): boolean {
     return this.recipe.engine === 2 && (this.recipe.rollsOn !== false) !== this.rollGeneration;
   }
 
+  /** The recipe with this patch, its rolls moved to the transformation (an older engine 2 break keeps its groove exactly). */
+  private rollRecipe(patch: Partial<Recipe>): Recipe {
+    return sanitiseRecipe({ ...this.recipe, ...(this.recipe.engine === 2 && !this.rollLayer ? { rollLayer: true as const } : {}), ...patch });
+  }
+
   /**
-   * ROLL GENERATION on or off: the user's preference, saved, and kept until they change it. Off:
-   * new breaks get no rolls, and the roll hits already in this pattern are KEPT (as hits placed by
-   * hand); CLEAR ROLLS deletes them. On again: kept hits the generator plays at the same place
-   * again are not doubled. Undoable.
+   * ROLL GENERATION on or off: the user's preference (saved, kept until they change it, never
+   * turned on by a recipe or WILDCARD) and this pattern's ROLLS transformation. On: the roll
+   * settings apply to the CURRENT groove at once, no BAKE. Off: the generated rolls go (the
+   * groove is as it was without them) and come back exactly when it is on again; rolls made or
+   * kept by hand (RATCHET, hand-placed roll hits) stay. Toggling never accumulates anything: the
+   * rolls are recalculated from the groove every time. Undoable, one step.
    */
   setRollsOn(on: boolean): void {
-    if (this.rollGeneration === on && !this.rollsDisagree) return;
+    if (this.legacy) return this.say('ROLLS: this is a LEGACY break, kept exactly as released. RECIPE ▸ USE GROOVE first.');
+    if (this.rollGeneration === on && !this.rollsDisagree && this.rollLayer) return;
     this.rollGeneration = on;
-    this.status = this.switchRolls(on);
+    this.recipe = this.rollRecipe({ rollsOn: on });
     this.history.replaceCurrent(this.entry);
     this.rebake();
+    this.status = on ? `ROLL GENERATION ON: ${this.rollSummary.text}. RE-ROLL draws another set; the groove is unchanged.` : `ROLL GENERATION OFF: the generated rolls are off this groove (on again brings the same ones back).${this.rollSummary.manual ? ` ${this.rollSummary.manual} manual roll${this.rollSummary.manual === 1 ? '' : 's'} kept; CLEAR ROLLS deletes them.` : ''}`;
+    this.changed(false);
+  }
+
+  /**
+   * A roll setting (PROBABILITY, LENGTH, SPEED, DYNAMICS, PLACEMENT, TARGET TRACKS): heard at once
+   * on the current groove (only the rolls change, the same take). A drag is one undo step.
+   */
+  setRolls(patch: Partial<Pick<Recipe, 'rolls' | 'rollLength' | 'rollSpeed' | 'rollDynamics' | 'rollPlace' | 'rollTargets'>>): void {
+    if (this.legacy) return this.say('ROLLS: this is a LEGACY break, kept exactly as released. RECIPE ▸ USE GROOVE first.');
+    const next = this.rollRecipe(patch);
+    if (JSON.stringify(next) === JSON.stringify(this.recipe)) return;
+    this.recipe = next;
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    if (this.rollGeneration) this.status = `ROLLS: ${this.rollSummary.text}.`;
+    this.changed(false);
+  }
+
+  /**
+   * RE-ROLL: another take of the ROLLS transformation on the CURRENT groove, with the current
+   * settings (and EXPRESSION). Not BAKE: no other hit, sample, setting or seed changes. The next
+   * take that gives different rolls is used (up to 16 ahead), so a press is never silently the
+   * same. One undo step; redo restores the exact take.
+   */
+  reRoll(): void {
+    if (this.legacy) return this.say('RE-ROLL: this is a LEGACY break, kept exactly as released. RECIPE ▸ USE GROOVE first.');
+    if (!this.rollGeneration) return this.say('RE-ROLL: switch ROLL GENERATION on first (ROLLS tab).');
+    const sig = (b: Break) => JSON.stringify(b.events.filter((e) => e.rollOf).map((e) => [e.cat, e.bar, e.step, e.sub, e.vel, e.offsetMs]));
+    const now = this.rollLayer ? sig(this.current) : null;
+    const take0 = this.recipe.rollTake ?? 0;
+    let pick = take0 + 1;
+    for (let t = take0 + 1; t <= take0 + 16; t++) {
+      if (sig(this.bakeWith(this.seeds, this.rollRecipe({ rollTake: t, rollsOn: true }))) !== now) {
+        pick = t;
+        break;
+      }
+    }
+    this.recipe = this.rollRecipe({ rollTake: pick, rollsOn: true });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    const r = this.current.rollReport;
+    const same = now !== null && sig(this.current) === now;
+    this.status = same && r ? `RE-ROLL take ${pick}: these settings give the same rolls on every take (${r.eligible} eligible, ${Math.round(this.recipe.rolls * 100)}%). Lower PROBABILITY, or allow more PLACEMENT or TARGET TRACKS, for variety.` : `RE-ROLL take ${pick}: ${this.rollSummary.text}. The groove is unchanged (⌘Z returns to the previous rolls).`;
+    this.changed(false);
   }
 
   /** Bake this break with roll generation on or off (the rest of its recipe as it is), keeping the rolls it had. Returns a note for the status line. */
   private switchRolls(on: boolean): string {
+    // the ROLLS transformation (revision 6): the switch is all there is; nothing becomes a hand edit
+    if (this.rollLayer) {
+      this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: on });
+      return on ? ROLLS_ON_NOTE : 'ROLL GENERATION OFF: no generated rolls.';
+    }
     if ((this.recipe.rollsOn !== false) === on) return on ? ROLLS_ON_NOTE : 'ROLL GENERATION OFF: new breaks get no rolls.';
     if (!on) {
       const before = this.current.events.filter((e) => e.role === 'roll' && e.manual !== 'added' && e.manual !== 'moved');
@@ -798,34 +893,49 @@ export class App {
   }
 
   /**
-   * CHOP is fixed while the pattern has hand edits: they were made on the chopped result, and a
-   * new chop would move hits under them. Until the first hand edit CHOP is a preview, recalculated
-   * from the GROOVE at every change; undoing the edits (or CLEAR ALL HAND EDITS) frees it again.
+   * A transformation's settings changed (CHOP, EXPRESSION, DESTROY): the recipe with the patch,
+   * baked from the same seeds. Unlike a generation control it never moves the break to a newer
+   * GROOVE revision, so the groove underneath stays exactly as it is.
    */
-  get chopLocked(): boolean {
-    return hasEdits(this.edits);
+  private transformWith(patch: Partial<Recipe>): void {
+    this.recipe = sanitiseRecipe({ ...this.recipe, ...patch });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
   }
 
   /**
-   * Change CHOP (ENABLED, AMOUNT, SLICE SIZE, RETRIGGER). The pattern is CHOP of the GROOVE baked
-   * from the same seeds (never of the previous result), so AMOUNT 0 is the GROOVE again. The batch
+   * Hand edits through a transformation change: they are a positional layer over the result
+   * (engine/edits.ts), so they are never deleted; one whose hit is not in the new result waits,
+   * inactive, and applies again when that result comes back (CHOP as it was, the same take).
+   */
+  private get editsNote(): string {
+    if (!hasEdits(this.edits)) return '';
+    const n = editCount(this.edits);
+    const off = this.current.editReport?.inactive ?? 0;
+    return ` Your ${n} hand edit${n === 1 ? ' is' : 's are'} kept${off ? ` (${off} waiting for ${off === 1 ? 'its' : 'their'} hit: ${off === 1 ? 'it applies' : 'they apply'} again when it returns)` : ''}.`;
+  }
+
+  /**
+   * Change CHOP (ENABLED, AMOUNT, SLICE SIZE, RETRIGGER, the RE-CHOP variant). The pattern is CHOP
+   * of the GROOVE baked from the same seeds (never of the previous result), so AMOUNT 0 or off is
+   * the GROOVE again and on again is the same chop. No BAKE: the groove, recipe, seeds, kit,
+   * samples and mixer are untouched. Always available: hand edits stay (see editsNote). The batch
    * follows, as for any recipe change. A drag is one undo step.
    */
   setChop(patch: Partial<ChopSettings>): void {
-    if (this.chopLocked) return this.say(`CHOP is applied: this pattern has ${editCount(this.edits)} hand edit${editCount(this.edits) === 1 ? '' : 's'} on the chopped result. ⌘Z them, or Edit ▸ Clear All Hand Edits, to change CHOP again.`);
     const next = sanitiseChop({ ...this.chop, ...patch })!;
     if (JSON.stringify(next) === JSON.stringify(this.recipe.chop)) return;
-    this.recipe = this.fresh({ ...this.recipe, chop: next });
-    this.history.replaceCurrent(this.entry);
-    this.rebake();
-    this.status = next.on ? describeChop(this.current.chop) : 'CHOP off: the pattern is the GROOVE (the settings are kept).';
+    this.transformWith({ chop: next });
+    this.status = (next.on ? describeChop(this.current.chop) : 'CHOP off: the pattern is the GROOVE (the settings are kept; on again gives the same chop).') + this.editsNote;
     this.changed(false);
   }
 
-  /** RE-CHOP: another chop of the same GROOVE with the same settings (the next variant). */
+  /** RE-CHOP: another chop of the same GROOVE with the same settings (the next variant). One undo step; redo is the exact chop. */
   reChop(): void {
     if (!this.chop.on) return this.say('RE-CHOP: switch CHOP on first.');
     this.setChop({ variant: this.chop.variant + 1 });
+    this.status = `RE-CHOP ${this.chop.variant}: ${this.status}`;
+    this.changed(false);
   }
 
   /** Is CHOP changing this pattern? */
@@ -843,9 +953,7 @@ export class App {
   /** Change the expression by hand (it becomes CUSTOM unless it matches a preset). */
   setRollExpr(patch: Partial<RollExpression>): void {
     const next = sanitiseRollExpr({ ...this.rollExpr, preset: 'custom', ...patch });
-    this.recipe = this.fresh({ ...this.recipe, rollExpr: next });
-    this.history.replaceCurrent(this.entry);
-    this.rebake();
+    this.transformWith({ rollExpr: next });
     this.status = `ROLL EXPRESSION ${describeExpr(this.recipe.rollExpr)}${this.rollGeneration ? '' : ' ROLL GENERATION is off: it shapes the rolls already in fills and the RATCHETs you make.'}`;
     this.changed(false);
   }
@@ -865,15 +973,12 @@ export class App {
     return this.recipe.destroy ?? defaultDestroy();
   }
 
-  /** CHOP ▸ DESTROY (fixed while there are hand edits, as CHOP is). */
+  /** CHOP ▸ DESTROY (Phase 12; hand edits stay, as with CHOP). */
   setDestroy(patch: Partial<DestroySettings>): void {
-    if (this.chopLocked) return this.say(`DESTROY is applied: this pattern has ${editCount(this.edits)} hand edit${editCount(this.edits) === 1 ? '' : 's'}. ⌘Z them, or Edit ▸ Clear All Hand Edits, to change it again.`);
     const next = sanitiseDestroy({ ...this.destroySettings, ...patch })!;
     if (JSON.stringify(next) === JSON.stringify(this.recipe.destroy)) return;
-    this.recipe = this.fresh({ ...this.recipe, destroy: next });
-    this.history.replaceCurrent(this.entry);
-    this.rebake();
-    this.status = describeDestroy(this.current.destroy, next);
+    this.transformWith({ destroy: next });
+    this.status = describeDestroy(this.current.destroy, next) + this.editsNote;
     this.changed(false);
   }
 
@@ -954,9 +1059,7 @@ export class App {
   setDestroy2(patch: Partial<DestroySettings2>): void {
     const next = sanitiseDestroy2({ ...this.destroy2, ...patch })!;
     if (JSON.stringify(next) === JSON.stringify(this.recipe.destroy2)) return;
-    this.recipe = this.fresh({ ...this.recipe, destroy2: next });
-    this.history.replaceCurrent(this.entry);
-    this.rebake();
+    this.transformWith({ destroy2: next });
     this.status = describeDestroy2(this.recipe.destroy2, this.current.destroy2);
     this.changed(false);
   }
@@ -985,7 +1088,7 @@ export class App {
   removeLegacyDestroy(): void {
     if (!this.recipe.destroy) return;
     const { destroy: _d, ...rest } = this.recipe;
-    this.recipe = this.fresh(rest as Recipe);
+    this.recipe = sanitiseRecipe(rest as Recipe);
     this.history.replaceCurrent(this.entry);
     this.rebake();
     this.say('The earlier CHOP ▸ DESTROY of this break is removed (⌘Z brings it back).');
@@ -1041,11 +1144,32 @@ export class App {
     this.changed(false);
   }
 
-  /** CLEAR ROLLS: delete every roll hit in this pattern (generated, from fills, or kept). Undoable; ROLL GENERATION is unchanged. */
+  /** The roll hits CLEAR ROLLS would delete that were made or kept by hand (RATCHET, kept roll hits): the UI asks first. */
+  get manualRollHits(): number {
+    return this.current.events.filter((e) => e.role === 'roll' && (e.manual === 'added' || e.manual === 'moved')).length;
+  }
+
+  /**
+   * CLEAR ROLLS: no rolls in this pattern, one undo step. The generated rolls (the ROLLS
+   * transformation) go by switching ROLL GENERATION off (RE-ROLL or the switch brings rolls back);
+   * the rest (a fill's roll, CHOP's retriggers, roll hits made or kept by hand) are deleted as hand
+   * edits. No other hit is touched.
+   */
   clearRolls(): void {
-    const refs = this.current.events.filter((e) => e.role === 'roll' && e.ref).map((e) => e.ref!);
-    if (!refs.length) return this.say('There are no rolls in this pattern.');
-    this.deleteHits(refs, `Deleted ${refs.length} roll hit${refs.length === 1 ? '' : 's'} (⌘Z brings them back).${this.recipe.rollsOn === false ? '' : ' ROLL GENERATION is still on: new breaks get new rolls.'}`);
+    const all = this.current.events.filter((e) => e.role === 'roll' && e.ref);
+    if (!all.length) return this.say('There are no rolls in this pattern.');
+    const generated = this.rollLayer && all.some((e) => e.rollOf && !e.manual);
+    let edits = this.edits;
+    for (const e of all) if (!(generated && e.rollOf && !e.manual)) edits = deleteHit(edits, e.ref!);
+    const deleted = all.length - (generated ? all.filter((e) => e.rollOf && !e.manual).length : 0);
+    if (generated) {
+      this.rollGeneration = false;
+      this.recipe = sanitiseRecipe({ ...this.recipe, rollsOn: false });
+    }
+    this.edits = edits;
+    this.selected = null;
+    this.status = `Cleared the rolls${generated ? ': ROLL GENERATION is off (switch it on, or RE-ROLL, for rolls again)' : ''}${deleted ? `${generated ? ';' : ':'} ${deleted} roll hit${deleted === 1 ? '' : 's'} deleted` : ''}. No other hit changed; ⌘Z brings them back.`;
+    this.applyEdits();
   }
 
   /** Delete several hits as one action (one undo step). */
@@ -1066,7 +1190,7 @@ export class App {
     this.selected = null;
     this.picked = null;
     this.show(this.bakeWith(this.seeds));
-    // it follows ROLL GENERATION as every break does (the rolls it was baked with are kept as hits)
+    // it follows ROLL GENERATION as every break does (the ROLLS layer just switches; an older engine keeps its rolls as hits)
     if (this.rollsDisagree) {
       this.switchRolls(this.rollGeneration);
       this.show(this.bakeWith(this.seeds));

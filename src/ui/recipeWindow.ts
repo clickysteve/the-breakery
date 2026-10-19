@@ -230,7 +230,7 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     lock.on = app.tempoLock;
     tdice.disabled = app.tempoLock;
     setTip(tdice.el, app.tempoLock ? 'TEMPO DICE is off while TEMPO LOCK is on: unlock it to roll a new tempo (the BPM box still sets it).' : `TEMPO DICE: a new tempo from ${STYLE_DEFS[app.recipe.style].label}’s range (${tempoRange(app.recipe.style)}), for the same break. The pattern is not regenerated.`);
-    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : app.chopLocked && app.chopped ? 'CHOP APPLIED' : destroy2Active(app.recipe.destroy2) ? 'DESTROY ON' : '';
+    genNote.textContent = app.legacy ? 'FIRST-RELEASE BREAK' : destroy2Active(app.recipe.destroy2) ? 'DESTROY ON' : '';
     bpm.update();
     bars.update();
     seed.update();
