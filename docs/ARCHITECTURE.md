@@ -112,8 +112,10 @@ else in place, and `tomVoices` spreads the phrases over the toms the kit has. In
 roll never removes a tom phrase hit, and ROLL GENERATION off (`holdsRolls`) holds back every
 roll: the fills' rolls play as plain fills and CHOP's RETRIGGER makes none. ROLL GENERATION is
 the user's preference (`App.rollGeneration`, saved, off for a new user); every new or changed
-recipe is baked with it (`App.fresh`), and a restored break that disagrees follows it with its
-rolls kept as hits. A
+recipe is baked with it (`App.fresh`), and a restored break that disagrees follows it (before
+revision 6 with its rolls kept as hits; from revision 6 the switch is all there is). Revision 6
+(Phase 16) moves ROLLS out of the GROOVE into the transformations: see *Transformations (Phase
+16)* below and [TRANSFORMATIONS.md](TRANSFORMATIONS.md). Before revision 6 a
 roll is N strokes exactly SPEED ticks apart ending one stroke before its anchor (swing moves the
 roll as a whole); it never crosses a bar line or runs over a backbeat, downbeat kick, crash, tom
 fill or another roll, and the hands it needs stop timekeeping and ghosts under it. The toms are
@@ -212,10 +214,11 @@ saved state, and a recipe without them (every older save) is unchanged.
   inputs always give the same result.
 
 Copies carry the sample the GROOVE chose for their source hit, so FREEZE SAMPLES and the kit seed
-are respected. **Hand edits after CHOP**: CHOP is a preview, recalculated at every change, until the
-first hand edit. The edits are positional and were made on the chopped result, so CHOP is then
-APPLIED (fixed: `App.chopLocked`); `setChop` refuses with a message rather than move hits under the
-edits. Undoing the edits, or CLEAR ALL HAND EDITS, frees it. Nothing is discarded silently.
+are respected. **Hand edits and CHOP** (Phase 16): CHOP is recalculated at every change and is
+never locked. The edit layer is positional and applied after it, so every edit is kept through a
+CHOP change; one whose hit is not in the new result waits (inactive, reported) and applies again
+when that result returns. Before Phase 16 the first hand edit fixed CHOP (`chopLocked`), which
+also caught edits made by ROLL GENERATION off and left CHOP greyed out on ordinary patterns.
 `npm run evaluate` writes `docs/chop-report.md` (grids and measures, not a listening test).
 
 ## The expressive engine (Phase 12)
@@ -447,6 +450,29 @@ Research and design: [break-dna-research.md](break-dna-research.md). Measured ev
 * **List box states** (`gemSelect.ts`, `mode: 'list'`): `hover` (pointer), `hot` (keyboard
   cursor, drawn while `focused`), `aria-selected` (selection) and `loaded` (▸). A choice needs a
   press and release on the same entry; with `confirm` (KITS) the arrows move only the cursor.
+
+## Transformations (Phase 16)
+
+The full rules are in [TRANSFORMATIONS.md](TRANSFORMATIONS.md); this is the code map.
+
+* **Order** (`transform.ts`): `[CHOP, ROLLS, EXPRESS, DESTROY]`, each from the stage before it,
+  then REGEN, personality, hand edits, samples and `destroy2` as before. Each stage draws from
+  its own named streams, so a stage's take or settings never move another's numbers.
+* **Revision 6** (`CURRENT_REVISION = ROLLS_REVISION = 6`): the ROLLS layer (`rollLayer.ts`)
+  replaces the old `addRolls` inside `groove()`. `usesRollLayer(r)` is engine 2 with revision 6,
+  or an older engine-2 break with `recipe.rollLayer` (set by `App.rollRecipe` on its first roll
+  action, so its groove stays byte-identical; the rev 2 and rev 4 fingerprints still hold).
+  Candidates come from PLACEMENT and TARGET TRACKS, eligibility from the room before the hit,
+  and each eligible candidate draws once from `roll-layer:<take>:<key>` against PROBABILITY, at
+  most `MAX_PER_BAR` (2) a bar. The layer returns a `RollReport` (`Break.rollReport`) with the
+  counts and the reason when there are none; strokes carry `rollOf`.
+* **App**: `transformWith(patch)` changes CHOP, EXPRESSION or DESTROY without `fresh`, so the
+  revision is kept. `setRollsOn`, `setRolls`, `reRoll` and `clearRolls` are each one undo step;
+  `rollSummary` builds the ROLLS tab line from `current.events`. `chopLocked` is gone: hand edits
+  are positional and stay in the edit layer whatever the transformations do (`editsNote`
+  reports those waiting for their hit).
+* **WILDCARD REPORT** has a ROLLS group (LENGTH, SPEED, DYNAMICS, PLACEMENT, TARGETS, ROLL
+  GENERATION).
 
 ## Sample selection
 
