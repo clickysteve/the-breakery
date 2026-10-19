@@ -137,7 +137,7 @@ describe('WILDCARD REPORT', () => {
     expect(r.headline).toMatch(/^WILDCARD · [A-Z&\- ]+ · \d+ BPM · \d+ SETTINGS? CHANGED$/);
     expect(app.status.startsWith(r.headline)).toBe(true);
     expect(reportText(r)).toContain(r.headline);
-    expect(reportText(r)).not.toContain('—');
+    expect(reportText(r)).not.toContain('\u2014'); // no em dash in the copied text
   });
 
   it('pure: two equal states give no rows', () => {
