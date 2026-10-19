@@ -14,7 +14,8 @@ import { SLOTS, type ImportEntry, type Slot } from '../audio/ingredients';
 import { sourceOf } from '../engine/kit';
 import { modeOf, SAMPLE_MODE_LABEL, SAMPLE_MODE_TIP, SAMPLE_MODES, sampleUsage, type SampleMode } from '../engine/samples';
 import { CATEGORY_LABEL, type Category } from '../engine/types';
-import { el, setTip } from './dom';
+import { el, esc, setTip } from './dom';
+import { libraryDialog } from './libraryDialog';
 import { carriesFiles, droppedEntries } from './dropFiles';
 import { GemSelect } from './gemSelect';
 import { Button, MWindow, NumBox, typing } from './widgets';
@@ -84,7 +85,22 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
 
   const listTop = 2 + SLOTS.length * 15 + 6;
   const head = el('div', 'label', b, [4, listTop + 2]);
-  Object.assign(head.style, { maxWidth: `${W - 100}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+  Object.assign(head.style, { maxWidth: `${W - 134}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+  // ADD FROM LIBRARY: samples already in this browser join this instrument (no import)
+  const fromLib = new Button(b, [W - 128, listTop - 1, 32, 13], '+ LIB', {
+    cls: 'small',
+    tip: 'ADD FROM LIBRARY: add samples already in this browser (from any kit or import) to the selected instrument. No import, no copy of the audio; the instrument you add to wins over the sample’s own category. ⌘Z removes them from the kit again.',
+    onPress: () => void (async () => {
+      const dest = selected;
+      try {
+        const picked = await libraryDialog(ui.screen, ing.library, ing.items, dest, async () => ((await app.player.ensure()) ? app.player.ctx : null));
+        if (picked.length) await app.addFromLibrary(picked, dest);
+      } catch (e) {
+        ui.alert(esc(e instanceof Error ? e.message : String(e)));
+      }
+    })(),
+  });
+  fromLib.el.setAttribute('aria-label', 'Add samples from the library to the selected instrument');
   const pickLabel = el('div', 'label small', b, [W - 92, listTop + 2], 'PICK');
   const pick = new GemSelect(b, [W - 72, listTop - 1, 68, 13], {
     label: 'How this category picks among its samples',

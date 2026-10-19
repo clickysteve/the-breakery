@@ -26,7 +26,7 @@ import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, CYMBAL_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type RollReport, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
-import type { Ingredients } from '../audio/ingredients';
+import type { Ingredients, Slot } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
 import { audible, emptyMix, safeGain, safePan, sanitiseMix, type MixState } from './mix';
@@ -1340,7 +1340,7 @@ export class App {
     return JSON.stringify({ current: this.current, recipe: this.recipe, seeds: this.seeds,
       seedName: this.seedName, samples: this.samples, edits: this.edits,
       selected: this.selected, batch: this.batch, picked: this.picked, rollGeneration: this.rollGeneration,
-      cats: this.ingredients.categories?.() ?? {}, report: this.wildcardReport });
+      cats: this.ingredients.categories?.() ?? {}, lib: this.ingredients.libraryItems?.() ?? [], report: this.wildcardReport });
   }
 
   /** Re-apply the edit layer to the current seeds: playback follows at once (not at the loop point). */
@@ -1533,8 +1533,17 @@ export class App {
   }
 
   private restoreSnapshot(s: string): void {
-    const { extras, cats, report, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras; cats?: ReturnType<Ingredients['categories']>; report?: WildcardReport | null };
+    const { extras, cats, lib, report, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras; cats?: ReturnType<Ingredients['categories']>; lib?: ReturnType<Ingredients['libraryItems']>; report?: WildcardReport | null };
     Object.assign(this, o);
+    // ADD FROM LIBRARY as it was: an assignment added since leaves the kit (its audio stays in the
+    // library); one undone comes back, the same sample (decoded again only if nothing here plays it)
+    if (lib && this.ingredients.restoreLibrary) {
+      void this.ingredients.restoreLibrary(lib).then((back) => {
+        if (!back) return;
+        this.baseline = this.snapshot();
+        for (const f of this.listeners) f();
+      });
+    }
     // the samples' categories as they were (a sample added since stays; none is ever deleted)
     if (cats) this.ingredients.restoreCategories?.(cats);
     this.wildcardReport = report ?? null;
@@ -1631,6 +1640,19 @@ export class App {
     const cur = this.samples[cat] ?? { mode: 'auto' };
     this.samples = { ...this.samples, [cat]: { ...cur, ...patch } };
     this.rebake();
+  }
+
+  /**
+   * ADD FROM LIBRARY: samples already in this browser's library join the current kit in `cat` (the
+   * destination wins over the sample's own category; no import, no copy of the audio). One undo
+   * step: undo removes the assignments, never the audio. Returns the item ids added.
+   */
+  async addFromLibrary(samples: { id: string; name: string }[], cat: Slot): Promise<string[]> {
+    const ids = await this.ingredients.addFromLibrary(samples, cat);
+    const where = cat === 'unsorted' ? 'UNSORTED' : CATEGORY_LABEL[cat];
+    this.status = ids.length ? `Added ${ids.length === 1 ? `“${this.ingredients.name(ids[0]!)}”` : `${ids.length} samples`} from the library to ${where} (⌘Z removes ${ids.length === 1 ? 'it' : 'them'} from the kit; the library keeps the audio).` : `Already in ${where}.`;
+    this.rebake();
+    return ids;
   }
 
   // ---------------------------------------------------------------- solo / mute

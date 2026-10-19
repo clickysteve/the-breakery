@@ -295,13 +295,74 @@ export class Ingredients {
     return report;
   }
 
-  /** Add a sample already in the library to the current kit (no second import). */
-  async addFromLibrary(id: string, name: string, cat: Slot): Promise<void> {
-    if (this.items.some((i) => Ingredients.audioId(i) === id)) return;
-    const it: Ingredient = { id, name, cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120 };
-    this.readyUser(it, await this.library.decoded(id, name));
-    this.items.push(it);
+  /**
+   * Samples added from the library (ADD FROM LIBRARY) in this visit, by item id: undo removes such
+   * an assignment again (never the audio), redo brings back the same sample.
+   */
+  private fromLibrary = new Set<string>();
+
+  /**
+   * Add samples already in the library to the current kit, all in `cat` (the destination wins:
+   * a SNARE sample may become a KICK; its library entry is untouched). No second import and no
+   * copy of the audio: the kit refers to the library's sample. A sample already in the kit in
+   * another category gets a second assignment (item id "<audio>@<category>", the same audio); one
+   * already in `cat` is left as it is. Every sample decodes first (Core caches decoded audio), or
+   * this throws and nothing changes. One change notification. Returns the item ids added.
+   */
+  async addFromLibrary(samples: { id: string; name: string }[], cat: Slot): Promise<string[]> {
+    const made: Ingredient[] = [];
+    for (const { id, name } of samples) {
+      if ([...this.items, ...made].some((i) => Ingredients.audioId(i) === id && i.cat === cat)) continue;
+      const taken = [...this.items, ...made].some((i) => i.id === id);
+      const itemId = taken ? `${id}@${cat}` : id;
+      if ([...this.items, ...made].some((i) => i.id === itemId)) continue;
+      const it: Ingredient = { id: itemId, name, cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120, ...(itemId !== id ? { audio: id } : {}) };
+      // the same audio already playing here: its instrument is shared, nothing is decoded again
+      const twin = this.items.find((i) => Ingredients.audioId(i) === id && i.instrument);
+      if (twin) Object.assign(it, { instrument: twin.instrument, duration: twin.duration, loud: twin.loud, status: 'ready' as const, message: twin.message });
+      else this.readyUser(it, await this.library.decoded(id, name));
+      made.push(it);
+    }
+    if (!made.length) return [];
+    this.items.push(...made);
+    for (const it of made) this.fromLibrary.add(it.id);
     this.changed();
+    return made.map((i) => i.id);
+  }
+
+  /** The assignments ADD FROM LIBRARY made that are in the kit now (for undo snapshots: ids and names, never audio). */
+  libraryItems(): { id: string; audio: string; name: string; cat: Slot }[] {
+    return this.items.filter((i) => this.fromLibrary.has(i.id)).map((i) => ({ id: i.id, audio: Ingredients.audioId(i), name: i.name, cat: i.cat }));
+  }
+
+  /**
+   * Undo and redo of ADD FROM LIBRARY: the library assignments become those of a snapshot. One
+   * not in it leaves the kit (the audio stays in the library); one missing comes back with the
+   * same item id and sample. Other samples are never touched. No change notification (the caller
+   * restores the pattern); resolves when every sample is back.
+   */
+  async restoreLibrary(want: { id: string; audio: string; name: string; cat: Slot }[]): Promise<boolean> {
+    const keep = new Set(want.map((w) => w.id));
+    const before = this.items.length;
+    this.items = this.items.filter((i) => !this.fromLibrary.has(i.id) || keep.has(i.id));
+    let changed = this.items.length !== before;
+    for (const w of want) {
+      if (this.items.some((i) => i.id === w.id)) continue;
+      const it: Ingredient = { id: w.id, name: w.name, cat: w.cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120, ...(w.audio !== w.id ? { audio: w.audio } : {}) };
+      const twin = this.items.find((i) => Ingredients.audioId(i) === w.audio && i.instrument);
+      try {
+        if (twin) Object.assign(it, { instrument: twin.instrument, duration: twin.duration, loud: twin.loud, status: 'ready' as const });
+        else this.readyUser(it, await this.library.decoded(w.audio, w.name));
+      } catch {
+        it.status = 'missing';
+        it.message = `"${w.name}" is no longer in this browser's storage.`;
+      }
+      this.items.push(it);
+      this.fromLibrary.add(it.id);
+      changed = true;
+    }
+    if (changed) this.save();
+    return changed;
   }
 
   setCategory(id: string, cat: Slot): void {
@@ -342,6 +403,8 @@ export class Ingredients {
   /** Delete a removed sample from this browser, unless a saved kit (or another ingredient) still uses it. */
   private forget(it: Ingredient): void {
     const id = Ingredients.audioId(it);
+    // another assignment of the same audio is still here (ADD FROM LIBRARY to a second category)
+    if (this.items.some((i) => Ingredients.audioId(i) === id)) return;
     this.bytes.delete(id);
     // the library refuses while any saved kit uses it: removing an ingredient cannot damage saved kits
     if (it.source === 'user') void this.library.removeSample(id).catch(() => {});
