@@ -328,7 +328,7 @@ async function about(): Promise<void> {
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
+    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br>X: REGEN TRACK (click a track name in the PATTERN to select it; shift-click for several)<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects. PITCH, REV and RATCHET are in the strip under the grid.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -382,6 +382,9 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
       { label: 'Reset Recipe', action: () => app.resetRecipe() },
       { label: 'CHOP', checked: () => app.chop.on, action: () => app.setChop({ on: !app.chop.on }) },
       { label: 'Re-CHOP', action: () => app.reChop() },
+      { label: 'DESTROY', checked: () => app.destroySettings.on, action: () => app.setDestroy({ on: !app.destroySettings.on }) },
+      { label: 'Dice Roll Expression', action: () => app.diceRolls() },
+      { label: app.trackSel.length ? `Regen Track (${app.trackSel.length})` : 'Regen Track (select a track name)', key: 'X', action: () => app.regenTracks() },
       ...(app.legacy ? [{ label: 'Use Current GROOVE', action: () => app.useCurrentGroove() }] : []),
       { sep: true },
       { label: 'Clear Solo / Mute', action: () => app.clearMix() },
@@ -552,6 +555,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'h') app.toggleFreeze('feel');
   else if (k === 'k') app.toggleFreeze('kit');
   else if (k === 'e') app.toggleKeepEdits();
+  else if (k === 'x') app.regenTracks();
   else if (e.key === 'ArrowRight' && (t === document.body || t.classList.contains('btn'))) app.historyForward();
   else if (e.key === 'ArrowLeft' && (t === document.body || t.classList.contains('btn'))) app.historyBack();
   else if (n >= 1 && n <= BATCH_SIZE) app.pick(n - 1);

@@ -164,5 +164,5 @@ export function dnaChopStyle(cs: ChopStyle, d: DnaSetting | undefined, rollsOn: 
 /** One line on the DNA (the PERSONALITY tab). */
 export function describeDna(d: DnaSetting | undefined): string {
   if (!dnaActive(d)) return 'BREAK DNA: NONE. The recipe builds its own phrase.';
-  return `AMEN ${Math.round(d.amount * 100)}%: the A A A' B phrase, the kick pair on 3, the syncopated snares, the delayed backbeat and the turnaround.`;
+  return `AMEN ${Math.round(d.amount * 100)}%: A A A' B phrase, kick pair on 3, syncopated snares, late backbeat, turnaround.`;
 }

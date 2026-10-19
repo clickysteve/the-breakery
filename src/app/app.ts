@@ -5,7 +5,12 @@
  * so each control's effect is heard on the same break; BAKE draws new seeds for every layer that
  * is not frozen; MUTATE varies the current groove a little.
  */
-import { addHit, deleteHit, describeEdits, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, refLabel, revertHit, sanitiseEdits, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, ratchetHit, RATCHET_SPAN_LABEL, refLabel, revertHit, sanitiseEdits, setPitch, setReverse, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { defaultRollExpr, describeExpr, diceExpr, presetExpr, sanitiseRollExpr, type RollExpression, type RollPreset } from '../engine/rollExpr';
+import { defaultDestroy, describeDestroy, sanitiseDestroy, type DestroySettings } from '../engine/destroy';
+import { describePersonality, PERSONALITY_LABEL, sanitisePersonality, type PersonalitySetting } from '../engine/personality';
+import { describeDna, sanitiseDna, type DnaSetting } from '../engine/dna';
+import { regenStep } from '../engine/regen';
 import { bake, mutate, parseSeed, reseed, sanitiseMutationOptions, sanitiseRecipe, seedLabel, seedsFrom } from '../engine/generate';
 import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from '../engine/chopper';
 import { rollGroups } from '../engine/rolls';
@@ -288,9 +293,19 @@ export class App {
 
   /** Choose a style: its defaults replace the controls (BPM too), baked by the current GROOVE. CHOP's settings stay. */
   setStyle(style: Style): void {
-    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried() });
     this.history.replaceCurrent(this.entry);
     this.rebake();
+  }
+
+  /**
+   * What a new recipe keeps from the current one: CHOP (with DESTROY), the rolls' EXPRESSION, the
+   * PERSONALITY and the BREAK DNA. They are how the break is treated and who plays it, not part of
+   * a recipe's defaults.
+   */
+  private carried(): Partial<Recipe> {
+    const r = this.recipe;
+    return JSON.parse(JSON.stringify({ ...(r.chop ? { chop: r.chop } : {}), ...(r.destroy ? { destroy: r.destroy } : {}), ...(r.rollExpr ? { rollExpr: r.rollExpr } : {}), ...(r.personality ? { personality: r.personality } : {}), ...(r.dna ? { dna: r.dna } : {}) })) as Partial<Recipe>;
   }
 
   /** Is this break LEGACY (baked by the first release's generator, kept so saved breaks reproduce)? */
@@ -322,7 +337,7 @@ export class App {
     const choices = others.length ? others : pool;
     const style = choices[Math.min(choices.length - 1, Math.max(0, Math.floor(roll * choices.length)))]!;
     const note = this.leaveEdits();
-    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...(this.recipe.chop ? { chop: { ...this.recipe.chop } } : {}) });
+    this.recipe = this.fresh({ ...defaultRecipe(style, this.recipe.bars), ...this.carried() });
     this.seeds = reseed(this.seeds, this.frozen);
     this.seedName = null;
     this.picked = null;
@@ -553,6 +568,135 @@ export class App {
     return chopActive(this.recipe.chop);
   }
 
+  // ---------------------------------------------------------------- roll expression
+
+  /** ROLLS ▸ EXPRESSION (CLASSIC until changed). */
+  get rollExpr(): RollExpression {
+    return this.recipe.rollExpr ?? defaultRollExpr();
+  }
+
+  /** Change the expression by hand (it becomes CUSTOM unless it matches a preset). */
+  setRollExpr(patch: Partial<RollExpression>): void {
+    const next = sanitiseRollExpr({ ...this.rollExpr, preset: 'custom', ...patch });
+    this.recipe = this.fresh({ ...this.recipe, rollExpr: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = `ROLL EXPRESSION ${describeExpr(this.recipe.rollExpr)}${this.rollGeneration ? '' : ' ROLL GENERATION is off: it shapes the rolls already in fills and the RATCHETs you make.'}`;
+    this.changed(false);
+  }
+
+  rollPreset(p: Exclude<RollPreset, 'custom'>): void {
+    this.setRollExpr(presetExpr(p, this.rollExpr.variant));
+  }
+
+  /** DICE: a new expression for the rolls from a new seed (the rest of the pattern is unchanged). */
+  diceRolls(seed = freshSeed()): void {
+    this.setRollExpr(diceExpr(seed));
+  }
+
+  // ---------------------------------------------------------------- destroy
+
+  get destroySettings(): DestroySettings {
+    return this.recipe.destroy ?? defaultDestroy();
+  }
+
+  /** CHOP ▸ DESTROY (fixed while there are hand edits, as CHOP is). */
+  setDestroy(patch: Partial<DestroySettings>): void {
+    if (this.chopLocked) return this.say(`DESTROY is applied: this pattern has ${editCount(this.edits)} hand edit${editCount(this.edits) === 1 ? '' : 's'}. ⌘Z them, or Edit ▸ Clear All Hand Edits, to change it again.`);
+    const next = sanitiseDestroy({ ...this.destroySettings, ...patch })!;
+    if (JSON.stringify(next) === JSON.stringify(this.recipe.destroy)) return;
+    this.recipe = this.fresh({ ...this.recipe, destroy: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describeDestroy(this.current.destroy, next);
+    this.changed(false);
+  }
+
+  /** DESTROY ▸ DICE: another take of the destruction (a new seed). */
+  diceDestroy(seed = freshSeed()): void {
+    if (!this.destroySettings.on) return this.say('DESTROY: switch it on first.');
+    this.setDestroy({ variant: seed || 1 });
+  }
+
+  // ---------------------------------------------------------------- personality and break DNA
+
+  get personality(): PersonalitySetting {
+    return this.recipe.personality ?? { id: 'neutral', amount: 0.6 };
+  }
+
+  setPersonality(patch: Partial<PersonalitySetting>): void {
+    const next = sanitisePersonality({ ...this.personality, ...patch });
+    this.recipe = this.fresh({ ...this.recipe, personality: next });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describePersonality(this.recipe.personality);
+    this.changed(false);
+  }
+
+  get dna(): DnaSetting | null {
+    return this.recipe.dna ?? null;
+  }
+
+  /** BREAK DNA: NONE (null) or AMEN, with its INFLUENCE. */
+  setDna(patch: Partial<DnaSetting> | null): void {
+    const next = patch === null ? undefined : sanitiseDna({ id: 'amen', amount: this.dna?.amount ?? 0.6, ...(this.dna ?? {}), ...patch });
+    const { dna: _old, ...rest } = this.recipe;
+    this.recipe = this.fresh({ ...rest, ...(next ? { dna: next } : {}) });
+    this.history.replaceCurrent(this.entry);
+    this.rebake();
+    this.status = describeDna(this.recipe.dna);
+    this.changed(false);
+  }
+
+  /** A short line comparing this break with the same seeds played by NEUTRAL (the PERSONALITY tab's feedback). */
+  private feedbackCache: [string, string] = ['', ''];
+  get personaFeedback(): string {
+    const p = this.recipe.personality;
+    if (!p || p.id === 'neutral' || !p.amount) return 'NEUTRAL: the recipe as it is.';
+    const key = entryKey({ recipe: this.recipe, seeds: this.seeds });
+    if (this.feedbackCache[0] === key) return this.feedbackCache[1];
+    const { personality: _p, ...plain } = this.recipe;
+    const base = this.bakeWith(this.seeds, plain as Recipe, null).events;
+    const now = this.bakeWith(this.seeds, this.recipe, null).events;
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+    const off = (cat: string, evs: typeof now) => mean(evs.filter((e) => e.cat === cat).map((e) => e.offsetMs));
+    const ms = (x: number) => `${x >= 0 ? '+' : ''}${x.toFixed(1)}`;
+    const line = `${PERSONALITY_LABEL[p.id]} vs NEUTRAL: ${base.length} → ${now.length} hits, velocity ${Math.round(mean(base.map((e) => e.vel)))} → ${Math.round(mean(now.map((e) => e.vel)))}, kick ${ms(off('kick', now) - off('kick', base))} ms, snare ${ms(off('snare', now) - off('snare', base))} ms, hats ${ms(off('hat', now) - off('hat', base))} ms.`;
+    this.feedbackCache = [key, line];
+    return line;
+  }
+
+  // ---------------------------------------------------------------- regen track
+
+  /**
+   * REGEN TRACK: the selected tracks generated again, fitted to the rest of the pattern, and every
+   * other track left exactly as it is. An explicit request, so it applies whatever FREEZE says.
+   * One undo step and one history entry; the batch is kept (only the working pattern changes);
+   * playback follows with the SWITCH mode like any new break. Hand edits stay (those on the old
+   * track's generated hits become inactive and come back with ⌘Z).
+   */
+  regenTracks(cats: Category[] = this.trackSel): void {
+    if (!cats.length) return this.say('REGEN TRACK: select a track first (click its name on the left of the pattern).');
+    if (this.legacy) return this.say('REGEN TRACK works on the current GROOVE: this is a LEGACY break. RECIPE ▸ USE GROOVE first.');
+    const before = this.current.editReport?.inactive ?? 0;
+    this.seeds = { ...this.seeds, regen: regenStep(this.seeds.regen, cats) };
+    this.picked = null;
+    this.show(this.bakeWith(this.seeds));
+    this.remember();
+    const lost = (this.current.editReport?.inactive ?? 0) - before;
+    const names = cats.map((c) => CATEGORY_LABEL[c]).join(', ');
+    this.status = `Regenerated ${names}: everything else is as it was (⌘Z goes back).${this.frozen.beat || this.frozen.detail ? ' FREEZE does not stop REGEN TRACK: it was asked for.' : ''}${lost > 0 ? ` ${lost} hand edit${lost === 1 ? ' was' : 's were'} on the old track (kept, not active).` : ''}`;
+    this.changed();
+  }
+
+  /** The tracks selected for REGEN TRACK (click a row name; shift-click adds). Not part of the break. */
+  trackSel: Category[] = [];
+
+  selectTrack(cat: Category, add = false): void {
+    this.trackSel = add ? (this.trackSel.includes(cat) ? this.trackSel.filter((c) => c !== cat) : CATEGORIES.filter((c) => c === cat || this.trackSel.includes(c))) : this.trackSel.length === 1 && this.trackSel[0] === cat ? [] : [cat];
+    this.changed(false);
+  }
+
   /** CLEAR ROLLS: delete every roll hit in this pattern (generated, from fills, or kept). Undoable; ROLL GENERATION is unchanged. */
   clearRolls(): void {
     const refs = this.current.events.filter((e) => e.role === 'roll' && e.ref).map((e) => e.ref!);
@@ -767,7 +911,7 @@ export class App {
     const r = addHit(this.edits, this.current.events, { cat, ...p });
     this.commit(r, true, { gesture, say: r.edits === this.edits ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
     const e = this.selectedEvent;
-    if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel);
+    if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel, e);
     return r.ref;
   }
 
@@ -811,7 +955,30 @@ export class App {
     if (!ref) return;
     this.commit(setSample(this.edits, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
     const e = findRef(this.current.events, ref);
-    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel);
+    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
+  }
+
+  /** EXPRESSION: transpose the hit (semitones, by playback rate). */
+  setHitPitch(st: number, ref: string | null = this.selected): void {
+    if (!ref) return;
+    if (this.commit(setPitch(this.edits, this.current.events, ref, st), false)) this.status = `Pitch ${fmtPitch(findRef(this.current.events, ref)?.pitch ?? 0)} (by playback rate: higher is shorter).`;
+  }
+
+  /** EXPRESSION: play the hit backwards (or forwards again). */
+  setHitReverse(on: boolean, ref: string | null = this.selected): void {
+    if (!ref) return;
+    this.commit(setReverse(this.edits, this.current.events, ref, on), false, { say: on ? 'Reversed: the sample plays backwards from this hit.' : 'Forwards again.' });
+    const e = findRef(this.current.events, ref);
+    if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
+  }
+
+  /** RATCHET: split the hit into n strokes over `span` grid ticks, with the ROLLS tab's EXPRESSION. One undo step. */
+  ratchet(n: number, span: number, ref: string | null = this.selected): void {
+    if (!ref) return;
+    const { preset: _p, variant: _v, ratchet: _r, ...shape } = this.rollExpr;
+    const r = ratchetHit(this.edits, this.current.events, ref, n, span, shape, this.recipe.bpm, this.recipe.bars);
+    if (!r.ref) return this.say('No room to ratchet this hit there.');
+    this.commit(r, true, { say: `Ratchet ×${n} over ${RATCHET_SPAN_LABEL[span] ?? `${span} ticks`} (${describeExpr(this.recipe.rollExpr)}) ⌘Z undoes it.` });
   }
 
   duplicateHit(ref: string | null = this.selected): void {

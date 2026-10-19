@@ -16,6 +16,8 @@
  * Every function here is pure: it returns a new layer. Undo and redo are snapshots of the layer.
  */
 import { swingDelay } from './performance';
+import { stream } from './rng';
+import { expressStrokes, msPerTick, type RollExpression } from './rollExpr';
 import { CATEGORY_LABEL, clamp, safePitch, STEPS, TPB, TPS, type BreakEvent, type Category, type Recipe, type Role } from './types';
 
 /** A change to one generated hit. */
@@ -323,6 +325,47 @@ export function duplicateHit(edits: Edits, events: BreakEvent[], ref: string, ti
     if (!occupied(events, e.cat, p)) return addHit(edits, events, { cat: e.cat, ...p, vel: e.vel, offsetMs: e.offsetMs, ...(e.pinned ? { sample: e.pinned } : {}), ...expr(e) });
   }
   return { edits, ref: null };
+}
+
+/** RATCHET spans: the length the strokes share, in grid ticks. */
+export const RATCHET_SPANS = [12, 24, 48, 96] as const;
+export const RATCHET_SPAN_LABEL: Record<number, string> = { 12: '1/16', 24: '1/8', 48: '1/4', 96: '1/2' };
+
+/**
+ * RATCHET: the hit split into `n` strokes over `span` grid ticks from its place, played with the
+ * ROLLS tab's EXPRESSION (its pitch, velocity and timing contours and reverse; CLASSIC: even
+ * strokes at the hit's velocity). The strokes are hand-placed roll hits (one undo step), so each
+ * can be edited, and ROLL GENERATION has nothing to do with them: a ratchet is an explicit edit.
+ * Strokes stop at the end of the pattern and never double another hit of the drum.
+ */
+export function ratchetHit(edits: Edits, events: BreakEvent[], ref: string, n: number, span: number, shape: Omit<RollExpression, 'preset' | 'variant' | 'ratchet'>, bpm: number, bars: number): EditResult {
+  const e = findRef(events, ref);
+  if (!e || n < 2) return { edits, ref: null };
+  const t0 = tickOf(e);
+  const room = Math.min(span, bars * TPB - t0);
+  const strokes = expressStrokes(room, [e.vel], { ...shape, ratchet: n }, stream(t0, `ratchet:${e.cat}`), msPerTick(bpm), (t) => (t0 + t) % TPS === 0);
+  if (strokes.length < 2) return { edits, ref: null };
+  let out = deleteHit(edits, ref);
+  let first: string | null = null;
+  for (const s of strokes) {
+    const p = posOf(t0 + s.tick);
+    if (occupied(events, e.cat, p, ref)) continue;
+    const id = newId(out);
+    out = clone(out);
+    out.added.push({
+      id,
+      cat: e.cat,
+      ...p,
+      vel: clamp(Math.round(s.vel), 1, 127),
+      offsetMs: Math.round(clamp(e.offsetMs + s.ms, -MANUAL_OFFSET_MS, MANUAL_OFFSET_MS) * 10) / 10 || 0,
+      ...(e.pinned ? { sample: e.pinned } : {}),
+      role: 'roll',
+      ratchet: true,
+      ...expr({ pitch: (e.pitch ?? 0) + s.pitch, reverse: s.reverse || !!e.reverse }),
+    });
+    first ??= manualRef(id);
+  }
+  return { edits: out, ref: first };
 }
 
 /** Undo every edit of one hit: a changed generated hit goes back to how it was baked; a moved one goes back to its place. */

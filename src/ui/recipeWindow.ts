@@ -1,5 +1,5 @@
 /**
- * RECIPE · CHOP · ROLLS · MUTATE, one window with four tabs.
+ * RECIPE · PERSONALITY · CHOP · ROLLS · MUTATE, one window with five tabs.
  *
  * RECIPE: style (with RANDOM RECIPE), tempo, bars, seed (with DICE, history and favourite), a row
  * showing CHOP (the transformation) and ROLL GENERATION, each opening its tab (a LEGACY break offers
@@ -7,7 +7,8 @@
  * generator, has no selector: every break is baked by it. Every change re-bakes the same
  * seeds, so you hear what the control does to this break. Every number can be clicked and typed
  * (emmm's numerical fields). CHOP: the phrase transformation (chopTab.ts). ROLLS: roll generation
- * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts).
+ * (rollsTab.ts). MUTATE: mutation and related sections (mutateTab.ts). PERSONALITY: who plays the
+ * break and its BREAK DNA (personalityTab.ts).
  */
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
@@ -15,11 +16,14 @@ import { CATEGORY_LABEL, MAX_BARS, MIN_BARS, STYLES, TOMS, type Bars, type Recip
 import { chopTab } from './chopTab';
 import { el, label, setTip } from './dom';
 import { mutateTab } from './mutateTab';
+import { personalityTab } from './personalityTab';
 import { rollsTab } from './rollsTab';
 import { Button, MWindow, NumBox, RangeBar } from './widgets';
 import type { UiContext } from './context';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
+/** The window's tabs, by index. */
+export const TAB = { recipe: 0, persona: 1, chop: 2, rolls: 3, mutate: 4 } as const;
 const num = (t: string) => (/^\d+(\.\d+)?$/.test(t) ? Number(t) : null);
 
 const CONTROLS: { key: RecipeKey; label: string; tip: string; format?: (v: number) => string; parse?: (t: string) => number | null }[] = [
@@ -52,9 +56,10 @@ const BAR_PLAN: Record<number, string> = {
 
 export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
-  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'CHOP', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
-  const [b, chopPane, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
+  const win = new MWindow(parent, { title: 'RECIPE', tabs: ['RECIPE', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ...rect, onTab: () => update() });
+  const [b, personaPane, chopPane, rollsPane, mutatePane] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement, HTMLDivElement];
   const W = rect.w - 2;
+  const persona = personalityTab(personaPane, ui, W);
   const chop = chopTab(chopPane, ui, W);
   const rolls = rollsTab(rollsPane, ui, W);
   const mut = mutateTab(mutatePane, ui, W);
@@ -128,12 +133,12 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   const chopBtn = new Button(b, [4, 51, bw + 20, 13], 'CHOP OFF', {
     cls: 'small',
     tip: 'CHOP: the transformation. It re-arranges the GROOVE’s phrase (recalls, swaps, repeats, retriggers, drop-outs). Opens the CHOP tab.',
-    onPress: () => win.setTab(1),
+    onPress: () => win.setTab(TAB.chop),
   });
   const rollsBtn = new Button(b, [4 + bw + 23, 51, bw + 20, 13], 'ROLLS OFF', {
     cls: 'small',
     tip: 'ROLL GENERATION: off until you switch it on, and kept as you set it whatever the recipe. Toms do not need it (TOM ACTIVITY). Opens the ROLLS tab.',
-    onPress: () => win.setTab(2),
+    onPress: () => win.setTab(TAB.rolls),
   });
   const genNote = el('div', 'label tiny', b, [4 + 2 * (bw + 23) + 2, 55, W - 4 - 76 - (4 + 2 * (bw + 23) + 2)]);
   const useGroove = new Button(b, [W - 4 - 72, 51, 72, 13], 'USE GROOVE', {
@@ -194,9 +199,10 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     const tomHits = app.current.events.filter((e) => (TOMS as readonly string[]).includes(e.cat)).length;
     tomNote.textContent = app.legacy ? 'LEGACY BREAK: NO TOMS' : `${tomHits} TOM HIT${tomHits === 1 ? '' : 'S'} · SAMPLES ${have.length}/3`;
     setTip(tomNote, have.length === 3 ? 'High, mid and low tom samples are loaded (INGREDIENTS). Tom hits follow their MIXER channels and MIDI notes.' : `No sample for ${TOMS.filter((t) => !kit[t].length).map((t) => CATEGORY_LABEL[t]).join(', ')}: those hits are silent until one is loaded (INGREDIENTS), or the demo kit is added.`);
-    if (win.tab === 1) chop.update();
-    if (win.tab === 2) rolls.update();
-    if (win.tab === 3) mut.update();
+    if (win.tab === TAB.persona) persona.update();
+    if (win.tab === TAB.chop) chop.update();
+    if (win.tab === TAB.rolls) rolls.update();
+    if (win.tab === TAB.mutate) mut.update();
   }
   function setTipBars(): void {
     bars.el.dataset.tip = `Pattern length, 1–8 bars (now ${app.recipe.bars}: ${BAR_PLAN[app.recipe.bars]}). Click and type, or ↑ ↓.`;
