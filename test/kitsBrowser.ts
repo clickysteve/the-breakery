@@ -41,7 +41,8 @@ const wait = async (ok: () => unknown, what: string) => {
 /** The KITS panel through its own controls: the list's four states and every kit operation. */
 async function kitList(doc: Document, b: Breakery): Promise<void> {
   const list = doc.querySelector<HTMLElement>('.gsel[aria-label="Saved kits"]')!;
-  [...doc.querySelectorAll('.mtab')].find((t) => t.textContent === 'KITS')!.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerId: 1 }));
+  const tab = [...doc.querySelectorAll('.mtab')].find((t) => t.textContent === 'KITS')!;
+  for (const type of ['pointerdown', 'pointerup']) tab.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1 }));
   doc.defaultView!.focus();
   const panel = list.parentElement!;
   const items = () => [...list.querySelectorAll<HTMLElement>('.msel-item')];
@@ -49,7 +50,7 @@ async function kitList(doc: Document, b: Breakery): Promise<void> {
   const selected = () => items().find((i) => i.getAttribute('aria-selected') === 'true');
   const ev = (t: Element, type: string) => t.dispatchEvent(new PointerEvent(type, { bubbles: type !== 'pointerenter' && type !== 'pointerleave', cancelable: true, pointerId: 1 }));
   const click = (t: Element) => (ev(t, 'pointerdown'), ev(t, 'pointerup'));
-  const press = (label: string) => ev([...panel.querySelectorAll('.btn')].find((x) => x.textContent === label)!, 'pointerdown');
+  const press = (label: string) => click([...panel.querySelectorAll('.btn')].find((x) => x.textContent === label)!);
   const answer = async (value: string | null) => {
     await wait(() => doc.querySelector('.mdialog'), 'a dialog');
     const field = doc.querySelector<HTMLInputElement>('.mdialog input.mtext');
@@ -129,6 +130,59 @@ async function kitList(doc: Document, b: Breakery): Promise<void> {
   noPhantoms();
 }
 
+/** Files dropped on an INGREDIENTS row or list go to that instrument; elsewhere, names decide. */
+async function dropTargets(doc: Document, b: Breakery): Promise<void> {
+  const win = doc.defaultView!;
+  const tab = [...doc.querySelectorAll('.mtab')].find((t) => t.textContent === 'INGREDIENTS')!;
+  for (const type of ['pointerdown', 'pointerup']) tab.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1 }));
+  const row = (label: string) => [...doc.querySelectorAll<HTMLElement>('.catrow')].find((r) => r.querySelector('.cname')?.textContent === label)!;
+  const drop = (target: EventTarget, files: File[]) => {
+    const dt = new win.DataTransfer();
+    for (const f of files) dt.items.add(f);
+    const over = new win.DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt });
+    target.dispatchEvent(over);
+    const lit = target instanceof win.HTMLElement && target.classList.contains('droptarget');
+    target.dispatchEvent(new win.DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+    return { accepted: over.defaultPrevented, lit };
+  };
+  const wav = async (name: string, f: number) => new win.File([(await tone(f)).slice().buffer], name, { type: 'audio/wav' });
+  const named = (n: string) => b.ingredients.items.find((i) => i.name === n);
+
+  // a kick-named file dropped on SNARE is a snare
+  const kick99 = await wav('Kick 99.wav', 77);
+  const r1 = drop(row('SNARE'), [kick99]);
+  check(r1.accepted && r1.lit, 'the SNARE row accepts a file drag and lights up');
+  await wait(() => named('Kick 99.wav')?.cat === 'snare', 'Kick 99.wav dropped on SNARE');
+  check(!row('SNARE').classList.contains('droptarget'), 'the drop target clears');
+
+  // several files on CLAP, the same file again on HAT moves it (not loaded twice)
+  drop(row('CLAP'), [await wav('a.wav', 900), await wav('b.wav', 1100)]);
+  await wait(() => named('a.wav')?.cat === 'clap' && named('b.wav')?.cat === 'clap', 'two files dropped on CLAP');
+  const n = b.ingredients.items.length;
+  drop(row('HAT'), [kick99]);
+  await wait(() => named('Kick 99.wav')?.cat === 'hat', 'a loaded sample dropped on HAT moves there');
+  check(b.ingredients.items.length === n, 'a duplicate is not loaded twice');
+  b.app.undo();
+  check(named('Kick 99.wav')?.cat === 'snare', 'undo puts the moved sample back (one step)');
+  b.app.redo();
+  check(named('Kick 99.wav')?.cat === 'hat', 'redo moves it again');
+
+  // the sample list takes the selected instrument (HAT, after the last drop)
+  drop(doc.querySelector('.samplelist')!, [await wav('Snare Big.wav', 400)]);
+  await wait(() => named('Snare Big.wav')?.cat === 'hat', 'dropped on the HAT list');
+
+  // not audio: skipped, nothing added
+  const before = b.ingredients.items.length;
+  drop(row('FX'), [new win.File(['hello'], 'notes.txt', { type: 'text/plain' })]);
+  await wait(() => doc.querySelector('.mdialog'), 'the not-audio note');
+  check(b.ingredients.items.length === before, 'a text file is not added');
+  doc.querySelector<HTMLButtonElement>('.mdialog .mbutton.default')!.click();
+
+  // dropped anywhere else: the name decides (a clap)
+  drop(doc.querySelector('#screen')!, [await wav('Clap 07.wav', 1500)]);
+  await wait(() => named('Clap 07.wav')?.cat === 'clap', 'a general drop suggests from the name');
+}
+
 export async function run(): Promise<string> {
   // ---------------------------------------------------------------- the first release's data
   localStorage.clear();
@@ -181,6 +235,9 @@ export async function run(): Promise<string> {
 
   // ---------------------------------------------------------------- the KITS list (Phase 15): hover never selects, new kits appear selected
   await kitList(frame.contentDocument!, b);
+
+  // ---------------------------------------------------------------- drop targets (Phase 15): dropped on an instrument, it goes there
+  await dropTargets(frame.contentDocument!, b);
   frame.remove();
   return 'passed';
 }

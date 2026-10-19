@@ -897,6 +897,12 @@ input.mtext {
   cursor: default;
   border-bottom: 1px dotted var(--ink);
 }
+/* a drop target under a file drag: dotted inside the row or list */
+.catrow.droptarget,
+.samplelist.droptarget {
+  outline: 2px dotted var(--ink);
+  outline-offset: -2px;
+}
 .catrow.sel {
   background: var(--selection);
   color: var(--paper);

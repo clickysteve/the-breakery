@@ -26,6 +26,7 @@ import { GemSelect } from './ui/gemSelect';
 import { typing } from './ui/widgets';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { isTransportKey } from './ui/transportKey';
+import { droppedEntries } from './ui/dropFiles';
 import { bakeWindow } from './ui/bakeWindow';
 import { ingredientsWindow } from './ui/ingredientsWindow';
 import { patternWindow } from './ui/patternWindow';
@@ -104,12 +105,36 @@ const alertBox = (html: string) => void alertDialog(screen, html);
 
 const slotLabel = (c: Slot) => (c === 'unsorted' ? 'UNSORTED' : CATEGORY_LABEL[c]);
 
-/** Import files or folders, then show what was found and let the categories be corrected. */
-async function importEntries(entries: ImportEntry[]): Promise<void> {
+/**
+ * Import files or folders, then show what was found and let the categories be corrected. With
+ * `opts.cat` (files dropped on an instrument in INGREDIENTS) every file goes to that instrument:
+ * the drop said where, so there is no review, only a note of anything that was not added.
+ */
+async function importEntries(entries: ImportEntry[], opts: { cat?: Slot } = {}): Promise<void> {
   if (!entries.length) return;
   app.say(`Reading ${entries.length} file${entries.length > 1 ? 's' : ''}…`);
-  const r = await ingredients.importEntries(entries, (done, total) => app.say(`Loading samples… ${done} / ${total}`));
+  // the whole import is one undo step (the progress notes and redraws in it are not steps)
+  app.beginGesture();
+  let r: Awaited<ReturnType<typeof ingredients.importEntries>>;
+  try {
+    r = await ingredients.importEntries(entries, (done, total) => app.say(`Loading samples… ${done} / ${total}`), opts);
+  } finally {
+    app.endGesture();
+  }
   const fromFolder = entries.some((e) => e.path.includes('/'));
+  if (opts.cat) {
+    const to = slotLabel(opts.cat);
+    const said = [`${r.added.length} sample${r.added.length === 1 ? '' : 's'} added to ${to}.`];
+    if (r.moved) said.push(`${r.moved} already loaded, moved to ${to}.`);
+    if (r.duplicates) said.push(`${r.duplicates} already in ${to}.`);
+    if (r.skipped.length) said.push(`${r.skipped.length} not audio, skipped.`);
+    if (r.errors.length) said.push(`${r.errors.length} could not be read.`);
+    app.say(said.join(' '));
+    wIng.select(opts.cat);
+    if (r.errors.length) alertBox(`Not added to ${to}:<br>${r.errors.slice(0, 8).map((e) => esc(e)).join('<br>')}${r.errors.length > 8 ? '<br>…' : ''}`);
+    else if (!r.added.length && !r.moved && !r.duplicates && r.skipped.length) alertBox('Those are not audio files. The Breakery takes WAV (and AIFF) one-shots.');
+    return;
+  }
   const parts = [`Added ${r.added.length} sample${r.added.length === 1 ? '' : 's'}.`];
   if (r.duplicates) parts.push(`${r.duplicates} already loaded.`);
   if (r.skipped.length) parts.push(`${r.skipped.length} not audio, skipped.`);
@@ -156,37 +181,6 @@ async function importEntries(entries: ImportEntry[]): Promise<void> {
     },
     420,
   );
-}
-
-/** Files and folders dropped on the screen (folders read recursively where the browser allows). */
-async function droppedEntries(dt: DataTransfer): Promise<ImportEntry[]> {
-  const items = [...dt.items].filter((i) => i.kind === 'file');
-  const roots = items.map((i) => (typeof i.webkitGetAsEntry === 'function' ? i.webkitGetAsEntry() : null));
-  if (!roots.some((e) => e?.isDirectory)) return [...dt.files].map((file) => ({ file, path: '' }));
-  const out: ImportEntry[] = [];
-  const fileOf = (e: FileSystemFileEntry) => new Promise<File>((res, rej) => e.file(res, rej));
-  const readAll = async (dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
-    const reader = dir.createReader();
-    const all: FileSystemEntry[] = [];
-    // readEntries returns at most ~100 entries per call: read until empty
-    for (;;) {
-      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
-      if (!batch.length) return all;
-      all.push(...batch);
-    }
-  };
-  const walk = async (e: FileSystemEntry, depth: number): Promise<void> => {
-    if (out.length > 2000 || depth > 12) return;
-    if (e.isFile) {
-      try {
-        out.push({ file: await fileOf(e as FileSystemFileEntry), path: e.fullPath.replace(/^\//, '') });
-      } catch {
-        /* unreadable: skipped */
-      }
-    } else if (e.isDirectory) for (const c of await readAll(e as FileSystemDirectoryEntry)) await walk(c, depth + 1);
-  };
-  for (const r of roots) if (r) await walk(r, 0);
-  return out;
 }
 
 async function togglePlay(): Promise<void> {
@@ -607,9 +601,12 @@ window.addEventListener('dragleave', () => {
 });
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
+  const taken = e.defaultPrevented; // an INGREDIENTS drop target took it (an explicit category)
   e.preventDefault();
   dragDepth = 0;
   screen.classList.remove('dropping');
+  for (const t of document.querySelectorAll('.droptarget')) t.classList.remove('droptarget');
+  if (taken) return;
   const dt = e.dataTransfer;
   if (dt) void droppedEntries(dt).then((entries) => importEntries(entries));
 });
