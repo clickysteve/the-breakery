@@ -434,7 +434,7 @@ export function addTomPhrases(events: BreakEvent[], ctx: TomContext, rng: Rng, f
     const k = rev2
       ? clamp(1 + Math.round(4 * t * uLen), 1, fillToms >= 8 ? 1 : fillToms >= 6 ? 2 : voices.length === 1 ? 3 : 5)
       : clamp(1 + Math.round(2 * t * uLen), 1, fillToms >= 6 ? 1 : fillToms >= 4 ? 2 : 3);
-    const free = (s: number) => s >= FLOOR - 1 && s < limit && !kickOrSnare(bar, s) && !hasTom(bar, s);
+    const free = (s: number) => s >= (bar === 0 ? FLOOR : FLOOR - 1) && s < limit && !kickOrSnare(bar, s) && !hasTom(bar, s);
     let steps: number[] = [];
     if (fig === 'response') {
       const bb = inBar(bar).filter((e) => isBackbeat(e) && e.step < limit).sort((a, b) => a.step - b.step)[0];

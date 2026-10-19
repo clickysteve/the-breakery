@@ -701,6 +701,12 @@ describe('Phase 12 in the App', () => {
     expect(app.trackSel).toEqual([]);
     app.regenTracks();
     expect(app.status).toMatch(/select a track first/);
+    // a track with no hits (its part played on another track) is left alone, and the App says so
+    const empty = CATEGORIES.find((c) => !app.current.events.some((e) => e.cat === c))!;
+    const before = flat(app.current);
+    app.regenTracks([empty]);
+    expect(app.status).toMatch(/nothing to regenerate/);
+    expect(flat(app.current)).toBe(before);
   });
 
   it('hit pitch, reverse and ratchet are undoable hand edits that persist across a reload', () => {

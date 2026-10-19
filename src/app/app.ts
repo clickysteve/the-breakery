@@ -678,6 +678,7 @@ export class App {
   regenTracks(cats: Category[] = this.trackSel): void {
     if (!cats.length) return this.say('REGEN TRACK: select a track first (click its name on the left of the pattern).');
     if (this.legacy) return this.say('REGEN TRACK works on the current GROOVE: this is a LEGACY break. RECIPE ▸ USE GROOVE first.');
+    if (!this.current.events.some((e) => cats.includes(e.cat))) return this.say(`REGEN TRACK: ${cats.map((c) => CATEGORY_LABEL[c]).join(', ')} has no hits in this pattern (its part is played on another track), so there is nothing to regenerate.`);
     const before = this.current.editReport?.inactive ?? 0;
     this.seeds = { ...this.seeds, regen: regenStep(this.seeds.regen, cats) };
     this.picked = null;

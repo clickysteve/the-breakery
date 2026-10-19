@@ -15,7 +15,7 @@
  *   SWING       DILLA replaces the swing of each drum (from the recipe's SWING towards the
  *               strategy's), it does not add to it
  *   HUMANISE    the performance's own deviations are kept but scaled down (DILLA is programmed:
- *               less random looseness the stronger it is)
+ *               less random looseness the stronger it is: a fifth of it is left at 100 %)
  *   CHOP        DILLA runs after CHOP, on each hit's new place, so a chopped hit takes the feel of
  *               where it now sits
  *   ROLLS       a roll moves as a whole: every stroke takes its first stroke's offset
@@ -98,7 +98,7 @@ export function dillaPerform(events: BreakEvent[], a: number, ctx: DillaContext)
     const table = hnoise(seed, `${v}|${pos}|${e.sub}${varied}`) * st.table[v];
     // every four bars the kick leans a little further (the phrase breathes)
     const phrase = v === 'kick' && e.bar % 4 === 3 ? 3 : 0;
-    const off = clamp(e.offsetMs * (1 - 0.6 * a) + a * (st.lean[v] + table + phrase), -cap, cap);
+    const off = clamp(e.offsetMs * (1 - 0.8 * a) + a * (st.lean[v] + table + phrase), -cap, cap);
     const swing = Math.round(swingDelay(e.step + e.sub / TPS, lerp(ctx.swing, st.swing[v], a)) * 1000) / 1000 || 0;
     const r = { off, swing };
     placed.set(e, r);

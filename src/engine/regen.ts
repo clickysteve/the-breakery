@@ -11,7 +11,7 @@
  * break's. From each candidate only the selected tracks are taken, and scored against the tracks
  * that stay (regenScore): a kick that leaves the backbeats to the snare and keeps the downbeats,
  * a snare that keeps the backbeat and does not sit on the kicks, ghosts near the backbeats and off
- * the kicks, a timekeeper that rests during a tom fill, toms in fill places and off the backbeats,
+ * the kicks, a timekeeper that rests during a tom fill and does not double another timekeeper, toms in fill places and off the backbeats,
  * about as many hits as the track had, and never the same track again. The best candidate's
  * tracks replace the selected ones, after a repair (a ghost under a snare, a closed hat under an
  * open one, a hit on a crash's other limb, are dropped).
@@ -64,12 +64,13 @@ export function regenScore(track: readonly BreakEvent[], context: readonly Break
   const key = (e: BreakEvent) => `${e.cat}|${tickOf(e)}`;
   const origKeys = new Set(original.map(key));
   const same = track.length === original.length && track.every((e) => origKeys.has(key(e)));
-  if (same) return -1000; // REGEN must change the track
+  if (same && original.length) return -1000; // REGEN must change the track (an empty track may stay empty: its time is kept elsewhere)
   const at = (cat: Category | ((e: BreakEvent) => boolean)) => new Set(context.filter((e) => (typeof cat === 'function' ? cat(e) : e.cat === cat)).map(tickOf));
   const kicks = at('kick');
   const snares = at('snare');
   const backbeats = at(isBackbeat);
   const crashes = at('crash');
+  const keeping = at((e) => HATS.includes(e.cat) && e.role === 'time');
   const tomTicks = context.filter((e) => isTomCat(e.cat) && e.role === 'fill').map(tickOf);
   const inTomFill = (t: number) => tomTicks.some((x) => Math.abs(x - t) <= TPS);
   const bars = plan.length;
@@ -78,7 +79,7 @@ export function regenScore(track: readonly BreakEvent[], context: readonly Break
     const mine = track.filter((e) => e.cat === c);
     const was = original.filter((e) => e.cat === c).length;
     // about as present as the track was (a regenerated track is a new take, not a new density)
-    s -= (2 * Math.abs(mine.length - was)) / Math.max(2, was);
+    s -= (3 * Math.abs(mine.length - was)) / Math.max(2, was);
     for (const e of mine) {
       const t = tickOf(e);
       if (c === 'kick') {
@@ -94,6 +95,8 @@ export function regenScore(track: readonly BreakEvent[], context: readonly Break
       } else if (HATS.includes(c)) {
         if (inTomFill(t)) s -= 0.6;
         if (crashes.has(t)) s -= 0.5;
+        // one timekeeper: a hat over a ride (or a ride over hats) that keeps time doubles it
+        if (keeping.has(t)) s -= 0.8;
       } else if (isTomCat(c)) {
         if (backbeats.has(t)) s -= 2;
         if (kicks.has(t)) s -= 0.3;
