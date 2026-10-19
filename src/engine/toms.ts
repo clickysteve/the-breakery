@@ -233,6 +233,14 @@ interface Slot {
   d: number[];
 }
 
+/**
+ * Revision 2's TOM ACTIVITY curve: phrases per bar (before the recipe's rate) for an activity.
+ * 0 % none, 20 % occasional (about one phrase in four bars), 40 % noticeable, 60 % frequent,
+ * 80 % very active, 100 % a phrase in nearly every place (both places in most bars), still placed
+ * by rank, so the structure holds.
+ */
+export const tomCurve = (t: number): number => (t <= 0 ? 0 : 0.55 * t + 0.5 * t * t + 0.65 * t * t * t);
+
 const pickFigure = (u: number, weights: Record<PhraseFigure, number>, ok: (f: PhraseFigure) => boolean): PhraseFigure | null => {
   const w = PHRASE_FIGURES.map((f) => (ok(f) ? Math.max(0, weights[f]) : 0));
   const total = w.reduce((a, b) => a + b, 0);
@@ -279,6 +287,8 @@ export function addTomPhrases(events: BreakEvent[], ctx: TomContext, rng: Rng, f
   if (t <= 0 || !voices.length) return events;
   const ph = fl.phrasing;
   const n = roles.length;
+  // revision 2: the recalibrated curve (more and longer phrases as TOM ACTIVITY rises; see docs/tom-report.md)
+  const rev2 = (recipe.revision ?? 0) >= 2;
   const make = maker(ctx, frng);
   let out = events.slice();
   const inBar = (bar: number) => out.filter((e) => e.bar === bar);
@@ -302,7 +312,8 @@ export function addTomPhrases(events: BreakEvent[], ctx: TomContext, rng: Rng, f
     // (in a programmed loop, BOOM BAP, GARAGE, ELECTRO at low VARIATION, so does every bar before the fills)
     const groove = !last && (role === 'A' || (loopy && role !== 'F'));
     const endW = n === 1 ? 10 : bar === 0 ? 0 : groove ? 0.3 : last ? 100 : role === 'F' ? 50 : section ? 20 : role === 'B' ? 8 : (bar + 1) % 2 === 0 ? 6 : 3;
-    const midW = n === 1 ? ph.mid : bar === 0 ? 0 : groove ? 0.25 * ph.mid : (role === 'A2' || role === 'B' ? 4 : 2) * ph.mid;
+    // revision 2: at the top of the range even the first bar may take an accent (never its first beat: FLOOR)
+    const midW = n === 1 ? ph.mid : bar === 0 ? (rev2 && t >= 0.85 ? 0.1 * ph.mid : 0) : groove ? 0.25 * ph.mid : (role === 'A2' || role === 'B' ? 4 : 2) * ph.mid;
     // the order of the places varies with the seed; the phrase ends stay ahead of the rest
     if (endW) slots.push({ bar, end: true, weight: endW * (0.6 + 0.8 * d[0]!), d: d.slice(1, 5) });
     if (midW) slots.push({ bar, end: false, weight: midW * (0.6 + 0.8 * d[5]!), d: d.slice(6, 10) });
@@ -310,8 +321,8 @@ export function addTomPhrases(events: BreakEvent[], ctx: TomContext, rng: Rng, f
   const uN = rng.next();
   slots.sort((a, b) => b.weight - a.weight || a.bar - b.bar);
   // ---- how many: TOM ACTIVITY × the recipe's rate × the bars (from 50 % there is always one)
-  let count = Math.floor(t * ph.rate * n + uN);
-  if (t >= 0.5) count = Math.max(1, count);
+  let count = Math.floor((rev2 ? tomCurve(t) * ph.rate * (n + 0.5) : t * ph.rate * n) + uN);
+  if (t >= (rev2 ? 0.4 : 0.5)) count = Math.max(1, count);
 
   /** where the bar's toms already are: its fill's first stroke, its accents' last */
   const fillFrom = (bar: number) => inBar(bar).filter((e) => isTom(e.cat) && e.role === 'fill').reduce((m, e) => Math.min(m, e.step), STEPS);
@@ -329,8 +340,10 @@ export function addTomPhrases(events: BreakEvent[], ctx: TomContext, rng: Rng, f
       const fillBar = n === 1 || bar === n - 1 || role === 'F' || (bar + 1) % 4 === 0;
       const lenF = 0.75 + 0.5 * uLen;
       let L = fillBar ? 2 + (ph.reach * (0.85 + 0.3 * recipe.fills) - 2) * t * lenF : 2 + 2 * t * lenF;
+      // revision 2: longer runs at high activity (up to 12 strokes into the top), shorter on a single tom
+      if (rev2) L = fillBar ? 2 + (ph.reach * (0.85 + 0.3 * recipe.fills) * (1 + 0.5 * t * t) - 2) * t * lenF : 2 + 3.5 * t * lenF;
       if (role === 'F' && bar !== n - 1) L *= 0.65;
-      L = clamp(Math.round(L), 2, 8);
+      L = clamp(Math.round(L), 2, rev2 ? (voices.length === 1 ? 6 : 12) : 8);
       let every = L >= 3 && uSpace < ph.space * (1.3 - t) ? 2 : 1;
       if (end - floor < L * every) every = 1;
       L = Math.min(L, end - floor);
@@ -418,8 +431,10 @@ export function addTomPhrases(events: BreakEvent[], ctx: TomContext, rng: Rng, f
     const fig = pickFigure(uFig, ph.figures, (f) => FIGURE_FIT[f].mid) ?? 'accent';
     // fewer strokes beside a long fill: the bar is not to be all toms
     const fillToms = inBar(bar).filter((e) => isTom(e.cat) && e.role === 'fill').length;
-    const k = clamp(1 + Math.round(2 * t * uLen), 1, fillToms >= 6 ? 1 : fillToms >= 4 ? 2 : 3);
-    const free = (s: number) => s >= FLOOR - 1 && s < limit && !kickOrSnare(bar, s) && !hasTom(bar, s);
+    const k = rev2
+      ? clamp(1 + Math.round(4 * t * uLen), 1, fillToms >= 8 ? 1 : fillToms >= 6 ? 2 : voices.length === 1 ? 3 : 5)
+      : clamp(1 + Math.round(2 * t * uLen), 1, fillToms >= 6 ? 1 : fillToms >= 4 ? 2 : 3);
+    const free = (s: number) => s >= (bar === 0 ? FLOOR : FLOOR - 1) && s < limit && !kickOrSnare(bar, s) && !hasTom(bar, s);
     let steps: number[] = [];
     if (fig === 'response') {
       const bb = inBar(bar).filter((e) => isBackbeat(e) && e.step < limit).sort((a, b) => a.step - b.step)[0];

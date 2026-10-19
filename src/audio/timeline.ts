@@ -13,6 +13,16 @@ import { CATEGORIES, CATEGORY_LABEL, STEPS, TPS, type Break, type BreakEvent, ty
 export const CORE_PPQ = 96000;
 /** The pitch at which samples play at their own speed. */
 export const ROOT_PITCH = 60;
+/** The suffix of an instrument id that plays its sample backwards (Ingredients resolves it to a reversed copy). */
+export const REVERSED = '~rev';
+
+/**
+ * EXPRESSION, the one place a hit's pitch and reverse become a note, used by live playback and by
+ * the offline render alike: pitch is the note number (Core transposes by playback rate, as a
+ * hardware sampler does), reverse is the reversed copy of the sample.
+ */
+export const notePitch = (e: Pick<BreakEvent, 'pitch'>): number => ROOT_PITCH + (e.pitch ?? 0);
+export const noteInstrument = (sample: string, e: Pick<BreakEvent, 'reverse'>): string => (e.reverse ? sample + REVERSED : sample);
 
 /** Quarter notes from the start of the break to the event, including swing and microtiming. */
 export function eventQuarters(e: Pick<BreakEvent, 'bar' | 'step' | 'sub' | 'swing' | 'offsetMs'>, bpm: number): number {
@@ -38,7 +48,7 @@ export function breakTimeline(b: Break, only?: readonly Category[]): Timeline {
   const bpm = b.recipe.bpm;
   const events: NoteEvent[] = b.events
     .filter((e) => e.sample && (!only || only.includes(e.cat)))
-    .map((e) => ({ type: 'note', tick: eventTick(e, bpm), duration: CORE_PPQ / 4, voice: e.cat, pitch: ROOT_PITCH, velocity: e.vel, instrument: e.sample! }));
+    .map((e) => ({ type: 'note', tick: eventTick(e, bpm), duration: CORE_PPQ / 4, voice: e.cat, pitch: notePitch(e), velocity: e.vel, instrument: noteInstrument(e.sample!, e) }));
   return {
     tempo: constantTempo(bpm, CORE_PPQ),
     length: b.recipe.bars * 4 * CORE_PPQ,

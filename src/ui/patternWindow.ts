@@ -15,7 +15,9 @@
  */
 import { analyse } from '../engine/analysis';
 import { describeChop } from '../engine/chopper';
-import { describeEdits, MANUAL_OFFSET_MS, posLabel, snapTick, tickOf } from '../engine/edits';
+import { describeEdits, MANUAL_OFFSET_MS, posLabel, RATCHET_SPAN_LABEL, RATCHET_SPANS, snapTick, tickOf } from '../engine/edits';
+import { MAX_PITCH } from '../engine/types';
+import { RATCHETS } from '../engine/rollExpr';
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, CATEGORY_LABEL, STEPS, TPB, TPS, type BreakEvent, type Category } from '../engine/types';
@@ -81,9 +83,14 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     }),
   );
   const rowCtl = CATEGORIES.map((c, i) => {
-    const l = el('div', 'label small', b, [6, Y0 + i * RH + 3], SHORT[c]);
+    const l = el('div', 'label small trackname', b, [4, Y0 + i * RH + 2, 37, 11], SHORT[c]);
     l.style.fontSize = '8px';
-    setTip(l, CATEGORY_LABEL[c]);
+    l.setAttribute('role', 'button');
+    setTip(l, `${CATEGORY_LABEL[c]}. Click: select this TRACK for REGEN TRACK (shift-click adds or removes tracks). A selected track is hatched; it is not the same as a selected hit, SOLO or MUTE.`);
+    l.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      app.selectTrack(c, ev.shiftKey || ev.metaKey || ev.ctrlKey);
+    });
     const s = new Button(b, [42, Y0 + i * RH + 1, 12, 12], 'S', { cls: 'small sm', tip: `SOLO ${CATEGORY_LABEL[c]}: hear only the soloed rows (several can be soloed; MUTE remains silent). Playback changes at once; the break itself does not change.`, onPress: () => app.toggleSolo(c) });
     const m = new Button(b, [55, Y0 + i * RH + 1, 12, 12], 'M', { cls: 'small sm', tip: `MUTE ${CATEGORY_LABEL[c]}: silence this row, including when soloed. Playback changes at once; the break itself does not change.`, onPress: () => app.toggleMute(c) });
     return { l, s, m };
@@ -132,11 +139,46 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   const dup = new Button(ctl, [bx + 31, 0, 26, 14], 'DUP', { cls: 'small', tip: 'DUPLICATE: a copy of the selected hit one SNAP step later (or the next free place)', onPress: () => app.duplicateHit() });
   const del = new Button(ctl, [bx + 59, 0, 26, 14], 'DEL', { cls: 'small', tip: 'DELETE the selected hit (Delete or Backspace; right-click a hit also deletes it). ⌘Z brings it back.', onPress: () => app.deleteHit() });
   const rev = new Button(ctl, [bx + 87, 0, 40, 14], 'REVERT', { cls: 'small', tip: 'REVERT: this hit back to how the generator made it (a moved hit returns to its place)', onPress: () => app.revertHit() });
+  // EXPRESSION: pitch, reverse and RATCHET
+  const ex = bx + 133;
+  el('div', 'label small', ctl, [ex, 4], 'PITCH');
+  const pitch = new NumBox(ctl, [ex + 26, 0, 24, 14], {
+    get: () => app.selectedEvent?.pitch ?? 0,
+    set: (v) => app.setHitPitch(v),
+    min: -MAX_PITCH,
+    max: MAX_PITCH,
+    pxPerUnit: 3,
+    format: (v) => `${v > 0 ? '+' : ''}${v}`,
+    label: 'Pitch of the selected hit, semitones',
+    tip: `PITCH of the selected hit: semitones up (+) or down (−), ±${MAX_PITCH}, by playback rate as on a hardware sampler (higher is shorter, lower is longer; no time-stretch). Live, exported, stems and batch all play it. MIDI keeps the drum's own note (no pitch bend).`,
+  });
+  const revBtn = new Button(ctl, [ex + 52, 0, 24, 14], 'REV', { cls: 'small', tip: 'REVERSE: play the selected hit backwards, starting at its place (the silent tail is trimmed first, so it swells into the beat). Live and exported alike; MIDI ignores it.', onPress: () => { const e = app.selectedEvent; if (e) app.setHitReverse(!e.reverse); } });
+  let span = 24;
+  const ratchet = new GemSelect(ctl, [ex + 79, 1, 52, 13], {
+    label: 'Ratchet the selected hit',
+    fontSize: 8,
+    options: [{ value: '', label: 'RATCHET' }, ...RATCHETS.filter((n) => n > 0).map((n) => ({ value: String(n), label: `×${n}` }))],
+    onChange: (v) => {
+      if (v) app.ratchet(Number(v), span);
+      ratchet.value = '';
+    },
+  });
+  setTip(ratchet.el, 'RATCHET: split the selected hit into 2–16 strokes over the OVER length, shaped by ROLLS ▸ EXPRESSION (pitch, velocity and timing contours, reverse). The strokes are hand-placed roll hits: one undo step, each editable.');
+  const over = new GemSelect(ctl, [ex + 133, 1, 40, 13], {
+    label: 'Ratchet length',
+    fontSize: 8,
+    options: RATCHET_SPANS.map((t) => ({ value: String(t), label: RATCHET_SPAN_LABEL[t]! })),
+    value: String(span),
+    onChange: (v) => (span = Number(v) || 24),
+  });
+  setTip(over.el, 'OVER: how long the ratchet lasts, from the hit (1/16 to a half note; it stops at the end of the pattern).');
   const none = el('div', 'label tiny', b, [6, r2 + 4, W - 12]);
 
   const r3 = r2 + 17;
   el('div', 'label small', b, [6, r3 + 3], 'SNAP');
   const snapBtns = SNAPS.map((t, i) => new Button(b, [30 + i * 31, r3, 30, 12], SNAP_LABEL[t]!, { cls: 'small', tip: `SNAP ${SNAP_LABEL[t]}: where new hits land, and the step for moving hits (moves keep a hit's offset from the grid, so rolls keep their subdivision)`, onPress: () => app.setSnap(t) }));
+  const regen = new Button(b, [192, r3, 96, 12], 'REGEN TRACK', { cls: 'small', tip: 'REGEN TRACK (X): generate the selected track(s) again, fitted to the rest of the pattern. Every other track stays exactly as it is. Click a track name on the left to select it (shift-click for several). Works while playing (the SWITCH mode applies), ignores FREEZE for that track, one ⌘Z undoes it.', onPress: () => app.regenTracks() });
+  const trackInfo = el('div', 'label tiny', b, [292, r3 + 3, W - 168 - 296]);
   const undo = new Button(b, [W - 168, r3, 34, 12], 'UNDO', { cls: 'small', tip: 'Undo the last pattern action (Cmd/Ctrl+Z)', onPress: () => app.undo() });
   const redo = new Button(b, [W - 132, r3, 34, 12], 'REDO', { cls: 'small', tip: 'Redo (⇧⌘Z)', onPress: () => app.redo() });
   const clear = new Button(b, [W - 96, r3, 90, 12], 'CLEAR EDITS', { cls: 'small', tip: 'Remove every hand edit of this break: back to the break as generated (⌘Z undoes it)', onPress: () => app.revertAll() });
@@ -210,7 +252,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       // threshold moves it by SNAP steps; a plain click that does not drag deletes it on release.
       if (action === 'select') {
         app.select(hit.ref);
-        if (hit.sample) void app.player.audition(hit.cat, hit.sample, hit.vel);
+        if (hit.sample) void app.player.audition(hit.cat, hit.sample, hit.vel, hit);
       }
       const t0 = tickOf(hit);
       let ref = hit.ref;
@@ -240,7 +282,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     app.beginGesture();
     app.addHit(cat, t, true);
     const e = app.selectedEvent;
-    if (e?.sample) void app.player.audition(e.cat, e.sample, e.vel);
+    if (e?.sample) void app.player.audition(e.cat, e.sample, e.vel, e);
     let last = t;
     trackDrag(ev, svg, ({ ev: m }) => {
       const tt = snapTick(tickAt(localPoint(svg, m).x), app.snap, bars);
@@ -270,7 +312,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const steps = nb * STEPS;
     cw = GW / steps;
     const sixteenthMs = 60000 / r.bpm / 4;
-    let s = '<defs><pattern id="dots" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--ink)"/></pattern><pattern id="rollfill" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--hits)"/><rect x="1" y="1" width="1" height="1" fill="var(--hits)"/></pattern></defs>';
+    let s = '<defs><pattern id="dots" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--ink)"/></pattern><pattern id="rollfill" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--hits)"/><rect x="1" y="1" width="1" height="1" fill="var(--hits)"/></pattern><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse"><rect x="3" width="1" height="1" fill="var(--ink)"/><rect x="2" y="1" width="1" height="1" fill="var(--ink)"/><rect x="1" y="2" width="1" height="1" fill="var(--ink)"/><rect y="3" width="1" height="1" fill="var(--ink)"/></pattern></defs>';
     // beats 2 and 4 shaded, bar lines solid, beats dotted, SNAP lines faint when there is room
     for (let i = 0; i < steps; i += 4) {
       const beat = (i / 4) % 4;
@@ -295,6 +337,8 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     // silenced rows: a faint wash
     CATEGORIES.forEach((c, i) => {
       if (!app.audible(c)) s += `<rect x="0" y="${TOP + i * RH + 1}" width="${GW}" height="${RH - 1}" fill="url(#dots)" opacity="0.35"/>`;
+      // a track selected for REGEN TRACK: hatched (distinct from a selected hit's frame and SOLO / MUTE)
+      if (app.trackSel.includes(c)) s += `<rect x="0" y="${TOP + i * RH + 1}" width="${GW}" height="${RH - 1}" fill="url(#hatch)" opacity="0.3" pointer-events="none"/>`;
     });
     // bar numbers and roles (short names when bars are narrow)
     const barW = STEPS * cw;
@@ -350,7 +394,8 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       const timing = `${e.swing ? ` · swing +${Math.round(e.swing * sixteenthMs)} ms` : ''}${e.offsetMs ? ` · ${e.offsetMs > 0 ? '+' : ''}${e.offsetMs.toFixed(1)} ms` : ''}`;
       const sample = e.sample ? `\nSample: ${app.ingredients.name(e.sample)}${e.sampleWhy ? ` (${e.sampleWhy})` : ''}` : '\nNO SAMPLE (silent)';
       const origin = e.manual ? `\n${ORIGIN[e.manual]}${e.editWhy ? `: ${e.editWhy}` : ''}` : '';
-      const tip = `${CATEGORY_LABEL[e.cat]}${e.role === 'roll' ? ' ROLL HIT' : ''} · ${posLabel(e)} · velocity ${e.vel}${timing}\n${e.why}${origin}${sample}${app.audible(e.cat) ? '' : '\n(silenced by SOLO / MUTE)'}\nClick: delete · shift+click: edit · drag: move`;
+      const expr = `${e.pitch ? ` · pitch ${e.pitch > 0 ? '+' : ''}${e.pitch} st` : ''}${e.reverse ? ' · REVERSED' : ''}`;
+      const tip = `${CATEGORY_LABEL[e.cat]}${e.role === 'roll' ? ' ROLL HIT' : ''} · ${posLabel(e)} · velocity ${e.vel}${timing}${expr}\n${e.why}${origin}${sample}${app.audible(e.cat) ? '' : '\n(silenced by SOLO / MUTE)'}\nClick: delete · shift+click: edit · drag: move`;
       // roll hits are drawn dithered, so the main hits stay the strongest marks
       const fill = !e.sample ? 'none' : e.role === 'roll' ? 'url(#rollfill)' : 'var(--hits)';
       const faint = app.audible(e.cat) ? '' : ' opacity="0.35"';
@@ -361,6 +406,9 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
         const mx = x + w / 2 - 1;
         s += e.manual === 'edited' ? `<rect x="${(mx - 0.5).toFixed(2)}" y="${my - 0.5}" width="2" height="2" fill="none" stroke="var(--edits)" stroke-width="0.8" pointer-events="none"/>` : `<rect x="${mx.toFixed(2)}" y="${my - 1}" width="2" height="2" fill="var(--edits)" pointer-events="none"/>`;
       }
+      // EXPRESSION: a reversed hit has a notch on its left, a pitched one a tick above (up) or below (down)
+      if (e.reverse) s += `<rect x="${(x - 1.5).toFixed(2)}" y="${y}" width="1" height="${h}" fill="var(--hits)" pointer-events="none"/>`;
+      if (e.pitch) s += `<rect x="${x.toFixed(2)}" y="${e.pitch > 0 ? TOP + row * RH + 1 : TOP + row * RH + RH - 1}" width="${Math.max(1.5, w).toFixed(2)}" height="1" fill="var(--hits)" pointer-events="none"/>`;
       if (sel && e.ref === sel) {
         const ry = TOP + row * RH + 1;
         s += `<rect x="${(x - 2).toFixed(2)}" y="${ry}" width="${(w + 4).toFixed(2)}" height="${RH - 2}" fill="none" stroke="var(--selection)" stroke-width="1.5" pointer-events="none"/>`;
@@ -393,6 +441,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       rc.s.on = app.mix[c].solo;
       rc.m.on = app.mix[c].mute;
       rc.l.style.opacity = app.audible(c) ? '1' : '0.45';
+      rc.l.classList.toggle('trksel', app.trackSel.includes(c));
       rc.m.el.classList.remove('overridden');
     });
 
@@ -400,13 +449,15 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const e = app.selectedEvent;
     ctl.style.display = e ? '' : 'none';
     none.style.display = e ? 'none' : '';
-    none.textContent = 'SHIFT+CLICK A HIT TO EDIT ITS VELOCITY, TIMING AND SAMPLE, NUDGE OR COPY IT';
+    none.textContent = 'SHIFT+CLICK A HIT TO EDIT ITS VELOCITY, TIMING, SAMPLE, PITCH AND REVERSE, RATCHET, NUDGE OR COPY IT';
     if (e) {
       const where = posLabel(e);
       info.textContent = `${CATEGORY_LABEL[e.cat]} · ${where} · VEL ${e.vel} · ${e.offsetMs > 0 ? '+' : ''}${Math.round(e.offsetMs)} MS · ${e.manual ? ORIGIN[e.manual] : `GENERATED (${e.role.toUpperCase()})`}`;
       setTip(info, `${CATEGORY_LABEL[e.cat]} at ${where} (bar.beat.sixteenth). ${e.why}${e.editWhy ? ` ${e.editWhy}` : ''}${e.sample ? ` Sample: ${app.ingredients.name(e.sample)} (${e.sampleWhy ?? ''}).` : ' No sample: silent.'}`);
       vel.update();
       time.update();
+      pitch.update();
+      revBtn.on = !!e.reverse;
       sampleOptions(e);
       rev.disabled = !(e.manual === 'edited' || e.manual === 'moved');
       left.disabled = right.disabled = false;
@@ -415,6 +466,8 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       setTip(info, 'Shift+click a hit in the grid to select it: its velocity, timing and sample can then be set here. Escape deselects.');
     }
     del.disabled = dup.disabled = !e;
+    regen.disabled = !app.trackSel.length || app.legacy;
+    trackInfo.textContent = app.trackSel.length ? `TRACK: ${app.trackSel.map((c) => SHORT[c]).join(' + ')}` : 'CLICK A TRACK NAME TO SELECT IT';
     snapBtns.forEach((sb, i) => (sb.on = SNAPS[i] === app.snap));
     undo.disabled = !app.canUndo;
     redo.disabled = !app.canRedo;

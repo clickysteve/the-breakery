@@ -151,7 +151,30 @@ from any folder of any static server). `npm run evaluate` regenerates
    dotted-eighth groupings, answers to the backbeat, accents inside the bar) without taking over.
    The phrases use the toms the kit has (three, two or one); without tom samples the tom hits
    still go to MIDI and are silent here.
-7. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
+7. **Expression, personality and destruction** (Phase 12).
+   * **Pitch and reverse per hit.** Select a hit: **PITCH** (-24..+24 semitones, by playback
+     rate: higher is shorter) and **REV** (the sample plays backwards from the hit). Both are
+     hand edits (⌘Z), heard live and in every export. MIDI keeps its GM notes and ignores them.
+   * **RATCHET** (selected hit): split it into 2 to 16 strokes over 1/16 to 1/2, shaped by the
+     ROLLS tab's EXPRESSION.
+   * **ROLLS ▸ EXPRESSION**: how every roll moves. PRESET (CLASSIC, PITCH DIVE, PITCH RISE,
+     TUMBLE, STUTTER, ACCELERATE, DECELERATE, FADE AWAY, SWELL, PING-PONG, REVERSE BURST, CHAOS),
+     **DICE**, PITCH contour with START and END, VELOCITY, TIMING, RATCHET and REVERSE. It
+     shapes the rolls there are; it never turns ROLL GENERATION on.
+   * **PERSONALITY** tab: who plays the break. 17 personalities (NEUTRAL, ANGRY, FRANTIC, LAZY,
+     SLOPPY, NERVOUS, CONFIDENT, DRUNK, MECHANICAL, MANIC, MINIMALIST, SHOW-OFF, STUBBORN,
+     PLAYFUL, HEAVY-HANDED, DELICATE, DILLA) and **INTENSITY** (0% = the recipe exactly). Your
+     settings keep their meaning: TOMS 0 stays without toms, ROLLS off stays off, a sparse
+     DENSITY stays sparse. **DILLA**: kick, snare and hats each in their own time, repeating.
+   * **BREAK DNA** (same tab): **NONE** or **AMEN**, with **INFLUENCE**: the Amen break's
+     construction (A A A′ B, the kick pair on 3, syncopated snares, the late backbeat, the
+     turnaround) blended into the recipe. No audio from the recording is used or shipped.
+   * **CHOP ▸ DESTROY**: STUTTER, PITCH, REVERSE, GATE or CHAOS over a share of the beats
+     (**AMOUNT**; 0 changes nothing), **DICE** for another take. The first beat is never touched.
+   * **REGEN TRACK** (X, or **Bake ▸ Regen Track**): click a track name in the PATTERN to select
+     it (shift-click for more), then regenerate just those tracks. Everything else stays exactly
+     as it was; one ⌘Z goes back. It works even with FREEZE on, because you asked for it.
+8. **Takeaway** (T). *Bars + tail* lets the last hits ring out; *Seamless loop* is exactly the
    bars' length with the tail folded onto the start, for looping at the stated tempo. *Full mix*
    renders every drum; *Audible mix* only what SOLO / MUTE leave audible (files named
    `_audible`; stems and MIDI follow the same choice). *+ Stems*
@@ -159,19 +182,19 @@ from any folder of any static server). `npm run evaluate` regenerates
    `breakery_funk_100bpm_2bar_seed4242.wav`. If the mix would clip, it is turned down to −1 dBFS
    (all files by the same amount) and the status line says so. *+ MIDI* adds a MIDI file of
    the break (inside the ZIP when there are stems, otherwise as a second download).
-8. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
+9. **MIDI file** (M, or **File ▸ Takeaway MIDI File**): the break as a Standard MIDI File
    (type 1, 960 PPQ, tempo and 4/4), General MIDI drums on channel 10 (kick 36, snare and ghost
    38, high tom 50, mid tom 47, low tom 45, closed hat 42, open hat 46, crash 49, ride 51, perc
    39) or each track's channel and note from the MIDI window, one named track per drum, with
    the performed velocities, swing and microtiming exactly as they play. Exactly the bars'
    length, named like `breakery_funk_100bpm_2bar_seed4242.mid`. It needs no samples: every hit
    of the score is written, including hits that are silent here for want of a sample.
-9. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
+10. **Palette** (**BREAKERY ▸ Palette…**): the same palette editor as the other Slop Factory
    instruments (it lives in Slop Factory Core). Choose a palette, or edit any colour (a built-in
    palette is copied first), rename, duplicate, delete, import and export palette files (emmm and
    DOWNBEAT palettes import too), or go back to Atari, the original black and white. Remembered
    in this browser; never part of a break.
-10. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
+11. **MIDI** (**MIDI ▸ MIDI Settings…**): click **MIDI OFF** to turn Web MIDI on (the browser asks
     once). Everything is remembered in this browser, devices included (found again by name if
     the browser renumbers them).
     * **Out**: choose the default OUT device; the break plays out to it while it plays here, every
@@ -216,12 +239,14 @@ A layered generator, deterministic from seeds (engine 2):
    measured in classic breaks); consistent per-drum tendencies (the snare laid back more on 2 than
    on 4, never early; hats ahead; accents a touch late) with small *correlated* drifts, not jitter.
 6. **Toms**: tom phrases at phrase ends first (the turnaround, the half-way fill, the end of
-   each four bars), then inside bars, more and longer as TOM ACTIVITY rises, never in the first
-   bar; re-voicing a snare run or playing their own figure, never on a backbeat; after the
+   each four bars), then inside bars, more and longer as TOM ACTIVITY rises (revision 2: a
+   steeper curve, tom-led at 100 %), never in the loop's first beat; re-voicing a snare run or playing their own figure, never on a backbeat; after the
    performance and from their own streams, so they change no other hit.
 7. **Rolls**: runs of strokes at their own subdivision, each leading into an anchor, at most one
    a bar, never in the first groove bar; also after the performance, so they change no other hit.
-8. **Sample selection** per category (PICK), then your **hand edits**.
+8. **Transformations**: CHOP, roll EXPRESSION, DESTROY, then REGEN TRACK and the PERSONALITY's
+   performance (DILLA's timing), each from the GROOVE every time, so they never compound.
+9. **Sample selection** per category (PICK), then your **hand edits**.
 
 Why each of these choices: [docs/BREAKBEAT_RESEARCH.md](docs/BREAKBEAT_RESEARCH.md). How the
 code is organised: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -264,7 +289,17 @@ drag, ⌘Z).
   dragging between rows). Undo covers hand edits, not recipe changes (◀ ▶ the history does).
 * While playing, an edit is heard from the next hit not yet scheduled: a hit deleted within the
   next 150 ms may still sound once.
-* Chops rearrange hits, not audio: no slice tails, pitch, time-stretch or resampling.
+* Chops rearrange hits, not audio: no slice tails, time-stretch or resampling. Pitch is per hit
+  and by playback rate only (higher is shorter, as on a sampler); there is no time-stretch.
+* **Phase 12 is not yet evaluated by ear**: the personalities, DILLA, AMEN, roll EXPRESSION,
+  DESTROY, REGEN TRACK and the recalibrated TOM ACTIVITY are checked by tests and by measured
+  event data ([docs/expressive-report.md](docs/expressive-report.md)), not by listening. The
+  personality and DILLA numbers are hand-set characterisations, not fitted to recordings.
+* DESTROY works on events: GATE and TAPE STOP are approximations (hits removed, or moved,
+  lowered and softened), not audio processing. Like CHOP, it is fixed once there are hand edits.
+* REGEN TRACK overrides FREEZE (it is an explicit request) and leaves a track with no hits alone.
+* A sparse recipe with an energetic personality (FRANTIC) still gains some hits (up to about a
+  fifth at 100 % INTENSITY in the measured recipes).
 * Recipe values are hand-set hypotheses; some genre rules are not from reliable sources (see
   the research notes, §7).
 * Typed numbers need a hardware keyboard.
@@ -283,7 +318,7 @@ drag, ⌘Z).
   clock at once (FROM: ANY INPUT) would double the tempo: choose the device.
 * Most browsers cannot drop MIDI already queued: on stop, hits in the 150 ms look-ahead still
   go out, each with its Note Off.
-* No OVERBAKE, BREED, slicing, pitch or effects.
+* No OVERBAKE, BREED, audio slicing or effects.
 * Desktop-first: the fixed screen (880 × 470)
   scales to fit; phones work best in landscape (in portrait it is small).
 
@@ -308,9 +343,10 @@ The research behind the design, with links and notes on how much of each source 
 Dataset and GrooVAE (Gillick et al. 2019); swing in classic breaks (Frane 2017); breakbeat
 resequencing in hardcore, jungle and drum & bass (Hockman & Davies 2015); automatic breakbeat
 cutting (Collins 2001); microtiming and groove (Davies et al. 2013; Frühauf, Kopiez & Platz 2013;
-Senn et al. 2016; Hellmer et al. 2015; Danielsen et al. 2015); correlated timing fluctuations
+Senn et al. 2016; Hellmer et al. 2015; Danielsen et al. 2015; Câmara et al. 2020 and 2022); correlated timing fluctuations
 (Hennig et al. 2011; Räsänen et al. 2015); syncopation and groove (Witek et al. 2014); Euclidean
-rhythms (Toussaint 2005).
+rhythms (Toussaint 2005). Phase 12 (personalities, DILLA, AMEN, expression):
+[docs/EXPRESSIVE_RESEARCH.md](docs/EXPRESSIVE_RESEARCH.md), adding Charnas, *Dilla Time* (2022).
 
 ## Licence
 
