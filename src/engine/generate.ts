@@ -43,7 +43,8 @@ import { destroy2, sanitiseDestroy2 } from './destroy2';
 import { applyRegen, sanitiseRegen } from './regen';
 import { bakeV1 } from './v1/generate';
 import { V1_STYLES, type V1Style } from './v1/styles';
-import { CATEGORIES, clamp, CURRENT_REVISION, CYMBAL_MODES, CYMBAL_REVISION, LAYERS, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
+import { addClapFx, usesClapFx } from './clapfx';
+import { CATEGORIES, clamp, CLAPFX_REVISION, CURRENT_REVISION, CYMBAL_MODES, CYMBAL_REVISION, LAYERS, VOCAB_REVISION, MAX_BARS, MAX_ROLL, MIN_BARS, MIN_ROLL, MUTATION_STYLES, RECIPE_KEYS, ROLL_DYNAMICS, ROLL_PLACES, ROLL_SPEEDS, ROLL_TARGETS, type BarRole, type Bars, type Break, type BreakEvent, type Engine, type Hit, type Layer, type Mutation, type MutationOptions, type Recipe, type RollTarget, type Seeds, type Approach } from './types';
 
 /** Recipe values made safe (clamped, known style and engine, whole bars 1–8). */
 export function sanitiseRecipe(r: Recipe): Recipe {
@@ -94,6 +95,13 @@ export function sanitiseRecipe(r: Recipe): Recipe {
   else delete out.ride;
   if (rev >= VOCAB_REVISION && r.cymbals !== 'alternate' && (CYMBAL_MODES as readonly string[]).includes(String(r.cymbals))) out.cymbals = r.cymbals;
   else delete out.cymbals;
+  // Phase 15 (revision 5): CLAP ACTIVITY and FX ACTIVITY (absent = the recipe's default)
+  const clapA = rev >= CLAPFX_REVISION ? unit(r.clap) : undefined;
+  const fxA = rev >= CLAPFX_REVISION ? unit(r.fx) : undefined;
+  if (clapA !== undefined) out.clap = clapA;
+  else delete out.clap;
+  if (fxA !== undefined) out.fx = fxA;
+  else delete out.fx;
   // Phase 14 (revision 4): the cymbal engine's settings replace revision 3's (absent = the recipe's defaults)
   if (rev >= CYMBAL_REVISION) {
     delete out.hats;
@@ -308,7 +316,9 @@ export function groove(recipeIn: Recipe, seeds: Seeds, kit: KitIndex = emptyKit(
   const main = autoSamples(core.events, kit, seeds.kit, samples);
   const flourished = recipe.engine === 2 ? flourish(core, recipe, seeds, kit) : core.events;
   // the toms are the same whatever ROLL GENERATION is: the GROOVE's rolls become plain fills after them
-  const played = holdsRolls(recipe) ? plainFills(flourished) : flourished;
+  const plain = holdsRolls(recipe) ? plainFills(flourished) : flourished;
+  // revision 5: the CLAP and FX layers, after the toms and rolls (never rolled themselves), from their own streams
+  const played = usesClapFx(recipe) ? addClapFx(plain, { def: STYLE_DEFS[recipe.style], recipe, feel: core.feel, roles: core.plan, reach: (seeds.mut ?? []).map((m) => mutationBars(m, core.plan)) }, seeds) : plain;
   // revision 3: HI-HAT ACTIVITY or RIDE ACTIVITY at 0% means none of that family, whatever a later layer added
   let events = usesVocab(recipe) ? silence(played, recipe) : played;
   // revision 4: a family at 100% keeps every stroke (a tom phrase or a roll may have taken some), and OPEN-HAT CHOKE off frees the closed hats

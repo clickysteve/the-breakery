@@ -17,6 +17,8 @@ export const FALLBACK: Record<Category, Category[]> = {
   kick: ['kick'],
   snare: ['snare'],
   ghost: ['ghost', 'snare'],
+  // CLAP and FX never borrow PERC's sounds (PERC may hold shakers or rims): without their own samples they are silent
+  clap: ['clap'],
   // toms never borrow another category's sounds: without tom samples, tom hits are silent
   htom: ['htom'],
   mtom: ['mtom'],
@@ -26,6 +28,7 @@ export const FALLBACK: Record<Category, Category[]> = {
   ride: ['ride', 'hat'],
   crash: ['crash'],
   perc: ['perc'],
+  fx: ['fx'],
 };
 
 /** Which category actually supplies a category's sounds (null = none, it is silent). */

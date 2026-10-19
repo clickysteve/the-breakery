@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../src/app/app';
 import { diceName } from '../src/app/seeds';
 import { fxSuffix, parseFx } from '../src/audio/shaped';
-import { buildFileName } from '../src/audio/exportName';
+import { buildFileName, migrateNaming } from '../src/audio/exportName';
 import { breakTimeline, hatChoke, noteInstrument } from '../src/audio/timeline';
 import { takeawayName } from '../src/audio/takeaway';
 import { analyseCymbals, migrateCym, PRIMARY_RELS, SUB_TICKS, SUBDIVISIONS, type CymbalSettings } from '../src/engine/cymbals4';
@@ -114,9 +114,9 @@ describe('BREAK DNA', () => {
 });
 
 describe('CYMBALS (revision 4)', () => {
-  it('new recipes are revision 4', () => {
-    expect(CURRENT_REVISION).toBe(4);
-    expect(defaultRecipe('funk', 4).revision).toBe(4);
+  it('new recipes are revision 4 or later (revision 5 added CLAP and FX)', () => {
+    expect(CURRENT_REVISION).toBeGreaterThanOrEqual(4);
+    expect(defaultRecipe('funk', 4).revision).toBe(CURRENT_REVISION);
   });
 
   it('CRITICAL: CLOSED HAT 100% fills every position of every subdivision in every bar (and RIDE 100% its own)', () => {
@@ -410,7 +410,8 @@ describe('SEEDS', () => {
     app.setSeedText('velvet thunder');
     expect(JSON.stringify(app.current.events)).toBe(events);
     expect(takeawayName(app.current, { mode: 'tail' }, 'wav')).toMatch(/velvet-thunder/);
-    expect(buildFileName({ name: 'Loop', recipe: false, bpm: false, seed: true }, app.current, '', 'wav')).toBe('Loop_velvet-thunder.wav');
+    // (Phase 15: the Phase 14 preferences migrate to the component builder, same name)
+    expect(buildFileName(migrateNaming({ name: 'Loop', recipe: false, bpm: false, seed: true }), app.current, '', 'wav')).toBe('Loop_velvet-thunder.wav');
     app.bake();
     expect(app.seedText).toMatch(/^[A-Z]+-[A-Z]+-\d\d$/);
     app.bakeBatch();

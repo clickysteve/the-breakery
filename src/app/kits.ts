@@ -29,6 +29,7 @@ export const ROLE: Record<Slot, string> = {
   kick: 'kick',
   snare: 'snare',
   ghost: 'snare-ghost',
+  clap: 'clap',
   htom: 'tom-high',
   mtom: 'tom-mid',
   ltom: 'tom-low',
@@ -37,10 +38,13 @@ export const ROLE: Record<Slot, string> = {
   ride: 'ride',
   crash: 'crash',
   perc: 'perc',
+  fx: 'fx',
   unsorted: 'unassigned',
 };
+/** The category of each of The Breakery's own roles. */
+const ROLE_SLOT = new Map<string, Slot>(Object.entries(ROLE).map(([k, v]) => [v, k as Slot]));
 /** Roles a category also takes (they keep their role in the kit). */
-const ACCEPTS: Partial<Record<Slot, string[]>> = { hat: ['hat-pedal'], perc: ['clap', 'rim', 'cowbell', 'shaker', 'clave', 'conga'] };
+const ACCEPTS: Partial<Record<Slot, string[]>> = { hat: ['hat-pedal'], perc: ['rim', 'cowbell', 'shaker', 'clave', 'conga'] };
 
 /** The Breakery's instruments, for mapping kits: each category plays every sample of its roles. */
 export function breakeryTargets(): KitTarget[] {
@@ -61,7 +65,8 @@ export interface KitItem {
   index?: number;
 }
 
-type Ext = { item?: string };
+/** The Breakery's own data in a kit: a sample's item id; an instrument's category, when its role is not that category's own. */
+type Ext = { item?: string; cat?: string };
 const mine = (ext: Record<string, unknown> | undefined): Ext => ((ext?.[APP_ID] as Ext | undefined) ?? {});
 
 /** Kit instruments for items and PICK settings (one instrument per category and role). */
@@ -97,11 +102,11 @@ export function instrumentsOf(items: KitItem[], settings: SampleSettings, base: 
       else if (prior?.label) ins.label = prior.label;
       if (s && s.mode !== 'auto') ins.selection = s.mode;
       if (prior?.choke) ins.choke = prior.choke;
-      if (prior?.ext) {
-        const ext = { ...prior.ext };
-        delete ext[APP_ID];
-        if (Object.keys(ext).length) ins.ext = ext;
-      }
+      const ext = { ...(prior?.ext ?? {}) };
+      delete ext[APP_ID];
+      // an instrument kept in a category that is not its role's (a CLAP in PERC): it comes back there, not to its role's track
+      if (cat !== 'unsorted' && role !== ROLE[cat] && ROLE_SLOT.has(role)) ext[APP_ID] = { cat };
+      if (Object.keys(ext).length) ins.ext = ext;
       out.push(ins);
     }
   }
@@ -134,7 +139,12 @@ export function planKit(m: KitMapping, nameOf: (sample: string) => string | unde
     }
     settings[cat as Category] = s;
   };
-  for (const x of m.mapped) add(x.instrument, x.target.id as Slot);
+  // an instrument The Breakery saved in another category (a CLAP kept in PERC) goes back there
+  const keptIn = (ins: KitInstrument): Slot | null => {
+    const c = mine(ins.ext).cat;
+    return c && (SLOTS as readonly string[]).includes(c) ? (c as Slot) : null;
+  };
+  for (const x of m.mapped) add(x.instrument, keptIn(x.instrument) ?? (x.target.id as Slot));
   // instruments The Breakery has no category for are kept, unplayed, in UNSORTED
   for (const u of m.unmapped) if (u.reason === 'no-target') add(u.instrument, 'unsorted');
   return { items, settings };

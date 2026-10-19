@@ -270,7 +270,7 @@ export function personaBars(bars: Hit[][], roles: BarRole[], recipe: Recipe, p: 
 // ------------------------------------------------------------------ performance
 
 type PGroup = 'kick' | 'snare' | 'hats' | 'other';
-const PGROUP: Record<Category, PGroup> = { kick: 'kick', snare: 'snare', ghost: 'snare', htom: 'other', mtom: 'other', ltom: 'other', hat: 'hats', open: 'hats', ride: 'hats', crash: 'other', perc: 'other' };
+const PGROUP: Record<Category, PGroup> = { kick: 'kick', snare: 'snare', ghost: 'snare', clap: 'snare', htom: 'other', mtom: 'other', ltom: 'other', hat: 'hats', open: 'hats', ride: 'hats', crash: 'other', perc: 'other', fx: 'other' };
 export const pgroup = (c: Category): PGroup => PGROUP[c];
 
 export interface PersonaContext {

@@ -13,6 +13,13 @@
  * anything, Tab closes and moves focus on, letters jump to a matching label. Every key the
  * control handles stops there, so Space never also toggles playback and Escape never also closes
  * a dialog. A focused closed control owns Space (it opens), like a native select did.
+ *
+ * A list box (`mode: 'list'`) tells four states apart: the pointer over an entry (HOVER, a dotted
+ * outline), the keyboard cursor (FOCUS, a dashed outline while the list has focus), the chosen
+ * entry (SELECTED, inverted) and the entry in use now (`loaded`, a ▸ before it). Hovering never
+ * chooses; a click (press and release on the same entry) does. With `confirm`, the arrow keys
+ * only move the cursor and Enter or Space choose (the KITS list: nothing is chosen by passing
+ * over it); without it, the selection follows the arrow keys, as in a native list box.
  */
 import { el, place, setTip } from './dom';
 
@@ -22,6 +29,8 @@ export interface GemOption {
   disabled?: boolean;
   /** options with the same group follow each other under a heading */
   group?: string;
+  /** the entry in use now (list box: a ▸ before it, "loaded" to screen readers) */
+  loaded?: boolean;
 }
 
 export interface GemSelectOpts {
@@ -35,6 +44,8 @@ export interface GemSelectOpts {
   tip?: string;
   /** `list`: the options are always shown, in the control itself (a list box) */
   mode?: 'dropdown' | 'list';
+  /** list box: the arrow keys move a cursor, Enter or Space choose (no choice on the move) */
+  confirm?: boolean;
   cls?: string;
 }
 
@@ -81,11 +92,15 @@ export class GemSelect {
   private enabled = true;
   private readonly id = `gsel${++uid}`;
   private readonly list: boolean;
+  private readonly confirm: boolean;
+  /** list box: the entry a press started on (a release chooses only the same entry) */
+  private pressed = -1;
   private readonly onChange?: (value: string) => void;
   private sig = '';
 
   constructor(parent: HTMLElement, rect: [number, number, number?, number?] | null, o: GemSelectOpts) {
     this.list = o.mode === 'list';
+    this.confirm = this.list && !!o.confirm;
     this.onChange = o.onChange;
     this.el = el('div', `msel gsel${this.list ? ' glist' : ''}${o.cls ? ' ' + o.cls : ''}`, parent, rect ?? undefined);
     if (!rect) this.el.style.position = 'relative';
@@ -112,6 +127,9 @@ export class GemSelect {
       this.el.focus();
     });
     this.el.addEventListener('keydown', (ev) => this.key(ev));
+    // the list box draws its keyboard cursor only while it has focus
+    this.el.addEventListener('focus', () => this.el.classList.add('focused'));
+    this.el.addEventListener('blur', () => this.el.classList.remove('focused'));
     this.el.addEventListener('focusout', () => {
       if (!this.list && !this.popup?.matches(':hover')) this.close();
     });
@@ -198,12 +216,26 @@ export class GemSelect {
           el('div', 'msel-head', host, undefined, group).setAttribute('aria-hidden', 'true');
         }
       }
-      const it = el('div', 'msel-item' + (o.disabled ? ' disabled' : ''), host, undefined, o.label);
+      const it = el('div', 'msel-item' + (o.disabled ? ' disabled' : '') + (o.loaded ? ' loaded' : ''), host, undefined, o.label);
       it.id = `${this.id}-${i}`;
       it.dataset.i = String(i);
       it.setAttribute('role', 'option');
       it.setAttribute('aria-selected', String(o.value === this.current));
+      if (o.loaded) it.setAttribute('aria-description', 'loaded');
       if (o.disabled) it.setAttribute('aria-disabled', 'true');
+      if (this.list) {
+        // a list box: hovering only outlines; a press and release on the same entry chooses
+        it.addEventListener('pointerenter', () => it.classList.toggle('hover', !o.disabled));
+        it.addEventListener('pointerleave', () => it.classList.remove('hover'));
+        it.addEventListener('pointerdown', () => (this.pressed = i));
+        it.addEventListener('pointerup', (ev) => {
+          ev.stopPropagation();
+          const press = this.pressed;
+          this.pressed = -1;
+          if (!o.disabled && press === i && this.enabled) this.choose(i);
+        });
+        return;
+      }
       it.addEventListener('pointermove', () => {
         if (!o.disabled && this.hot !== i) {
           this.hot = i;
@@ -319,12 +351,13 @@ export class GemSelect {
   private move(i: number): void {
     if (i < 0 || i === this.hot) return;
     this.hot = i;
-    if (this.list) this.choose(i);
+    if (this.list && !this.confirm) this.choose(i);
     else this.paintHot();
   }
 
   private key(ev: KeyboardEvent): void {
     if (!this.enabled || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (this.list) this.el.classList.add('focused'); // a key reached it: it has focus
     const open = !!this.popup;
     const k = ev.key;
     const stop = () => {
@@ -357,14 +390,17 @@ export class GemSelect {
     } else if (k === ' ' || k === 'Spacebar') {
       stop();
       if (ev.repeat) return;
-      if (this.list) return;
+      if (this.list) return this.confirm ? this.choose(this.hot) : undefined;
       if (open) this.choose(this.hot);
       else this.open();
     } else if (k === 'Enter') {
       if (open) {
         stop();
         this.choose(this.hot);
-      } else if (this.list) stop();
+      } else if (this.list) {
+        stop();
+        if (this.confirm) this.choose(this.hot);
+      }
       // closed: Enter is left to the dialog's default button
     } else if (k.length === 1 && !ev.shiftKey) {
       // type-ahead: the first enabled option whose label starts with the letters typed

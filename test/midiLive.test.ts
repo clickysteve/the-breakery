@@ -303,7 +303,7 @@ describe('player → MIDI timing', () => {
       [36, 120],
       [42, 70],
       [38, 110],
-      [39, 50], // no sample: silent here, but still sent
+      [37, 50], // no sample: silent here, but still sent (PERC's GM note is Side Stick from Phase 15)
     ]);
     on.forEach((n, i) => expect(n.ts).toBeCloseTo(start + q(events[i]!) * 500, 6));
     expect(on[1]!.ts - start).toBeCloseTo((1.32 / 4) * 500, 6); // the swing delay

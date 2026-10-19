@@ -18,12 +18,15 @@ import { entryLabel } from './app/seeds';
 import { CATEGORY_LABEL } from './engine/types';
 import { WILDCARD_CATEGORIES, WILDCARD_LABEL } from './engine/wildcard';
 import { Player } from './audio/player';
-import { loadNaming, saveNaming, buildFileName, type NamingPrefs } from './audio/exportName';
-import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
+import { loadNaming, saveNaming } from './audio/exportName';
+import { takeawayDialog, type TakeawayKind } from './ui/takeawayDialog';
+import { download, midiTakeaway, takeaway, takeawayBatch } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
 import { GemSelect } from './ui/gemSelect';
+import { typing } from './ui/widgets';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { isTransportKey } from './ui/transportKey';
+import { droppedEntries } from './ui/dropFiles';
 import { bakeWindow } from './ui/bakeWindow';
 import { ingredientsWindow } from './ui/ingredientsWindow';
 import { patternWindow } from './ui/patternWindow';
@@ -33,6 +36,7 @@ import { applyPalette } from '@slopfactory/core/palette';
 import { paletteLibrary } from './ui/palette';
 import { paletteWindow } from './ui/paletteWindow';
 import { midiWindow } from './ui/midiWindow';
+import { newPatchDialog, wildcardReportDialog } from './ui/patchDialogs';
 import { isGmMapping } from './midi/routing';
 import type { UiContext } from './ui/context';
 
@@ -101,12 +105,36 @@ const alertBox = (html: string) => void alertDialog(screen, html);
 
 const slotLabel = (c: Slot) => (c === 'unsorted' ? 'UNSORTED' : CATEGORY_LABEL[c]);
 
-/** Import files or folders, then show what was found and let the categories be corrected. */
-async function importEntries(entries: ImportEntry[]): Promise<void> {
+/**
+ * Import files or folders, then show what was found and let the categories be corrected. With
+ * `opts.cat` (files dropped on an instrument in INGREDIENTS) every file goes to that instrument:
+ * the drop said where, so there is no review, only a note of anything that was not added.
+ */
+async function importEntries(entries: ImportEntry[], opts: { cat?: Slot } = {}): Promise<void> {
   if (!entries.length) return;
   app.say(`Reading ${entries.length} file${entries.length > 1 ? 's' : ''}…`);
-  const r = await ingredients.importEntries(entries, (done, total) => app.say(`Loading samples… ${done} / ${total}`));
+  // the whole import is one undo step (the progress notes and redraws in it are not steps)
+  app.beginGesture();
+  let r: Awaited<ReturnType<typeof ingredients.importEntries>>;
+  try {
+    r = await ingredients.importEntries(entries, (done, total) => app.say(`Loading samples… ${done} / ${total}`), opts);
+  } finally {
+    app.endGesture();
+  }
   const fromFolder = entries.some((e) => e.path.includes('/'));
+  if (opts.cat) {
+    const to = slotLabel(opts.cat);
+    const said = [`${r.added.length} sample${r.added.length === 1 ? '' : 's'} added to ${to}.`];
+    if (r.moved) said.push(`${r.moved} already loaded, moved to ${to}.`);
+    if (r.duplicates) said.push(`${r.duplicates} already in ${to}.`);
+    if (r.skipped.length) said.push(`${r.skipped.length} not audio, skipped.`);
+    if (r.errors.length) said.push(`${r.errors.length} could not be read.`);
+    app.say(said.join(' '));
+    wIng.select(opts.cat);
+    if (r.errors.length) alertBox(`Not added to ${to}:<br>${r.errors.slice(0, 8).map((e) => esc(e)).join('<br>')}${r.errors.length > 8 ? '<br>…' : ''}`);
+    else if (!r.added.length && !r.moved && !r.duplicates && r.skipped.length) alertBox('Those are not audio files. The Breakery takes WAV (and AIFF) one-shots.');
+    return;
+  }
   const parts = [`Added ${r.added.length} sample${r.added.length === 1 ? '' : 's'}.`];
   if (r.duplicates) parts.push(`${r.duplicates} already loaded.`);
   if (r.skipped.length) parts.push(`${r.skipped.length} not audio, skipped.`);
@@ -155,37 +183,6 @@ async function importEntries(entries: ImportEntry[]): Promise<void> {
   );
 }
 
-/** Files and folders dropped on the screen (folders read recursively where the browser allows). */
-async function droppedEntries(dt: DataTransfer): Promise<ImportEntry[]> {
-  const items = [...dt.items].filter((i) => i.kind === 'file');
-  const roots = items.map((i) => (typeof i.webkitGetAsEntry === 'function' ? i.webkitGetAsEntry() : null));
-  if (!roots.some((e) => e?.isDirectory)) return [...dt.files].map((file) => ({ file, path: '' }));
-  const out: ImportEntry[] = [];
-  const fileOf = (e: FileSystemFileEntry) => new Promise<File>((res, rej) => e.file(res, rej));
-  const readAll = async (dir: FileSystemDirectoryEntry): Promise<FileSystemEntry[]> => {
-    const reader = dir.createReader();
-    const all: FileSystemEntry[] = [];
-    // readEntries returns at most ~100 entries per call: read until empty
-    for (;;) {
-      const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
-      if (!batch.length) return all;
-      all.push(...batch);
-    }
-  };
-  const walk = async (e: FileSystemEntry, depth: number): Promise<void> => {
-    if (out.length > 2000 || depth > 12) return;
-    if (e.isFile) {
-      try {
-        out.push({ file: await fileOf(e as FileSystemFileEntry), path: e.fullPath.replace(/^\//, '') });
-      } catch {
-        /* unreadable: skipped */
-      }
-    } else if (e.isDirectory) for (const c of await readAll(e as FileSystemDirectoryEntry)) await walk(c, depth + 1);
-  };
-  for (const r of roots) if (r) await walk(r, 0);
-  return out;
-}
-
 async function togglePlay(): Promise<void> {
   if (midi.external) midi.playExternal();
   else if (player.playing) player.stop();
@@ -195,112 +192,43 @@ async function togglePlay(): Promise<void> {
 
 function doMidiTakeaway(): void {
   const map = midi.fileMapping();
-  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined, map, loadNaming());
+  const mid = midiTakeaway(app.current, app.takeawayOpts.mix === 'audible' && mixActive(app.mix) ? audibleCategories(app.mix) : undefined, map, loadNaming(), kitName());
   download(mid.name, mid.bytes, mid.type);
   app.say(`Took away ${mid.name} (${mid.notes} note${mid.notes === 1 ? '' : 's'}, ${app.current.recipe.bpm} BPM, ${isGmMapping(map) ? 'GM drums on channel 10' : 'channels and notes from the MIDI window'}).`);
 }
 
-async function doTakeaway(): Promise<void> {
-  const naming: NamingPrefs = loadNaming();
-  const o: TakeawayOptions = { ...app.takeawayOpts, mix: 'audible' };
-  const r = app.current.recipe;
-  const ok = await openDialog<boolean>(
-    screen,
-    `<b>TAKEAWAY</b>: render this break to a 44.1 kHz, 16-bit stereo WAV.<br><span style="font-size:9px">${r.bars} bar${r.bars > 1 ? 's' : ''} at ${r.bpm} BPM, exactly as it plays here. Rendered in your browser; nothing is uploaded.</span>`,
-    [{ label: 'Cancel', value: false }, { label: 'Take away', value: true, isDefault: true }],
-    false,
-    (box) => {
-      const row1 = el('div', 'row', box);
-      for (const [v, text, tip] of [
-        ['tail', 'BARS + TAIL', 'The bars, then the tail so the last hits ring out'],
-        ['loop', 'SEAMLESS LOOP', 'Exactly the bars’ length; the tail is folded back onto the start so it loops cleanly in a sampler'],
-      ] as const) {
-        const l = el('label', '', row1);
-        const i = el('input', '', l);
-        i.type = 'radio';
-        i.name = 'tmode';
-        i.checked = o.mode === v;
-        i.addEventListener('change', () => (o.mode = v));
-        el('span', '', l, undefined, text);
-        setTip(l, tip);
-      }
-      el('div', 'row', box, undefined, 'EXPORT NAME');
-      const nameIn = el('input', '', el('div', 'row', box));
-      nameIn.type = 'text';
-      nameIn.value = naming.name;
-      nameIn.maxLength = 80;
-      nameIn.style.width = '100%';
-      setTip(nameIn, 'The base name of every file. Spaces are fine; unsafe characters are removed. Remembered between visits.');
-      const rowN = el('div', 'row', box);
-      const preview = el('div', 'row', box);
-      const refresh = (): void => {
-        naming.name = nameIn.value;
-        preview.textContent = `FILENAME: ${buildFileName(naming, app.current, o.stems ? 'stems' : o.mode === 'loop' ? 'loop' : '', o.stems ? 'zip' : 'wav')}`;
-      };
-      for (const [k, text] of [['recipe', 'RECIPE'], ['bpm', 'BPM'], ['seed', 'SEED']] as const) {
-        const l = el('label', '', rowN);
-        const c = el('input', '', l);
-        c.type = 'checkbox';
-        c.checked = naming[k];
-        c.addEventListener('change', () => { naming[k] = c.checked; refresh(); });
-        el('span', '', l, undefined, text);
-        setTip(l, `Add the break's ${text} to the filenames`);
-      }
-      nameIn.addEventListener('input', refresh);
-      refresh();
-      el('div', 'row', box, undefined, 'Mix and stems follow channel level, pan, MUTE and SOLO.');
-      const row2 = el('div', 'row', box);
-      el('span', '', row2, undefined, 'Tail');
-      new GemSelect(row2, null, {
-        label: 'Tail length in seconds',
-        options: [0.5, 1, 2, 4, 8].map((t) => ({ value: String(t), label: `${t} s` })),
-        value: String(o.tailSeconds),
-        cls: 'tailsel',
-        onChange: (v) => (o.tailSeconds = Number(v)),
-      });
-      const l = el('label', '', row2);
-      const cb = el('input', '', l);
-      cb.type = 'checkbox';
-      cb.checked = o.stems;
-      cb.addEventListener('change', () => (o.stems = cb.checked));
-      el('span', '', l, undefined, '+ STEMS (ZIP)');
-      cb.addEventListener('change', refresh);
-      for (const r of row1.querySelectorAll('input')) r.addEventListener('change', refresh);
-      setTip(l, 'Also one aligned stereo WAV per drum category in a ZIP. DRY STEMS bypasses master gain.');
-      const dryLabel = el('label', '', el('div', 'row', box));
-      const dry = el('input', '', dryLabel); dry.type = 'checkbox'; dry.checked = o.dryStems ?? true;
-      dry.addEventListener('change', () => o.dryStems = dry.checked);
-      el('span', '', dryLabel, undefined, 'DRY STEMS (bypass master gain)');
-      setTip(dryLabel, 'Channel gain, pan and mute/solo are preserved. All category stems have identical lengths, including silent channels.');
-      const lm = el('label', '', row2);
-      const cm = el('input', '', lm);
-      cm.type = 'checkbox';
-      cm.checked = o.midi;
-      cm.addEventListener('change', () => (o.midi = cm.checked));
-      el('span', '', lm, undefined, '+ MIDI');
-      setTip(lm, 'Also a MIDI file of the break (General MIDI drums on channel 10, or the channels and notes set in the MIDI window; swing, microtiming and rolls kept), in the ZIP with stems or as a second download');
-    },
-    320,
-  );
-  if (!ok) return;
+/** The current kit's name (the KIT NAME file-name component). */
+const kitName = (): string | null => kits?.name || null;
+
+async function doTakeaway(kind?: TakeawayKind): Promise<void> {
+  const choice = await takeawayDialog(screen, app.current, app.batch, app.takeawayOpts, loadNaming(), kitName(), kind);
+  if (!choice) return;
+  const { opts: o, naming } = choice;
   saveNaming(naming);
   o.naming = naming;
-  app.takeawayOpts = { ...o, naming: undefined };
+  o.kitName = kitName();
+  app.takeawayOpts = { ...o, naming: undefined, kitName: undefined };
   app.save();
   app.say('Rendering…');
   try {
     const only = o.mix === 'audible' ? audibleCategories(app.mix) : undefined;
     const map = midi.fileMapping();
+    if (choice.kind === 'batch') {
+      const res = await takeawayBatch(app.batch, app.current, ingredients, { ...o, naming }, player.level, (f) => app.say(`Rendering the batch… ${Math.round(f * 100)}%`), app.mix, app.output.config);
+      download(res.name, res.bytes, res.type);
+      app.say(`Took away ${res.name}: ${res.files} candidate${res.files === 1 ? '' : 's'}${res.skipped ? ` (${res.skipped} with no playable hit left out)` : ''}${res.outputSkipped ? '; OUTPUT could not run in this browser, so the mix is unprocessed' : ''}.`);
+      return;
+    }
     const res = await takeaway(app.current, ingredients, o, player.level, (f) => app.say(`Rendering… ${Math.round(f * 100)}%`), only, app.mix, map, app.output.config);
     download(res.name, res.bytes, res.type);
     if (o.midi && !o.stems) {
-      const mid = midiTakeaway(app.current, only, map, naming);
+      const mid = midiTakeaway(app.current, only, map, naming, o.kitName);
       download(mid.name, mid.bytes, mid.type);
     }
     app.say(`Took away ${res.name}${o.midi && !o.stems ? ' and its MIDI file' : ''} (${res.seconds.toFixed(2)} s, peak ${res.peakDb.toFixed(1)} dBFS${res.reducedDb > 0 ? `, turned down ${res.reducedDb.toFixed(1)} dB to avoid clipping` : ''}${res.stemReducedDb > 0 ? `, stems turned down ${res.stemReducedDb.toFixed(1)} dB (shared safety attenuation)` : ''}${res.outputSkipped ? '; OUTPUT could not run in this browser, so the master is unprocessed' : ''}).`);
   } catch (e) {
     app.say('TAKEAWAY failed.');
-    alertBox(`The render failed: ${e instanceof Error ? e.message : String(e)}`);
+    alertBox(`The render failed: ${e instanceof Error ? esc(e.message) : esc(String(e))}`);
   }
 }
 
@@ -316,6 +244,31 @@ const ui: UiContext = {
   takeaway: () => void doTakeaway(),
   togglePlay: () => void togglePlay(),
 };
+
+/**
+ * NEW PATCH: asks first only when the patch has changes (or when the default kit was asked for).
+ * Without KEEP CURRENT KIT a new unsaved kit gets the demo sounds: nothing is deleted.
+ */
+async function newPatch(defaultKit = false): Promise<void> {
+  const choice = await newPatchDialog(screen, app.patchDirty, !defaultKit, defaultKit);
+  if (!choice) return;
+  if (!choice.keepKit) {
+    try {
+      if (kits) await kits.newKit();
+      else ingredients.replaceKit([]);
+      ingredients.loadDemo();
+    } catch (e) {
+      alertBox(`The default kit could not be loaded: ${e instanceof Error ? esc(e.message) : esc(String(e))}. The patch was not reset.`);
+      return;
+    }
+  }
+  app.newPatch({ keepKit: choice.keepKit });
+}
+
+function showWildcardReport(): void {
+  if (app.wildcardReport) void wildcardReportDialog(screen, app.wildcardReport);
+  else app.say('No WILDCARD report yet: press WILDCARD (W). The report stays until the next WILDCARD or NEW PATCH.');
+}
 
 // ------------------------------------------------------------------ windows
 const desk = el('div', '', screen, [0, 0, W, H]);
@@ -342,7 +295,7 @@ async function about(): Promise<void> {
 }
 function keysHelp(): void {
   alertBox(
-    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · W: WILDCARD (what it may change: the Wildcard menu) · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br>X: REGEN TRACK (click a track name in the PATTERN to select it; shift-click for several)<br><br><b>Editing the PATTERN</b>: click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects. PITCH, REV and RATCHET are in the strip under the grid.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
+    '<b>Keys</b><br><br>Space: play / stop (EXTERNAL MIDI clock: stop, or rejoin a running clock)<br>B: BAKE · W: WILDCARD (what it may change: the Wildcard menu) · N: BATCH (8 candidates) · 1–8: audition a candidate<br>D: DICE (a new named seed) · U: MUTATE (as set in RECIPE ▸ MUTATE) · S: save / remove favourite<br>← →: back / forward through the seed history<br>T: TAKEAWAY · M: MIDI file · L: loop on / off<br>R: freeze rhythm · F: freeze beat · G: detail · H: feel · K: samples · E: edits<br>X: REGEN TRACK (click a track name in the PATTERN to select it; shift-click for several)<br>⌘N (Ctrl+N): NEW PATCH. Chrome keeps ⌘N for a new window: there, use File ▸ New Patch…<br><br><b>Editing the PATTERN</b> ([?] beside the grid repeats this): click an empty place to add a hit (on the SNAP grid); click a hit to delete it; shift+click a hit to select it for editing; drag a hit sideways to move it; drag from an empty place to paint; right-click a hit (or DEL) to delete it. A roll drawn as one group (ROLL ×N): click to expand it, right-click to delete it.<br>With a hit selected: Delete / Backspace deletes it · ← → move it a SNAP step (Shift: a beat) · ↑ ↓ velocity · Escape deselects. PITCH, REV and RATCHET are in the strip under the grid.<br>⌘Z undo · ⇧⌘Z (or ⌘Y) redo: one step per action (a WILDCARD, a DESTROY, a slider sweep, a dropped folder), and redo brings back exactly what was undone.<br><br><b>Numbers</b>: click a number (BPM, BARS, SEED, a weight), type, Return. Escape cancels; ↑ ↓ step (Shift: by 10); drag up/down to sweep. Range bars: click or drag; double-click (or Return) to type a value.<br><br><b>SOLO / MUTE</b>: S and M beside each row of the PATTERN, or the MIXER tab (with level, pan and meters).',
   );
 }
 const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
@@ -360,12 +313,18 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
   {
     title: 'File',
     items: () => [
+      { label: 'New Patch…', key: '⌘N', action: () => void newPatch() },
+      { label: 'New Patch with Default Kit…', action: () => void newPatch(true) },
+      { label: 'Clear Pattern', action: () => app.clearPattern() },
+      { label: 'Reset Controls', action: () => app.resetControls() },
+      { sep: true },
       { label: 'Load Samples…', action: () => (document.querySelector('input[type=file]:not([webkitdirectory])') as HTMLInputElement | null)?.click() },
       { label: 'Load Folder…', action: () => (document.querySelector('input[type=file][webkitdirectory]') as HTMLInputElement | null)?.click() },
       { label: 'Add Demo Kit', action: () => ingredients.loadDemo() },
       { label: 'Clear Ingredients…', action: () => void confirmDialog(screen, 'Remove all ingredients?', 'Remove').then((ok) => ok && ingredients.clear()) },
       { sep: true },
       { label: 'Takeaway (Export WAV)…', key: 'T', action: () => void doTakeaway() },
+      { label: app.batch.length > 1 ? 'Takeaway Batch (ZIP)…' : 'Takeaway Batch (make a batch first)', action: () => (app.batch.length > 1 ? void doTakeaway('batch') : app.say('Make a batch first: BATCH (N) bakes 8 candidates.')) },
       { label: 'Takeaway MIDI File', key: 'M', action: doMidiTakeaway },
     ],
   },
@@ -415,6 +374,7 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
     title: 'Wildcard',
     items: () => [
       { label: 'Wildcard', key: 'W', action: () => app.wildcard() },
+      { label: app.wildcardReport ? 'Wildcard Report…' : 'Wildcard Report (none yet)', action: showWildcardReport },
       { sep: true },
       ...WILDCARD_CATEGORIES.map((c) => ({ label: WILDCARD_LABEL[c], checked: () => app.wildcardSettings[c], action: () => app.setWildcard(c, !app.wildcardSettings[c]) })),
       { sep: true },
@@ -530,6 +490,14 @@ for (const m of MENUS) {
   me.addEventListener('pointerenter', () => openMenu && openMenu.el !== me && show());
 }
 const statusEl = el('div', 'status', menubar);
+statusEl.setAttribute('role', 'status');
+// the WILDCARD status line opens its report
+statusEl.addEventListener('pointerdown', (e) => {
+  if (!statusEl.classList.contains('report')) return;
+  e.stopPropagation();
+  closeMenu();
+  showWildcardReport();
+});
 window.addEventListener('pointerdown', () => closeMenu());
 installTooltips(screen, () => view.scale);
 
@@ -540,6 +508,23 @@ for (const event of ['pointerup', 'pointercancel']) {
   // Finish after target handlers have applied the final pointer value, even if propagation stops.
   window.addEventListener(event, () => setTimeout(() => app.endGesture(), 0), true);
 }
+// A run of wheel ticks or arrow presses on one slider or number box is one undo step too: it ends
+// when the control has been left alone for a moment (or at the next undo, which ends it first)
+let settle: number | undefined;
+const SLIDERS = '.range, .num, [role="slider"], [role="spinbutton"]';
+function coalesce(): void {
+  app.beginGesture();
+  window.clearTimeout(settle);
+  settle = window.setTimeout(() => app.endGesture(), 600);
+}
+window.addEventListener('wheel', (e) => (e.target as HTMLElement).closest?.(SLIDERS) && coalesce(), { capture: true, passive: true });
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!e.metaKey && !e.ctrlKey && !typing.active && /^(Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End)$/.test(e.key) && (e.target as HTMLElement).closest?.(SLIDERS)) coalesce();
+  },
+  true,
+);
 window.addEventListener('keydown', (e) => {
   if (dialogOpen()) {
     if (e.key === 'Escape') closeDialog();
@@ -556,9 +541,16 @@ window.addEventListener('keydown', (e) => {
   }
   if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   const k = e.key.toLowerCase();
+  // NEW PATCH (⌘N / Ctrl+N), where the browser lets a page have the key (Chrome keeps it for a new window: use File ▸ New Patch)
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && k === 'n') {
+    e.preventDefault();
+    void newPatch();
+    return;
+  }
   if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'z' || k === 'y')) {
-    if (t.closest?.('.num, .range, [role="slider"], [role="spinbutton"], [role="textbox"]')) return;
-    // undo / redo of pattern actions (a number box being typed into keeps its own keys)
+    // undo / redo everywhere except while a value is being typed (a number box being typed into keeps its own keys);
+    // a range bar or box that merely has focus (after a drag) no longer swallows ⌘Z
+    if (typing.active || t.closest?.('.num.editing, [contenteditable="true"]')) return;
     e.preventDefault();
     if (k === 'y' || e.shiftKey) app.redo();
     else app.undo();
@@ -609,9 +601,12 @@ window.addEventListener('dragleave', () => {
 });
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
+  const taken = e.defaultPrevented; // an INGREDIENTS drop target took it (an explicit category)
   e.preventDefault();
   dragDepth = 0;
   screen.classList.remove('dropping');
+  for (const t of document.querySelectorAll('.droptarget')) t.classList.remove('droptarget');
+  if (taken) return;
   const dt = e.dataTransfer;
   if (dt) void droppedEntries(dt).then((entries) => importEntries(entries));
 });
@@ -624,7 +619,10 @@ function updateAll(): void {
   wPattern.update();
   if (wMidi.win.open) wMidi.update();
   statusEl.textContent = app.status || 'Freshly baked breaks.';
-  setTip(statusEl, app.status);
+  // the WILDCARD headline opens its report (click); the tooltip has the whole line
+  const isReport = !!app.wildcardReport && app.status.startsWith(app.wildcardReport.headline);
+  statusEl.classList.toggle('report', isReport);
+  setTip(statusEl, isReport ? `${app.status} (click for the WILDCARD REPORT)` : app.status);
 }
 app.onChange(updateAll);
 ingredients.onChange = () => {

@@ -261,7 +261,7 @@ export async function run(): Promise<string> {
   await press(muteCell!.firstElementChild!, 4, 4);
   check(app.mix.kick.mute && !app.audible('kick'), 'MUTE');
   await press(rows[1]![4]!.firstElementChild!, 4, 4);
-  await press(rows[6]![4]!.firstElementChild!, 4, 4);
+  await press(rows[CATEGORIES.indexOf('hat')]![4]!.firstElementChild!, 4, 4);
   check(app.mix.snare.solo && app.mix.hat.solo && app.audible('snare') && app.audible('hat') && !app.audible('ghost'), 'several SOLOs');
   check(soloCell!.firstElementChild!.getAttribute('aria-pressed') !== 'true', 'kick not soloed');
   app.clearMix();
@@ -300,7 +300,8 @@ export async function run(): Promise<string> {
     check(app.current.events.some((e) => e.cat === 'perc' && e.bar * 16 + e.step === target) && !app.current.events.some((e) => e.cat === 'perc' && e.bar * 16 + e.step === free), 'a drag moves the hit');
     check(app.current.events.length === n0 + 1, 'a drag does not delete');
   }
-  check($('.patternsvg')!.closest('.pane')!.textContent!.includes('CLICK: TOGGLE'), 'instructions near the grid');
+  // Phase 15: the instructions moved behind [?] HELP beside the grid
+  check(!$('.patternsvg')!.closest('.pane')!.textContent!.includes('CLICK: TOGGLE') && [...$('.patternsvg')!.closest('.pane')!.querySelectorAll('.btn')].some((x) => x.textContent === '?' && x.getAttribute('aria-label') === 'Pattern editing help'), 'editing help one click from the grid');
 
   // ---------------------------------------------------------------- rolls: grouped, expanded, edited one by one
   app.setRollsOn(true);

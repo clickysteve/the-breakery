@@ -11,9 +11,9 @@ import { encodeWav16 } from '@slopfactory/core/export';
 import { sampleFromBytes, StorageError, type StoredSample } from '@slopfactory/core/storage';
 import { KitLibrary } from '@slopfactory/core/kits';
 import { emptyKit, type KitIndex } from '../engine/kit';
-import { CATEGORIES } from '../engine/types';
+import { CATEGORIES, CATEGORY_LABEL } from '../engine/types';
 import { guessCategory, importable, suggestCategory, type Slot } from './categorise';
-import { demoKit, DEMO_RATE, NEW_DEMO_IDS } from './demoKit';
+import { demoKit, DEMO_RATE, NEW_DEMO_OFFERS } from './demoKit';
 import { reverseChannels } from './reverse';
 import { REVERSED } from './timeline';
 import { parseFx, ShapedInstrument } from './shaped';
@@ -31,6 +31,8 @@ export interface ImportEntry {
 export interface ImportReport {
   added: { id: string; name: string; path: string; cat: Slot; reason: string }[];
   duplicates: number;
+  /** samples already loaded that moved to the instrument they were dropped on */
+  moved: number;
   skipped: string[];
   hidden: number;
   errors: string[];
@@ -78,8 +80,6 @@ interface SavedItem {
 }
 
 const META_KEY = 'breakery.ingredients.v1';
-/** set once the demo toms have been offered, so a removed one never comes back */
-const DEMO_TOMS_KEY = 'breakery.demo-toms.v1';
 
 function flag(key: string, set = false): boolean {
   try {
@@ -152,13 +152,14 @@ export class Ingredients {
     }
     const demo = new Map(demoKit().map((d) => [d.id, d]));
     this.items = meta.map((m) => ({ ...m, status: 'loading', message: '', duration: 0, instrument: null, loud: -120 }));
-    // the demo kit grew toms: a visitor who plays the demo kit gets them once (not a fallback: real tom sounds)
-    if (!flag(DEMO_TOMS_KEY) && meta.some((m) => m.source === 'demo')) {
-      for (const id of NEW_DEMO_IDS) {
+    // the demo kit grew toms (and later a clap and an FX): a visitor who plays the demo kit gets each group once
+    for (const offer of NEW_DEMO_OFFERS) {
+      if (flag(offer.key) || !meta.some((m) => m.source === 'demo')) continue;
+      for (const id of offer.ids) {
         const d = demo.get(id);
         if (d && !this.items.some((i) => i.id === id)) this.items.push({ id, name: d.name, cat: d.cat, source: 'demo', status: 'loading', message: '', duration: 0, instrument: null, loud: -120 });
       }
-      flag(DEMO_TOMS_KEY, true);
+      flag(offer.key, true);
       this.save();
     }
     for (const it of this.items) {
@@ -204,7 +205,7 @@ export class Ingredients {
 
   /** Add the demo kit (any demo sounds already present keep their categories). */
   loadDemo(): void {
-    flag(DEMO_TOMS_KEY, true);
+    for (const offer of NEW_DEMO_OFFERS) flag(offer.key, true);
     const have = new Set(this.items.map((i) => i.id));
     for (const d of demoKit()) {
       if (have.has(d.id)) continue;
@@ -226,8 +227,14 @@ export class Ingredients {
    * duplicates (same bytes) are skipped, categories are suggested from file and folder names.
    * Nothing is uploaded: decoding and storage happen in this browser.
    */
-  async importEntries(entries: ImportEntry[], onProgress?: (done: number, total: number) => void): Promise<ImportReport> {
-    const report: ImportReport = { added: [], duplicates: 0, skipped: [], hidden: 0, errors: [] };
+  /**
+   * Import files. `opts.cat` is an explicit destination (files dropped on an instrument): every
+   * file goes there whatever its name says, and a sample already loaded moves there. Without it,
+   * each file's category is suggested from its name and folders (a general drop or LOAD).
+   */
+  async importEntries(entries: ImportEntry[], onProgress?: (done: number, total: number) => void, opts: { cat?: Slot } = {}): Promise<ImportReport> {
+    const report: ImportReport = { added: [], duplicates: 0, moved: 0, skipped: [], hidden: 0, errors: [] };
+    const target = opts.cat && SLOTS.includes(opts.cat) ? opts.cat : null;
     const audio: ImportEntry[] = [];
     for (const e of entries) {
       const kind = importable(e.path || e.file.name, e.file.type);
@@ -257,13 +264,20 @@ export class Ingredients {
           id = unstored.id;
           kept = false;
         }
-        if (this.items.some((i) => Ingredients.audioId(i) === id) || report.added.some((a) => a.id === id)) {
-          report.duplicates++;
+        const have = this.items.find((i) => Ingredients.audioId(i) === id);
+        if (have || report.added.some((a) => a.id === id)) {
+          // dropped on an instrument: a sample already loaded goes there (it is not loaded twice)
+          if (have && target && have.cat !== target) {
+            have.cat = target;
+            delete have.role;
+            delete have.index;
+            report.moved++;
+          } else report.duplicates++;
           done++;
           continue;
         }
         if (!kept) this.bytes.set(id, unstored ?? (await sampleFromBytes(bytes, f.name, f.type)));
-        const sug = suggestCategory(path || f.name);
+        const sug = target ? { cat: target, reason: `dropped on ${target === 'unsorted' ? 'UNSORTED' : CATEGORY_LABEL[target]}` } : suggestCategory(path || f.name);
         const it: Ingredient = { id, name: f.name, cat: sug.cat, source: 'user', status: 'loading', message: '', duration: 0, instrument: null, loud: -120, ...(path ? { path } : {}) };
         this.readyUser(it, decoded);
         if (!kept) it.message = (it.message ? it.message + ' ' : '') + 'Browser storage is unavailable: this sample lasts until the page is closed.';
@@ -277,7 +291,7 @@ export class Ingredients {
       done++;
     }
     onProgress?.(done, audio.length);
-    if (report.added.length) this.changed();
+    if (report.added.length || report.moved) this.changed();
     return report;
   }
 
@@ -297,6 +311,32 @@ export class Ingredients {
     delete it.role;
     delete it.index;
     this.changed();
+  }
+
+  /** Each sample's category (and kit role), for undo snapshots: ids and names only, never audio. */
+  categories(): Record<string, { cat: Slot; role?: string; index?: number }> {
+    return Object.fromEntries(this.items.map((i) => [i.id, { cat: i.cat, ...(i.role ? { role: i.role } : {}), ...(i.index ? { index: i.index } : {}) }]));
+  }
+
+  /**
+   * Put samples back in the categories an undo snapshot had. Only samples still here move: undo
+   * never deletes a sample, and one added since stays where it is. No redraw of its own (the
+   * caller restores the pattern that went with it).
+   */
+  restoreCategories(map: Record<string, { cat: Slot; role?: string; index?: number }>): boolean {
+    let moved = false;
+    for (const it of this.items) {
+      const m = map[it.id];
+      if (!m || !SLOTS.includes(m.cat) || (it.cat === m.cat && it.role === m.role && it.index === m.index)) continue;
+      it.cat = m.cat;
+      if (m.role) it.role = m.role;
+      else delete it.role;
+      if (m.index) it.index = m.index;
+      else delete it.index;
+      moved = true;
+    }
+    if (moved) this.save();
+    return moved;
   }
 
   /** Delete a removed sample from this browser, unless a saved kit (or another ingredient) still uses it. */

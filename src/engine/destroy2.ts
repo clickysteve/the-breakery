@@ -138,6 +138,7 @@ export const defaultMatrix = (): Record<Category, DestroyEffect[]> => ({
   kick: ['pitch', 'tape'],
   snare: ['stutter', 'pitch', 'reverse', 'gate', 'tape'],
   ghost: [],
+  clap: ['stutter', 'reverse', 'gate'],
   htom: ['pitch', 'reverse'],
   mtom: ['pitch', 'reverse'],
   ltom: ['pitch', 'reverse'],
@@ -146,6 +147,7 @@ export const defaultMatrix = (): Record<Category, DestroyEffect[]> => ({
   ride: [],
   crash: ['reverse'],
   perc: ['stutter', 'pitch'],
+  fx: ['pitch', 'reverse', 'tape'],
 });
 
 export const defaultDestroy2 = (): DestroySettings2 => ({

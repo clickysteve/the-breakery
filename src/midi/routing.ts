@@ -93,6 +93,13 @@ export function sanitiseMidiSettings(s: unknown): MidiSettings {
     if (out && typeof out === 'object') tracks[c].out = { on: out.on !== false, device: str(out.device, DEFAULT_PORT), channel: int(out.channel, 1, 16, GM_DRUM_CHANNEL), note: int(out.note, 0, 127, GM_NOTE[c]) };
     if (inp && typeof inp === 'object') tracks[c].in = { on: typeof inp.on === 'boolean' ? inp.on : d.tracks[c].in.on, device: str(inp.device, DEFAULT_PORT), channel: int(inp.channel, OMNI, 16, OMNI), note: int(inp.note, 0, 127, GM_NOTE[c]) };
   }
+  // routings stored before CLAP existed (Phase 15): PERC was the clap track. If it still listens on
+  // CLAP's note, the new CLAP track does not listen too (one key, one track, as before)
+  if (!t.clap && t.perc?.in) {
+    const p = tracks.perc.in;
+    const c = tracks.clap.in;
+    if (p.on && p.note === c.note && (p.channel === OMNI || c.channel === OMNI || p.channel === c.channel)) c.on = false;
+  }
   return {
     enabled: o.enabled === true,
     output: str(o.output, ''),

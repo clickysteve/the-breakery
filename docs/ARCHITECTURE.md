@@ -396,6 +396,58 @@ Research and design: [break-dna-research.md](break-dna-research.md). Measured ev
   and sometimes a CHAOS take at a moderate MASTER AMOUNT (an earlier CHOP ▸ DESTROY is switched
   off).
 
+## Workflow, tracks and state (Phase 15)
+
+* **Tracks**: `CATEGORIES` has 13 entries in display order (KICK, SNARE, GHOST, CLAP, HIGH TOM,
+  MID TOM, LOW TOM, HAT, OPEN HAT, RIDE, CRASH, PERC, FX); `LEGACY_CATEGORIES` are the 11 of
+  before. Every per-track table (mixer, MIDI routing, kits, stems, PICK, MUTATE targets,
+  DESTROY's matrix) is keyed by `CATEGORIES`, and stored settings without the new keys are
+  filled with their defaults.
+* **Revision 5** (`CURRENT_REVISION = CLAPFX_REVISION = 5`): `clapfx.ts` (`addClapFx`) runs in
+  `groove()` after rolls, only for revision 5 (`usesClapFx`). Placement is a ranking per bar from
+  the recipe's idiom (`IDIOM`: layer the backbeat, offbeats, answers, pushes, fills) and a seeded
+  noise shared per bar class, salted only by the MUTATE mutations that reach the bar (so a RANGE
+  mutation leaves the bars it does not reach alone). The count per bar is a prefix of that
+  ranking, so more ACTIVITY only adds hits. FX use one global structural ranking, at most two a
+  bar. The feel of each hit (velocity, offset clamped to `MAX_OFFSET_MS`, scaled by HUMANISE)
+  comes from its own stream, and hits are merge-inserted so every other event keeps its order
+  and values: revision 4 output is byte-identical (fingerprint in test/phase15.test.ts).
+  `Recipe.clap` / `Recipe.fx` are absent until set (the style's default, `CLAP_DEFAULT` /
+  `FX_DEFAULT`); `sanitiseRecipe` keeps them only for revision 5. CHOP treats FX as anchors.
+* **MIDI**: `GM_NOTE` clap 39, FX 27, PERC 37 (was 39). `sanitiseMidiSettings` turns CLAP's input
+  off when a stored routing has PERC on CLAP's note and channel.
+* **NEW PATCH** (`App.newPatch`): resets the patch fields, keeps the library and preferences;
+  `keepKit: false` also resets PICK and the mixer (main.ts first starts a new unsaved kit with
+  the demo sounds). Undo starts afresh. `App.patchDirty` (saved) is set by `recordChange` when a
+  step is pushed and cleared by NEW PATCH; the dialog asks only when it is set.
+* **CLEAR PATTERN** commits every generated ref as removed (hand edits), so it is one undo step
+  and the settings stay. **RESET CONTROLS** sets the recipe to the style's defaults (tempo kept)
+  without re-baking; the pattern changes at the next bake or control change.
+* **WILDCARD REPORT** (`wildcardReport.ts`): pure, from two `ReportState`s (recipe, seed text,
+  PICK, main sample names, and the mixer and output when WILDCARD may change them). The report is
+  kept in `App.wildcardReport` and in undo snapshots (not compared for steps), so undo and redo
+  bring the matching report back. The status line is its headline; main.ts marks it clickable.
+  `wildcardSampleModes` (category SAMPLE SELECTION MODES, off by default) draws a mode per track
+  from its own stream and changes only tracks with two or more samples.
+* **Undo** (`App.snapshot`): JSON of the break (events, no audio), recipe, seeds, PICK, edits,
+  selection, batch, `rollGeneration`, each sample's category (`Ingredients.categories()`, ids
+  only) and the report; WILDCARD steps also carry the mixer and output chain (`withExtras`).
+  `restoreCategories` moves samples back and never removes one. Gestures group steps: pointer
+  drags, a run of wheel ticks or arrow keys on one slider (600 ms), and a whole import
+  (main.ts `importEntries`).
+* **Export names** (`exportName.ts`): `NamingPrefs` (ordered components, separator, LOOP
+  suffix) in `breakery.exportName`; `migrateNaming` reads Phase 14's. `buildFileName`,
+  `masterSuffix`, `stemFileNames` and `uniqueName` name every file (single WAV, ZIPs and their
+  contents, MIDI, BATCH), and the TAKEAWAY dialog (`takeawayDialog.ts`) previews with the same
+  functions. `takeawayBatch` renders each BATCH candidate into one ZIP.
+* **Drop targets** (`ingredientsWindow.ts`, `dropFiles.ts`): a category row or the sample list
+  takes a file drag (`dragover` with `Files`), and its `drop` calls `importEntries(entries,
+  { cat })`; the screen-wide handler sees `defaultPrevented` and leaves it. With a target,
+  `Ingredients.importEntries` puts every file there and moves an already loaded sample.
+* **List box states** (`gemSelect.ts`, `mode: 'list'`): `hover` (pointer), `hot` (keyboard
+  cursor, drawn while `focused`), `aria-selected` (selection) and `loaded` (▸). A choice needs a
+  press and release on the same entry; with `confirm` (KITS) the arrows move only the cursor.
+
 ## Sample selection
 
 `samples.ts` runs after generation on the finished events and stores the chosen sample and the

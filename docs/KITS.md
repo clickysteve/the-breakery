@@ -14,6 +14,15 @@ sounds, including unsaved edits. IMPORT opens a kit file as unsaved sounds; SAVE
 kit. A star in the saved list marks the startup default. Without a default, the last saved or
 loaded kit opens at startup.
 
+The saved list (Phase 15) shows four states apart: the kit under the pointer (a dotted outline),
+the keyboard cursor (a dashed outline while the list has focus), the selected kit (inverted: what
+LOAD, DUPLICATE, RENAME, DELETE and SET DEFAULT act on) and the loaded kit (▸). Hovering never
+selects, and a release dragged in from elsewhere does not either: a click (press and release on
+the same kit) or the arrow keys then Enter or Space select. NEW asks for a name (Untitled Kit,
+Untitled Kit 2 …) and saves the empty kit at once, so it is in the list, selected, loaded and
+ready for RENAME; SAVE, SAVE AS and DUPLICATE also select the kit they made. The list only ever
+shows saved kits (no placeholder rows).
+
 Changes to sample membership, assignments and category selection settings (PICK) mark the
 current kit unsaved. NEW, LOAD and IMPORT ask before discarding those changes; leaving the page
 uses the browser's unsaved-changes warning. Saving under the name of another kit asks before
@@ -53,7 +62,8 @@ EXPORT writes `<kit name>.kit.zip`: Core's portable kit format (`slopfactory-kit
 ZIP holding `manifest.json` and the original bytes of every sample (synthesised demo sounds are
 encoded as 16-bit WAV). Each category is an instrument with a role (KICK `kick`, SNARE `snare`,
 GHOST `snare-ghost`, HIGH/MID/LOW TOM `tom-high`/`tom-mid`/`tom-low`, HAT `hat-closed`, OPEN HAT
-`hat-open`, RIDE `ride`, CRASH `crash`, PERC `perc`, UNSORTED `unassigned`), its samples in list
+`hat-open`, RIDE `ride`, CRASH `crash`, PERC `perc`, CLAP `clap`, FX `fx`, UNSORTED
+`unassigned`), its samples in list
 order, its PICK mode (`selection`), the FIXED sample (`primary`) and WEIGHTED weights (`weight`).
 File-system paths are excluded.
 
@@ -63,7 +73,8 @@ manifest, every sample's fingerprint, that every sample decodes); a failed impor
 nothing.
 
 **A kit from DOWNBEAT:** each drum sound goes to the category of its role (both SNAREs into
-SNARE as alternates; CLAP, RIM, COWBELL, SHAKER, CLAVE, CONGA into PERC; PEDAL HAT into HAT); a
+SNARE as alternates; CLAP into CLAP (Phase 15; before, PERC); RIM, COWBELL, SHAKER, CLAVE, CONGA
+into PERC; PEDAL HAT into HAT); a
 role The Breakery has no category for goes to UNSORTED, kept but not played. Those samples keep
 their roles, and DOWNBEAT's own settings (volume, pan, tuning, choke) are kept in the kit, so
 saving or exporting it from The Breakery and opening it in DOWNBEAT again loses nothing.
@@ -99,6 +110,8 @@ when it is first installed; no account or server is involved.
 names, dirty tracking, loading while playing, storage failures, malformed and legacy files, demo
 audio, the library, other applications' roles, migration) and `test/kitsBrowser.test.ts` (the
 real app in Chromium with real IndexedDB: a first-release kit migrated, a sample imported, a kit
-saved, a reload, an export with playable audio, a kit load that keeps every hit).
+saved, a reload, an export with playable audio, a kit load that keeps every hit; Phase 15: the
+saved list's hover, cursor, selection and loaded states and every kit operation through the
+panel's own buttons, and files dropped on an instrument's row or sample list).
 DOWNBEAT's `tests/cross-app/portability.spec.ts` moves a kit from The Breakery to DOWNBEAT and
 back through real files.

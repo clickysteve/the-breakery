@@ -127,8 +127,8 @@ const LEAD: Category[] = ['snare', 'kick', 'perc', 'htom', 'mtom', 'ltom', 'open
 
 const tickOf = (e: Pick<BreakEvent, 'bar' | 'step' | 'sub'>) => e.bar * TPB + e.step * TPS + e.sub;
 const isBackbeat = (e: BreakEvent) => e.cat === 'snare' && (e.role === 'backbeat' || e.role === 'displaced backbeat');
-/** Anchors of the arrangement: they stay where they are, whatever is chopped around them. */
-const isAnchor = (e: BreakEvent) => e.cat === 'crash' || e.role === 'floor kick';
+/** Anchors of the arrangement (crashes, FX, a floor kick): they stay where they are, whatever is chopped around them. */
+const isAnchor = (e: BreakEvent) => e.cat === 'crash' || e.cat === 'fx' || e.role === 'floor kick';
 const isFillHit = (e: BreakEvent) => e.role === 'fill' || e.role === 'roll';
 const where = (bar: number, step: number) => `${bar + 1}.${Math.floor(step / 4) + 1}.${(step % 4) + 1}`;
 /** The generator's explanation under any number of CHOP copies. */

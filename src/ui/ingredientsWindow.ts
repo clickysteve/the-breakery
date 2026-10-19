@@ -3,6 +3,10 @@
  * samples of the selected category (preview, reassign, remove), how the category PICKS among
  * them (sample-selection mode, with its settings beside each sample), and loading files or
  * whole folders.
+ *
+ * Drop targets: files or folders dropped on a category's row, or on the sample list (the selected
+ * category), go to that instrument whatever their names say; a sample already loaded moves there.
+ * Dropped anywhere else on the screen, categories are suggested from the names as before.
  */
 import { kitsPanel } from './kitsPanel';
 import { libraryPanel } from './libraryPanel';
@@ -11,6 +15,7 @@ import { sourceOf } from '../engine/kit';
 import { modeOf, SAMPLE_MODE_LABEL, SAMPLE_MODE_TIP, SAMPLE_MODES, sampleUsage, type SampleMode } from '../engine/samples';
 import { CATEGORY_LABEL, type Category } from '../engine/types';
 import { el, setTip } from './dom';
+import { carriesFiles, droppedEntries } from './dropFiles';
 import { GemSelect } from './gemSelect';
 import { Button, MWindow, NumBox, typing } from './widgets';
 import type { UiContext } from './context';
@@ -28,6 +33,26 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
   const W = rect.w - 2;
   let selected: Slot = 'kick';
   const lp = libraryPanel(libBody, ui, () => selected, () => file.click());
+
+  /** Make `zone` a drop target for `slot()`: dropped files go to that instrument. */
+  const dropTarget = (zone: HTMLElement, slot: () => Slot) => {
+    zone.addEventListener('dragover', (ev) => {
+      if (!carriesFiles(ev.dataTransfer)) return;
+      ev.preventDefault();
+      ev.dataTransfer!.dropEffect = 'copy';
+      zone.classList.add('droptarget');
+    });
+    zone.addEventListener('dragleave', (ev) => {
+      if (!zone.contains(ev.relatedTarget as Node | null)) zone.classList.remove('droptarget');
+    });
+    zone.addEventListener('drop', (ev) => {
+      zone.classList.remove('droptarget');
+      if (!carriesFiles(ev.dataTransfer)) return;
+      ev.preventDefault(); // the screen-wide drop sees this and leaves it alone
+      const cat = slot();
+      void droppedEntries(ev.dataTransfer!).then((entries) => ui.importEntries(entries, { cat }));
+    });
+  };
 
   const rows = new Map<Slot, { row: HTMLDivElement; count: HTMLSpanElement; stat: HTMLSpanElement }>();
   SLOTS.forEach((slot, i) => {
@@ -53,6 +78,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
       selected = slot;
       update();
     });
+    dropTarget(row, () => slot);
     rows.set(slot, { row, count, stat });
   });
 
@@ -69,6 +95,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
   });
   const list = el('div', 'samplelist', b, [3, listTop + 14, W - 8, rect.h - 18 - listTop - 14 - 56]);
   const note = el('div', 'empty-note', b, [8, listTop + 22, W - 20]);
+  dropTarget(list, () => selected);
 
   const by = rect.h - 18 - 40;
   const file = el('input', '', b);
@@ -107,7 +134,8 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
     onPress: () => void ui.confirm('Remove all ingredients? Your sample files are not affected; samples loaded from disk are removed from this browser.', 'Remove').then((ok) => ok && ing.clear()),
   });
   const hint = el('div', 'label tiny', b, [5, by + 22]);
-  hint.textContent = 'DROP FILES OR FOLDERS · STAYS LOCAL';
+  hint.textContent = 'DROP ON A ROW · STAYS LOCAL';
+  setTip(hint, 'Drop files or folders on an instrument’s row (or on its sample list) to add them to that instrument, whatever their names say. Drop anywhere else and the categories are suggested from the file and folder names.');
 
   function statusOf(slot: Slot): { text: string; bad: boolean } {
     if (slot === 'unsorted') {
@@ -133,7 +161,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
       const st = statusOf(slot);
       r.stat.textContent = st.text;
       r.stat.classList.toggle('bad', st.bad);
-      setTip(r.row, slot === 'unsorted' ? 'Samples not yet given a category. They are not played until you assign them.' : `${slotLabel(slot)}: ${n} sample${n === 1 ? '' : 's'}. ${n > 1 ? `Picks by ${SAMPLE_MODE_LABEL[modeOf(app.samples, slot)]}.` : st.text}`);
+      setTip(r.row, (slot === 'unsorted' ? 'Samples not yet given a category. They are not played until you assign them.' : `${slotLabel(slot)}: ${n} sample${n === 1 ? '' : 's'}. ${n > 1 ? `Picks by ${SAMPLE_MODE_LABEL[modeOf(app.samples, slot)]}.` : st.text}`) + ` Drop files here to add them to ${slotLabel(slot)}.`);
     }
     head.textContent = `${slotLabel(selected)} SAMPLES`;
     const cat = selected === 'unsorted' ? null : selected;

@@ -25,7 +25,10 @@ const RULES: Rule[] = [
   { cat: 'kick', words: /kick|bass ?drum|bassdrum|\bkik/, abbr: ['bd', 'kik', 'kck', 'kd'] },
   { cat: 'snare', words: /snare/, abbr: ['sd', 'snr', 'sn'] },
   { cat: 'hat', words: /hat|hihat|closed/, abbr: ['hh', 'ch', 'chh', 'cht', 'hats'] },
-  { cat: 'perc', words: /perc|shaker|shakr|tamb|conga|bongo|clap|rimshot|cowbell|woodblock|clave|cabasa|guiro|fingersnap|agogo|triangle|timbale|cajon|maraca/, abbr: ['cp', 'rs', 'cb', 'sh', 'rim', 'snap', 'block', 'shk'] },
+  { cat: 'clap', words: /clap/, abbr: ['cp', 'clp'] },
+  { cat: 'perc', words: /perc|shaker|shakr|tamb|conga|bongo|rimshot|cowbell|woodblock|clave|cabasa|guiro|fingersnap|agogo|triangle|timbale|cajon|maraca/, abbr: ['rs', 'cb', 'sh', 'rim', 'snap', 'block', 'shk'] },
+  // effects: impacts, risers, sweeps, zaps (a plain "noise" or "reverse" could be anything)
+  { cat: 'fx', words: /impact|riser|uplift|downlift|sweep|whoosh|swoosh|laser|\bzap/, abbr: ['fx', 'sfx', 'zap', 'efx'] },
   // toms only by their position: a plain "tom" could be any of the three (see suggestCategory)
   { cat: 'htom', words: /(hi|high|rack|small)[ _-]?tom|tom[ _-]?(hi|high)\b/, abbr: ['ht', 'htom', 'hitom'] },
   { cat: 'mtom', words: /(mid|middle|med)[ _-]?tom|tom[ _-]?mid/, abbr: ['mt', 'mtom', 'midtom'] },

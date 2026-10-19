@@ -46,7 +46,7 @@ const STRATEGY: Record<DillaStrategy, Strategy> = {
   drag: { swing: { kick: 0.1, snare: 0.25, hats: 0.4 }, lean: { kick: -4, snare: 6, hats: 12 }, table: { kick: 3, snare: 3, hats: 5 } },
   drunkkick: { swing: { kick: 0.3, snare: 0.1, hats: 0.15 }, lean: { kick: 6, snare: -6, hats: 0 }, table: { kick: 20, snare: 3, hats: 2 } },
 };
-const VOICE: Record<Category, Voice> = { kick: 'kick', snare: 'snare', ghost: 'snare', htom: 'kick', mtom: 'kick', ltom: 'kick', hat: 'hats', open: 'hats', ride: 'hats', crash: 'kick', perc: 'hats' };
+const VOICE: Record<Category, Voice> = { kick: 'kick', snare: 'snare', ghost: 'snare', clap: 'snare', htom: 'kick', mtom: 'kick', ltom: 'kick', hat: 'hats', open: 'hats', ride: 'hats', crash: 'kick', perc: 'hats', fx: 'kick' };
 
 /** -1..1 from a seed and a key: the same key always gives the same value. */
 export const hnoise = (seed: number, key: string): number => hashString(`${seed}|${key}`) / 2147483648 - 1;

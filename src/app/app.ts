@@ -18,7 +18,9 @@ import { CHOP_STYLE, chopActive, defaultChop, describeChop, sanitiseChop } from 
 import { rollGroups } from '../engine/rolls';
 import { SECTION_DEFS, type Section } from '../engine/sections';
 import { freshSeed, stream } from '../engine/rng';
-import { defaultWildcard, sanitiseWildcard, WILDCARD_LABEL, wildcardMix, wildcardOutput, wildcardRecipe, type WildcardCategory, type WildcardSettings } from '../engine/wildcard';
+import { defaultWildcard, sanitiseWildcard, wildcardMix, wildcardOutput, wildcardRecipe, wildcardSampleModes, type WildcardCategory, type WildcardSettings } from '../engine/wildcard';
+import { wildcardReport, type ReportState, type WildcardReport } from '../engine/wildcardReport';
+import { chooseMain } from '../engine/kit';
 import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
@@ -26,7 +28,7 @@ import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, CYMBAL_RE
 import type { Ingredients } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
-import { audible, safeGain, safePan, sanitiseMix, type MixState } from './mix';
+import { audible, emptyMix, safeGain, safePan, sanitiseMix, type MixState } from './mix';
 import { OutputChain, presetsFor, type ChainConfig } from '@slopfactory/core/engines';
 import { OUTPUT_ENGINES } from '../audio/output';
 import { diceName, entryKey, entryLabel, FAVOURITES_MAX, sanitiseFavourite, SeedHistory, type Favourite, type SeedEntry } from './seeds';
@@ -89,6 +91,8 @@ interface Saved {
   tempoLock?: boolean;
   /** WILDCARD: which categories it changes */
   wildcard?: WildcardSettings;
+  /** changed since the last NEW PATCH (NEW PATCH asks first) */
+  patchDirty?: boolean;
 }
 
 /** What an undo step of WILDCARD also restores (the mixer and the output chain are otherwise never part of undo). */
@@ -174,6 +178,16 @@ export class App {
    * or of undo. Every change is heard at once and saved.
    */
   output: OutputChain;
+  /**
+   * Has the patch changed since the last NEW PATCH (any change that is an undo step)? NEW PATCH
+   * asks before discarding it. A state saved before Phase 15 counts as changed.
+   */
+  patchDirty = false;
+  /**
+   * The last WILDCARD's report: what it changed, before and after. Kept until the next WILDCARD
+   * or NEW PATCH; part of the undo snapshots, so undo and redo bring back the matching one.
+   */
+  wildcardReport: WildcardReport | null = null;
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private baseline = '';
@@ -187,6 +201,7 @@ export class App {
     this.rollGeneration = typeof s?.rollGeneration === 'boolean' ? s.rollGeneration : s?.recipe ? s.recipe.rollsOn !== false : false;
     this.tempoLock = s?.tempoLock === true;
     this.wildcardSettings = sanitiseWildcard(s?.wildcard);
+    this.patchDirty = typeof s?.patchDirty === 'boolean' ? s.patchDirty : !!s?.recipe;
     // a saved break (LEGACY too) reproduces as it was; a seed from a link is a new break, baked by the current GROOVE
     this.recipe = s?.recipe ? sanitiseRecipe(s.recipe) : this.fresh(defaultRecipe('funk', 2));
     if (fromUrl) this.recipe = this.fresh(current(this.recipe));
@@ -242,7 +257,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings, patchDirty: this.patchDirty };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -446,6 +461,7 @@ export class App {
     const before = this.snapshot();
     const extrasBefore: Extras = { mix: JSON.parse(JSON.stringify(this.mix)) as MixState, output: this.output.config };
     const S = this.wildcardSettings;
+    const reportBefore = this.reportState(S.mixer, S.output);
     let status = '';
     this.gesture = true;
     try {
@@ -456,7 +472,19 @@ export class App {
       // the samples change only with SAMPLE ASSIGNMENTS (and never with KIT frozen)
       if (!S.samples || this.frozen.kit) seeds.kit = this.seeds.kit;
       else res.changed.push('samples');
-      if (S.samples && this.frozen.kit) res.kept.push('SAMPLE ASSIGNMENTS (frozen)');
+      if (S.samples && this.frozen.kit) res.kept.push('SAMPLE ASSIGNMENTS (KIT frozen)');
+      // a PICK mode per track with two or more samples (never with KIT frozen)
+      if (S.sampleModes) {
+        if (this.frozen.kit) res.kept.push('SAMPLE SELECTION MODES (KIT frozen)');
+        else {
+          const kit = this.ingredients.kit();
+          const m = wildcardSampleModes(this.samples, Object.fromEntries(CATEGORIES.map((c) => [c, kit[c].length])), seed);
+          if (m.changed.length) {
+            this.samples = m.samples;
+            res.changed.push('sampleModes');
+          }
+        }
+      }
       if (S.mixer) {
         this.mix = wildcardMix(this.mix, seed);
         this.player.setMix(this.mix);
@@ -473,13 +501,101 @@ export class App {
       this.picked = null;
       this.show(this.bakeWith(this.seeds));
       this.remember();
-      const a = this.current.approach;
-      status = `WILDCARD: ${STYLE_DEFS[this.recipe.style].label} at ${this.recipe.bpm} BPM, seed ${this.seedText}${this.frozenNote}${a ? ` (${a.groove}, hats ${a.hats || 'none'})` : ''}. Changed ${res.changed.map((c) => WILDCARD_LABEL[c]).join(', ') || 'only the seeds'}${res.kept.length ? `; kept ${res.kept.join(', ')}` : ''}. ⌘Z undoes all of it.${note}`;
+      // the report: every setting that changed, before and after (the status line is its headline)
+      this.wildcardReport = wildcardReport(reportBefore, this.reportState(S.mixer, S.output), res.kept);
+      status = `${this.wildcardReport.headline}${note ? ` ·${note}` : ''}`;
     } finally {
       this.gesture = false;
     }
     this.status = status;
     this.baseline = S.mixer || S.output ? withExtras(before, extrasBefore) : before;
+    this.changed();
+  }
+
+  /** The state a WILDCARD report compares (plain data: names and settings, no audio). */
+  private reportState(mix: boolean, output: boolean): ReportState {
+    const main = chooseMain(this.ingredients.kit(), this.seeds.kit);
+    const cfg = this.output.config;
+    return {
+      recipe: JSON.parse(JSON.stringify(this.recipe)) as Recipe,
+      seedText: this.seedText,
+      samples: JSON.parse(JSON.stringify(this.samples)) as SampleSettings,
+      main: Object.fromEntries(CATEGORIES.map((c) => [c, main[c] ? this.ingredients.name(main[c]!) : null])),
+      ...(mix ? { mix: JSON.parse(JSON.stringify(this.mix)) as MixState } : {}),
+      ...(output ? { output: { bypass: cfg.bypass, stages: cfg.stages.map((x) => ({ engine: x.engine, enabled: x.enabled, params: { ...x.params } })) } } : {}),
+    };
+  }
+
+  /**
+   * NEW PATCH: start again. Resets the patch: the break, its recipe and every control, the tempo
+   * and TEMPO LOCK, the seeds, FREEZE, PERSONALITY, BREAK DNA, cymbals, CHOP, the roll settings,
+   * DESTROY, MUTATE's settings, hand edits, the batch, selections, the WILDCARD report, SOLO and
+   * MUTE. Keeps the library (samples, saved kits, favourites, the seed history) and the
+   * preferences (palette, MIDI, OUTPUT, ROLL GENERATION, WILDCARD's toggles, export naming,
+   * SNAP). With `keepKit` false the PICK modes and the mixer's levels and pans reset too (the
+   * caller loads the default kit first). Undo starts afresh; the previous break stays in the seed
+   * history (◀ goes back to it).
+   */
+  newPatch(opts: { keepKit?: boolean } = {}): void {
+    const keepKit = opts.keepKit !== false;
+    this.gesture = false;
+    const n = this.named();
+    this.tempoLock = false;
+    this.recipe = this.fresh(defaultRecipe('funk', 2));
+    this.seeds = seedsFrom(n.seed);
+    this.seedName = n.name;
+    this.frozen = noFreeze();
+    this.edits = noEdits();
+    this.keepEdits = false;
+    this.selected = null;
+    this.batch = [];
+    this.picked = null;
+    this.trackSel = [];
+    this.mutation = defaultMutate();
+    this.wildcardReport = null;
+    if (keepKit) for (const c of Object.values(this.mix)) Object.assign(c, { mute: false, solo: false });
+    else {
+      this.samples = {};
+      this.mix = emptyMix();
+    }
+    this.player.setMix(this.mix);
+    this.show(this.bakeWith(this.seeds));
+    this.remember();
+    this.undoStack = [];
+    this.redoStack = [];
+    this.baseline = this.snapshot();
+    this.patchDirty = false;
+    this.status = `NEW PATCH: ${STYLE_DEFS[this.recipe.style].label} at ${this.recipe.bpm} BPM, seed ${this.seedText}, ${keepKit ? 'current kit kept' : 'default kit'}. The previous break is in the seed history (◀).`;
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * CLEAR PATTERN: remove every hit, as hand edits, so the settings stay as they are. One undo
+   * step (⌘Z brings the hits back); add hits by hand on the empty grid, or BAKE a new pattern.
+   */
+  clearPattern(): void {
+    const n = this.current.events.length;
+    if (!n) return this.say('The pattern is already empty.');
+    const generated = this.bakeWith(this.seeds, this.recipe, null).events;
+    const removed = [...new Set(generated.map((e) => e.ref ?? hitKey(e)))];
+    this.selected = null;
+    this.commit({ edits: { removed, changed: {}, added: [] }, ref: null }, false, { say: `Cleared the pattern (${n} hit${n === 1 ? '' : 's'}). The settings are as they were: ⌘Z brings the hits back, BAKE makes a new pattern.` });
+  }
+
+  /**
+   * RESET CONTROLS: every control back to this recipe's defaults (the generation controls, TOM,
+   * CLAP and FX ACTIVITY, cymbals, PERSONALITY, BREAK DNA, CHOP, the roll settings and ROLL
+   * EXPRESSION, DESTROY). The recipe, tempo, length and seed stay, and so does the pattern: it is
+   * not re-baked, so nothing you hear changes until you bake (or move a control, which re-bakes
+   * with all of them). One undo step.
+   */
+  resetControls(): void {
+    const d = defaultRecipe(this.recipe.style, this.recipe.bars);
+    const next = this.fresh({ ...d, bpm: this.recipe.bpm });
+    if (JSON.stringify(next) === JSON.stringify(this.recipe)) return this.say(`The controls are already ${STYLE_DEFS[this.recipe.style].label}’s defaults.`);
+    this.recipe = next;
+    this.status = `Controls reset to ${STYLE_DEFS[this.recipe.style].label}’s defaults. The pattern stays as it is until you bake (or move a control); ⌘Z undoes this.`;
     this.changed();
   }
 
@@ -1061,10 +1177,16 @@ export class App {
     return this.redoStack.length > 0;
   }
 
+  /**
+   * An undo step: the break (its events, no audio), recipe, seeds, PICK modes, hand edits, batch,
+   * each sample's category (ids and names only: undo never deletes a sample) and the WILDCARD
+   * report. Selection and the report alone are not steps.
+   */
   private snapshot(): string {
     return JSON.stringify({ current: this.current, recipe: this.recipe, seeds: this.seeds,
       seedName: this.seedName, samples: this.samples, edits: this.edits,
-      selected: this.selected, batch: this.batch, picked: this.picked, rollGeneration: this.rollGeneration });
+      selected: this.selected, batch: this.batch, picked: this.picked, rollGeneration: this.rollGeneration,
+      cats: this.ingredients.categories?.() ?? {}, report: this.wildcardReport });
   }
 
   /** Re-apply the edit layer to the current seeds: playback follows at once (not at the loop point). */
@@ -1098,10 +1220,11 @@ export class App {
     if (!this.baseline || this.gesture) return;
     const next = this.snapshot();
     const pattern = (s: string) => {
-      const { selected: _selected, extras: _extras, ...state } = JSON.parse(s);
+      const { selected: _selected, extras: _extras, report: _report, ...state } = JSON.parse(s);
       return JSON.stringify(state);
     };
     if (pattern(next) !== pattern(this.baseline)) {
+      this.patchDirty = true;
       this.undoStack.push(this.baseline);
       if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
       this.redoStack = [];
@@ -1254,8 +1377,11 @@ export class App {
   }
 
   private restoreSnapshot(s: string): void {
-    const { extras, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras };
+    const { extras, cats, report, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras; cats?: ReturnType<Ingredients['categories']>; report?: WildcardReport | null };
     Object.assign(this, o);
+    // the samples' categories as they were (a sample added since stays; none is ever deleted)
+    if (cats) this.ingredients.restoreCategories?.(cats);
+    this.wildcardReport = report ?? null;
     if (extras) {
       // a WILDCARD step: the mixer and the output chain come back too
       this.mix = sanitiseMix(extras.mix);

@@ -2,6 +2,11 @@
  * KITS (a tab of INGREDIENTS): The Breakery's view of Slop Factory Core's kit workflow
  * (KitSession): the saved kits, NEW, SAVE, SAVE AS, LOAD, DUPLICATE, RENAME, DELETE, IMPORT,
  * EXPORT and SET DEFAULT. Nothing that would be lost goes without asking first.
+ *
+ * The list tells apart the entry under the pointer (dotted), the keyboard cursor (dashed), the
+ * selected kit (inverted: what LOAD, DUPLICATE, RENAME, DELETE and SET DEFAULT act on) and the
+ * loaded kit (▸). Passing over the list never selects; a click or Enter / Space does. A kit made
+ * by NEW, SAVE, SAVE AS or DUPLICATE is in the list at once, selected, ready for RENAME.
  */
 import { KitError, roleInfo, type KitMapping, type KitSession } from '@slopfactory/core/kits';
 import { KIT_FILES, legacyReader } from '../app/kits';
@@ -16,7 +21,9 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitSession) 
   const panel = el('div', '', parent, [0, 0, 202, 405]);
   const title = el('div', 'label', panel, [6, 8, 190]);
   const count = el('div', 'label tiny', panel, [6, 27, 190]);
-  const list = new GemSelect(panel, [5, 48, 192, 180], { label: 'Saved kits', mode: 'list' });
+  const list = new GemSelect(panel, [5, 48, 192, 180], { label: 'Saved kits', mode: 'list', confirm: true, tip: 'Click a kit (or ↑ ↓ then Enter) to select it for LOAD, DUPLICATE, RENAME, DELETE and SET DEFAULT. ▸ loaded now · ★ opens at startup.' });
+  /** the kit to select once the list next updates (one an action just made) */
+  let want: string | null = null;
   const input = el('input', '', panel); input.type = 'file'; input.accept = KIT_FILES; input.hidden = true;
   let busy = false;
   const controls: Button[] = [];
@@ -31,13 +38,20 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitSession) 
   const ask = (value: string) => promptDialog(ui.screen, 'Kit name (1–64 characters):', value);
   const selected = () => { if (!list.value) throw new Error('Select a saved kit first.'); return list.value; };
   const nameOf = (id: string) => kits.kits.find(e => e.id === id)?.name ?? '';
+  /** "Untitled Kit", or "Untitled Kit 2", 3 ... when that name is taken */
+  const untitled = () => {
+    const taken = new Set(kits.kits.map(e => e.name.toLowerCase()));
+    let name = 'Untitled Kit';
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `Untitled Kit ${n}`;
+    return name;
+  };
   /** Save, asking before a kit of the same name is replaced. */
   const saveNamed = async (name: string, asNew: boolean) => {
     const go = (replace: boolean) => asNew ? kits.saveAs(name, { replace }) : kits.save(name, { replace });
-    try { await go(false); }
+    try { want = (await go(false)).id; }
     catch (e) {
       if (!(e instanceof KitError && e.code === 'exists')) throw e;
-      if (await ui.confirm(`${esc(e.message)} Replace it with the current sounds?`, 'Replace')) await go(true);
+      if (await ui.confirm(`${esc(e.message)} Replace it with the current sounds?`, 'Replace')) want = (await go(true)).id;
     }
   };
   /** Say where samples went that The Breakery has no category for. */
@@ -47,11 +61,11 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitSession) 
     ui.app.say(n ? `${what}. ${n} sample${n === 1 ? '' : 's'} of ${kept.map(u => u.instrument.label ?? roleInfo(u.instrument.role).label).join(', ')} kept in UNSORTED: The Breakery has no category for ${n === 1 ? 'it' : 'them'}.` : `${what}.`);
   };
   const actions: [string, () => Promise<void> | void, string][] = [
-    ['NEW', async () => { if (await discard()) await kits.newKit(); }, 'Start an empty kit'],
+    ['NEW', async () => { if (!(await discard())) return; const name = await ask(untitled()); if (name === null) return; await kits.newKit(); await saveNamed(name, true); }, 'Start an empty kit, saved under a name so it is in the list at once (RENAME changes the name)'],
     ['SAVE', async () => { const name = kits.currentId ? kits.name : await ask(kits.name); if (name !== null) await saveNamed(name, false); }, 'Save the current sounds over this kit (or as a new one)'],
     ['SAVE AS', async () => { const name = await ask(kits.name + ' Copy'); if (name !== null) await saveNamed(name, true); }, 'Save the current sounds as a new kit'],
     ['LOAD', async () => { const id = selected(); if (await discard()) report(await kits.load(id), `Loaded “${nameOf(id)}”`); }, 'Load the selected kit (the pattern, recipe and history stay)'],
-    ['DUPLICATE', async () => { const id = selected(); const name = await ask(nameOf(id) + ' Copy'); if (name !== null) await kits.duplicate(id, name); }, 'Copy the selected kit (its samples are shared, not copied)'],
+    ['DUPLICATE', async () => { const id = selected(); const name = await ask(nameOf(id) + ' Copy'); if (name !== null) want = (await kits.duplicate(id, name)).id; }, 'Copy the selected kit (its samples are shared, not copied)'],
     ['RENAME', async () => { const id = selected(); const name = await ask(nameOf(id)); if (name !== null) await kits.rename(id, name); }, 'Rename the selected kit'],
     ['DELETE', async () => { const id = selected(); if (await ui.confirm('Delete this saved kit? This cannot be undone. Its samples stay in the LIBRARY.', 'Delete')) await kits.delete(id); }, 'Delete the selected kit (samples other kits use are never deleted)'],
     ['IMPORT', () => input.click(), 'Open a kit file (.kit.zip from any Slop Factory instrument, or a .breakery-kit) as unsaved sounds; SAVE keeps it'],
@@ -78,12 +92,14 @@ export function kitsPanel(parent: HTMLElement, ui: UiContext, kits: KitSession) 
     count.textContent = `${ui.app.ingredients.items.length} SAMPLES${kits.dirty ? ' · * UNSAVED' : ''}${busy ? ' · WORKING…' : ''}`;
     controls.forEach(b => (b.disabled = busy));
     list.disabled = busy;
-    const next = JSON.stringify([kits.kits, kits.defaultId, kits.currentId]);
+    const next = JSON.stringify([kits.kits, kits.defaultId, kits.currentId, want]);
     if (signature === next) return;
     signature = next;
     const previous = list.value;
-    list.setOptions(kits.kits.map((e) => ({ value: e.id, label: `${e.id === kits.defaultId ? '★ ' : ''}${e.name} (${e.samples})` })));
-    list.value = kits.kits.some(e => e.id === previous) ? previous : kits.currentId ?? kits.kits[0]?.id ?? '';
+    list.setOptions(kits.kits.map((e) => ({ value: e.id, label: `${e.id === kits.defaultId ? '★ ' : ''}${e.name} (${e.samples})`, loaded: e.id === kits.currentId })));
+    const has = (id: string | null) => !!id && kits.kits.some(e => e.id === id);
+    list.value = has(want) ? want! : has(previous) ? previous : kits.currentId ?? kits.kits[0]?.id ?? '';
+    if (has(want)) want = null;
   }
   kits.onChange(update);
   panel.style.position = 'absolute';

@@ -154,7 +154,8 @@ describe('bake: musical structure', () => {
     // with no variation, no fill, no rolls and no toms, every bar is the groove (ROLLS and TOM
     // ACTIVITY are their own controls: rolls and tom phrases are added on purpose, whatever FILLS says)
     // (a crash at the top replaces the first hat, so cymbals on the downbeat are left out)
-    const notTop = (e: BreakEvent) => !(e.step === 0 && (e.cat === 'crash' || e.cat === 'hat' || e.cat === 'ride' || e.cat === 'open'));
+    // (FX mark the phrase structure on purpose: left out too)
+    const notTop = (e: BreakEvent) => e.cat !== 'fx' && !(e.step === 0 && (e.cat === 'crash' || e.cat === 'hat' || e.cat === 'ride' || e.cat === 'open'));
     for (const b of all('funk', 4, { variation: 0, fills: 0, rolls: 0, toms: 0 })) expect(analyse(b.events.filter(notTop), 4).barSimilarity).toBe(1);
   });
 
