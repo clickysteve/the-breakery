@@ -12,10 +12,15 @@
  * ROLLS: a roll whose hits are too close to tell apart is drawn as one outlined group (ROLL ×N);
  * click it to expand it (a one-bar view, where every hit of it is drawn and edited on its own).
  * VIEW shows every bar, or 4, 2 or 1 bar at a time (◀ ▶ page).
+ *
+ * Under the grid (Phase 15, compact so all 13 tracks fit): the tools row (SNAP, REGEN TRACK, the
+ * selected track, UNDO, REDO, CLEAR EDITS), then one line with the selected hit (SELECTED: NONE, or
+ * its track, place, velocity, timing and origin), MUTED and NO SAMPLE counts, and [?] for the
+ * editing help; the selected hit's controls follow when a hit is selected.
  */
 import { analyse } from '../engine/analysis';
 import { describeChop } from '../engine/chopper';
-import { describeEdits, MANUAL_OFFSET_MS, posLabel, RATCHET_SPAN_LABEL, RATCHET_SPANS, snapTick, tickOf } from '../engine/edits';
+import { describeEdits, editCount, MANUAL_OFFSET_MS, posLabel, RATCHET_SPAN_LABEL, RATCHET_SPANS, snapTick, tickOf } from '../engine/edits';
 import { MAX_PITCH } from '../engine/types';
 import { RATCHETS } from '../engine/rollExpr';
 import { swingPercent } from '../engine/performance';
@@ -24,6 +29,7 @@ import { CATEGORIES, CATEGORY_LABEL, STEPS, TPB, TPS, type BreakEvent, type Cate
 import { anySolo } from '../app/mix';
 import { SNAP_LABEL, SNAPS } from '../app/app';
 import { esc, el, localPoint, setTip, svgEl, trackDrag } from './dom';
+import { alertDialog } from './dialogs';
 import { rollGroups, type RollGroup } from '../engine/rolls';
 import { isDrag, pressAction, releaseDeletes, ROLL_GROUP_PX } from './gridEdit';
 import { batchPanel } from './batchWindow';
@@ -36,6 +42,16 @@ import type { UiContext } from './context';
 const ROLE_MARK: Record<string, string> = { A: 'GROOVE', A2: 'ANSWER', B: 'DEVELOP', F: 'FILL', T: 'TURNAROUND' };
 const SHORT: Record<Category, string> = { kick: 'KICK', snare: 'SNARE', ghost: 'GHOST', clap: 'CLAP', htom: 'HI TOM', mtom: 'MID TOM', ltom: 'LO TOM', hat: 'HAT', open: 'OPEN', ride: 'RIDE', crash: 'CRASH', perc: 'PERC', fx: 'FX' };
 const CYCLE: Record<string, string> = { beats: 'ACCENTS ON BEATS', offbeats: 'OFF-BEAT ACCENTS', alternate: 'ALTERNATE 16THS', backbeat: 'ACCENTS WITH THE BACKBEAT', tresillo: '3+3+2 ACCENTS' };
+const HELP = `<b>PATTERN</b>: editing by hand<br><span style="font-size:9px">
+Click an empty place: add a hit on the SNAP grid (drag on: paint more).<br>
+Click a hit: delete it. Right-click, Delete or DEL: delete.<br>
+Shift+click a hit: select it, then set its velocity, timing, sample, pitch and reverse, RATCHET it, nudge it (← →) or copy it (DUP). Escape deselects.<br>
+Drag a hit sideways: move it by SNAP steps.<br>
+ROLL ×N (a roll drawn as one group): click to expand it to one bar, where each hit is edited on its own; right-click deletes the whole roll.<br>
+Click a track name: select it for REGEN TRACK (X); shift-click adds more.<br>
+S and M: SOLO and MUTE (playback only; the break does not change).<br><br>
+Height = velocity. A hit sits where it plays (swing and feel included). Dotted hits have no sample. ■ added or moved by hand, □ changed. Hover a hit to see why it is there.<br>
+⌘Z undoes any edit, ⇧⌘Z redoes it. CLEAR EDITS returns the break to how it was generated.</span>`;
 const ORIGIN: Record<string, string> = { added: 'ADDED BY HAND', moved: 'MOVED BY HAND', edited: 'GENERATED, CHANGED BY HAND' };
 /** bars per view: 0 = every bar */
 const ZOOMS = [0, 4, 2, 1] as const;
@@ -103,10 +119,17 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   const head = el('div', '', b, [X0 + 1, Y0, 1, GH]);
   Object.assign(head.style, { position: 'absolute', background: 'var(--mark-color, #fff)', mixBlendMode: 'var(--mark-blend, difference)', display: 'none', pointerEvents: 'none' });
 
-  // ---------------------------------------------------------------- selected-hit strip
-  const iy = Y0 + GH + 13;
-  const info = el('div', 'card hitinfo', b, [6, iy, W - 12]);
-  const r2 = iy + 12;
+  // ---------------------------------------------------------------- under the grid: tools, the selected hit, its controls
+  const r3 = Y0 + GH + 11;
+  const iy = r3 + 14;
+  const info = el('div', 'card hitinfo', b, [6, iy + 2, W - 12 - 168]);
+  info.style.overflow = 'hidden';
+  info.style.textOverflow = 'ellipsis';
+  const counts = el('div', 'card', b, [W - 172, iy + 2, 150]);
+  counts.style.textAlign = 'right';
+  const helpBtn = new Button(b, [W - 19, iy, 13, 12], '?', { cls: 'small', tip: 'HELP: how to edit the pattern by hand', onPress: () => void alertDialog(ui.screen, HELP) });
+  helpBtn.el.setAttribute('aria-label', 'Pattern editing help');
+  const r2 = iy + 13;
   const ctl = el('div', '', b, [0, r2, W, 15]);
   ctl.style.position = 'absolute';
   el('div', 'label small', ctl, [6, 4], 'VEL');
@@ -172,9 +195,6 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     onChange: (v) => (span = Number(v) || 24),
   });
   setTip(over.el, 'OVER: how long the ratchet lasts, from the hit (1/16 to a half note; it stops at the end of the pattern).');
-  const none = el('div', 'label tiny', b, [6, r2 + 4, W - 12]);
-
-  const r3 = r2 + 17;
   el('div', 'label small', b, [6, r3 + 3], 'SNAP');
   const snapBtns = SNAPS.map((t, i) => new Button(b, [30 + i * 31, r3, 30, 12], SNAP_LABEL[t]!, { cls: 'small', tip: `SNAP ${SNAP_LABEL[t]}: where new hits land, and the step for moving hits (moves keep a hit's offset from the grid, so rolls keep their subdivision)`, onPress: () => app.setSnap(t) }));
   const regen = new Button(b, [192, r3, 96, 12], 'REGEN TRACK', { cls: 'small', tip: 'REGEN TRACK (X): generate the selected track(s) again, fitted to the rest of the pattern. Every other track stays exactly as it is. Click a track name on the left to select it (shift-click for several). Works while playing (the SWITCH mode applies), ignores FREEZE for that track, one ⌘Z undoes it.', onPress: () => app.regenTracks() });
@@ -182,9 +202,6 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   const undo = new Button(b, [W - 168, r3, 34, 12], 'UNDO', { cls: 'small', tip: 'Undo the last pattern action (Cmd/Ctrl+Z)', onPress: () => app.undo() });
   const redo = new Button(b, [W - 132, r3, 34, 12], 'REDO', { cls: 'small', tip: 'Redo (⇧⌘Z)', onPress: () => app.redo() });
   const clear = new Button(b, [W - 96, r3, 90, 12], 'CLEAR EDITS', { cls: 'small', tip: 'Remove every hand edit of this break: back to the break as generated (⌘Z undoes it)', onPress: () => app.revertAll() });
-  const foot = el('div', 'label tiny', b, [6, r3 + 17, W - 12]);
-  const help = el('div', 'label tiny', b, [6, r3 + 27, W - 12], 'CLICK: TOGGLE · SHIFT+CLICK: EDIT · DRAG: MOVE · RIGHT-CLICK: DELETE · CLICK ROLL ×N: EXPAND');
-  setTip(help, 'Click an empty place: add a hit (drag on: paint). Click a hit: delete it. Shift+click a hit: select it to set its velocity, timing and sample, nudge or copy it. Drag a hit sideways: move it by SNAP steps. Right-click (or DEL): delete. A roll drawn as one group: click it to expand it to a one-bar view, where each hit is edited on its own; right-click it to delete the whole roll. ⌘Z undoes any of these.');
 
   let shown: { e: BreakEvent; x: number; w: number; row: number }[] = [];
   /** rolls drawn as one group: their extent, row and hits */
@@ -448,11 +465,9 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     // ---- the selected hit
     const e = app.selectedEvent;
     ctl.style.display = e ? '' : 'none';
-    none.style.display = e ? 'none' : '';
-    none.textContent = 'SHIFT+CLICK A HIT TO EDIT ITS VELOCITY, TIMING, SAMPLE, PITCH AND REVERSE, RATCHET, NUDGE OR COPY IT';
     if (e) {
       const where = posLabel(e);
-      info.textContent = `${CATEGORY_LABEL[e.cat]} · ${where} · VEL ${e.vel} · ${e.offsetMs > 0 ? '+' : ''}${Math.round(e.offsetMs)} MS · ${e.manual ? ORIGIN[e.manual] : `GENERATED (${e.role.toUpperCase()})`}`;
+      info.textContent = `SELECTED: ${CATEGORY_LABEL[e.cat]} · ${where} · VEL ${e.vel} · ${e.offsetMs > 0 ? '+' : ''}${Math.round(e.offsetMs)} MS · ${e.manual ? ORIGIN[e.manual] : `GENERATED (${e.role.toUpperCase()})`}`;
       setTip(info, `${CATEGORY_LABEL[e.cat]} at ${where} (bar.beat.sixteenth). ${e.why}${e.editWhy ? ` ${e.editWhy}` : ''}${e.sample ? ` Sample: ${app.ingredients.name(e.sample)} (${e.sampleWhy ?? ''}).` : ' No sample: silent.'}`);
       vel.update();
       time.update();
@@ -462,26 +477,22 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       rev.disabled = !(e.manual === 'edited' || e.manual === 'moved');
       left.disabled = right.disabled = false;
     } else {
-      info.textContent = 'SELECTED HIT: NONE';
-      setTip(info, 'Shift+click a hit in the grid to select it: its velocity, timing and sample can then be set here. Escape deselects.');
+      info.textContent = 'SELECTED: NONE';
+      setTip(info, 'Shift+click a hit in the grid to select it: its velocity, timing, sample, pitch and reverse can then be set here, and it can be ratcheted, nudged or copied. Escape deselects.');
     }
     del.disabled = dup.disabled = !e;
     regen.disabled = !app.trackSel.length || app.legacy;
-    trackInfo.textContent = app.trackSel.length ? `TRACK: ${app.trackSel.map((c) => SHORT[c]).join(' + ')}` : 'CLICK A TRACK NAME TO SELECT IT';
+    trackInfo.textContent = `TRACK: ${app.trackSel.length ? app.trackSel.map((c) => SHORT[c]).join(' + ') : 'NONE'}`;
     snapBtns.forEach((sb, i) => (sb.on = SNAPS[i] === app.snap));
     undo.disabled = !app.canUndo;
     redo.disabled = !app.canRedo;
     clear.disabled = !app.hasEdits;
 
+    // MUTED (silenced by MUTE or SOLO) and NO SAMPLE: tracks with hits that are not heard
     const silent = CATEGORIES.filter((c) => br.events.some((x) => x.cat === c && !x.sample));
     const muted = CATEGORIES.filter((c) => !app.audible(c) && br.events.some((x) => x.cat === c));
-    foot.textContent = silent.length
-      ? `NO SAMPLE FOR: ${silent.map((c) => CATEGORY_LABEL[c]).join(', ')} (DOTTED HITS ARE SILENT)`
-      : muted.length
-        ? `SILENCED BY ${solo ? 'SOLO' : 'MUTE'}: ${muted.map((c) => CATEGORY_LABEL[c]).join(', ')} · TAKEAWAY FOLLOWS MIXER`
-        : app.hasEdits
-          ? `${describeEdits(app.edits, br.editReport).toUpperCase()} ■ ADDED/MOVED □ CHANGED`
-          : 'HEIGHT = VELOCITY · OFFSET = SWING + FEEL · HOVER A HIT: WHY IT IS THERE · ⌘Z UNDO';
+    counts.textContent = [muted.length ? `MUTED: ${muted.length}` : '', silent.length ? `NO SAMPLE: ${silent.length}` : '', app.hasEdits ? `EDITS: ${editCount(app.edits)}` : ''].filter(Boolean).join(' · ');
+    setTip(counts, [muted.length ? `Silenced by ${solo ? 'SOLO' : 'MUTE'}: ${muted.map((c) => CATEGORY_LABEL[c]).join(', ')} (drawn faint; TAKEAWAY follows the mixer).` : '', silent.length ? `No sample for: ${silent.map((c) => CATEGORY_LABEL[c]).join(', ')} (dotted hits are silent).` : '', app.hasEdits ? `${describeEdits(app.edits, br.editReport)} ■ added or moved, □ changed.` : ''].filter(Boolean).join(' ') || 'Every track with hits is heard.');
   }
 
   function tick(): void {

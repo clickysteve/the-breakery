@@ -134,7 +134,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
     onPress: () => void ui.confirm('Remove all ingredients? Your sample files are not affected; samples loaded from disk are removed from this browser.', 'Remove').then((ok) => ok && ing.clear()),
   });
   const hint = el('div', 'label tiny', b, [5, by + 22]);
-  hint.textContent = 'DROP ON A ROW: THAT INSTRUMENT · STAYS LOCAL';
+  hint.textContent = 'DROP ON A ROW · STAYS LOCAL';
   setTip(hint, 'Drop files or folders on an instrument’s row (or on its sample list) to add them to that instrument, whatever their names say. Drop anywhere else and the categories are suggested from the file and folder names.');
 
   function statusOf(slot: Slot): { text: string; bad: boolean } {
