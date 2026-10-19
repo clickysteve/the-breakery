@@ -6,8 +6,18 @@
  *
  * OUTPUT: the master output chain (audio/output.ts) runs between the mixer and MASTER LEVEL.
  *
- * Pattern requests use a safe bar, loop or immediate boundary beyond scheduled audio. SOLO and MUTE use Core's mixer gates, so they act at once, also
- * on sounds already ringing, and never change the break's events.
+ * SWITCHING (Phase 17). A new pattern, or an edit of this one, takes over on the GRID: at the next
+ * bar (NEXT BAR), loop (NEXT LOOP) or sixteenth (IMMEDIATE: the first sixteenth past the audio
+ * already handed to Web Audio, NEXT SAFE STEP). The switch is decided by each hit's GRID place, not
+ * its performed time: hits placed before the boundary finish from the old pattern (a late one
+ * still plays), hits from the boundary on come from the new one. Every scheduled hit has an
+ * identity (its loop, grid place, drum and occurrence) and none is ever scheduled twice, so an
+ * edit that moves a hit's timing inside the look-ahead cannot double it or phase against itself.
+ * Nothing is cancelled and no voice is stopped by a switch: sounds already ringing ring on, and
+ * the scheduling cursor is never restarted. Offline rendering (TAKEAWAY) does not use any of this.
+ *
+ * SOLO and MUTE use Core's mixer gates, so they act at once, also on sounds already ringing, and
+ * never change the break's events.
  *
  * MIDI: the same schedule also goes out as MIDI (midi/router.ts), every hit of the score (sampled
  * or not), stamped in performance.now() time so it is heard together with the audio. The schedule
@@ -18,7 +28,7 @@
  */
 import { Mixer, NotePlayer } from '@slopfactory/core/audio';
 import { emptyChain, loadOutputChain, type ChainConfig } from '@slopfactory/core/engines';
-import { CATEGORIES, type Break, type BreakEvent } from '../engine/types';
+import { CATEGORIES, TPB, TPS, type Break, type BreakEvent } from '../engine/types';
 import { audible as isAudible, emptyMix, mixerStrips, safeGain, sanitiseMix, type MixState } from '../app/mix';
 import { CLOCK, CLOCK_PPQ, START, STOP, songPosition } from '../midi/messages';
 import type { MidiRouter } from '../midi/router';
@@ -28,6 +38,13 @@ import { CHAIN_WORKLET_URL, OUTPUT_SEED } from './output';
 
 export type SwitchMode = 'bar' | 'loop' | 'immediate';
 const LOOKAHEAD = 0.15;
+/**
+ * How early a hit may play against its grid place (seconds): microtiming goes to -60 ms (hand
+ * edits). A switch is made this far before its boundary, so the new pattern's early hits are on time.
+ */
+const EARLY = 0.08;
+/** Seconds after which a scheduled hit's identity is forgotten (well past any look-ahead). */
+const PLAYED_MEMORY = 2;
 const TICK_MS = 25;
 export const LIVE_SAMPLE_RATE = 44100;
 export const DEFAULT_LEVEL = 1;
@@ -46,6 +63,10 @@ const EXT_LATE = 0.06;
 
 interface Scheduled {
   sec: number;
+  /** its grid place in the loop, ticks (what a switch is decided by) */
+  nom: number;
+  /** its identity in the loop: drum, grid place and occurrence */
+  id: string;
   e: Break['events'][number];
   /** sent as MIDI (false when the track is not routed or not audible, or a louder hit on the same key at the same time is sent instead) */
   midi: boolean;
@@ -109,6 +130,16 @@ export class Player {
   private list: Scheduled[] = [];
   private idx = 0;
   private loopStart = 0;
+  /** grid ticks from the start of playback to `loopStart` (identities of hits are absolute) */
+  private cycleTick = 0;
+  /** in the loop now being scheduled, hits placed before this tick belong to the pattern before a switch */
+  private minNom = 0;
+  /** the previous pattern's hits placed before a switch, still to come (song time) */
+  private carry: { t: number; s: Scheduled; abs: string }[] = [];
+  /** identities of hits handed to Web Audio (and MIDI), with their song time: none is scheduled twice */
+  private played = new Map<string, number>();
+  /** the request waiting is an edit of the pattern (not a new one): what the card says */
+  private pendingEdit = false;
   /** audio time up to which hits are already scheduled */
   private scheduledUntil = 0;
   private seq = 0;
@@ -212,8 +243,15 @@ export class Player {
     this.warm(b);
     const bpm = this.playing ? this.tempo : b.recipe.bpm;
     // every hit: the sampled ones play here, and all of them go out as MIDI
+    const seen = new Map<string, number>();
     this.list = b.events
-      .map((e) => ({ sec: eventSeconds(e, bpm), e, midi: false }))
+      .map((e) => {
+        const nom = e.bar * TPB + e.step * TPS + e.sub;
+        const k = `${e.cat}|${nom}`;
+        const n = seen.get(k) ?? 0;
+        seen.set(k, n + 1);
+        return { sec: eventSeconds(e, bpm), nom, id: `${e.cat}#${n}`, e, midi: false };
+      })
       .sort((x, y) => x.sec - y.sec);
     this.markMidi();
     this.idx = 0;
@@ -314,6 +352,10 @@ export class Player {
     this.clockStart = this.loopStart;
     this.clockPulse = 0;
     this.extPulse = -1;
+    this.cycleTick = 0;
+    this.minNom = 0;
+    this.carry = [];
+    this.played.clear();
     this.playing = true;
     this.mixer?.resetFx(this.loopStart);
     this.sendClock([START], this.loopStart);
@@ -342,6 +384,10 @@ export class Player {
     this.audibleStart = this.loopStart;
     this.idx = this.list.findIndex((s) => this.loopStart + s.sec >= at - 1e-9);
     if (this.idx < 0) this.idx = this.list.length;
+    this.cycleTick = Math.round(this.loopStart / this.tickSeconds);
+    this.minNom = 0;
+    this.carry = [];
+    this.played.clear();
     this.scheduledUntil = at;
     // nothing is scheduled until the first pulse anchors song time to the audio clock
     this.sync = { song: at, audio: this.ctx!.currentTime, rate: 1 };
@@ -372,22 +418,35 @@ export class Player {
     for (const e of b.events) if (e.reverse && e.sample) this.ingredients.instrument(noteInstrument(e.sample, { reverse: true }));
   }
 
-  /** Never replace audio already handed to Web Audio. Quantise beyond that frontier. */
-  setBreak(b: Break): void {
+  /**
+   * A new pattern (or, `edit`, this one edited) takes over at the next boundary of the SWITCH mode
+   * on the grid, past the audio already handed to Web Audio (see SWITCHING above). The newest
+   * request waiting wins at the same boundary.
+   */
+  setBreak(b: Break, edit = false): void {
     this.warm(b);
     if (!this.playing || !this.ctx || !this.current) {
       this.current = this.audible = b;
       return;
     }
     this.pending = b;
+    this.pendingEdit = edit;
     if (this.switchAt !== Infinity) return; // newest request wins at the same boundary
     const safe = Math.max(this.songNow() + 0.005, this.scheduledUntil + 0.000001);
-    const unit = this.switchMode === 'loop' ? this.duration(this.current) : 240 / this.tempo;
-    this.switchAt = this.switchMode === 'immediate' ? safe
-      : this.loopStart + Math.max(1, Math.ceil((safe - this.loopStart) / unit)) * unit;
+    if (this.switchMode === 'immediate') {
+      // NEXT SAFE STEP: the first sixteenth at or after the scheduled frontier
+      const unit = TPS * this.tickSeconds;
+      this.switchAt = this.loopStart + Math.max(0, Math.ceil((safe - this.loopStart) / unit - 1e-9)) * unit;
+    } else {
+      const unit = this.switchMode === 'loop' ? this.duration(this.current) : 240 / this.tempo;
+      this.switchAt = this.loopStart + Math.max(1, Math.ceil((safe - this.loopStart) / unit)) * unit;
+    }
   }
 
   private duration(b: Break): number { return b.recipe.bars * 240 / this.tempo; }
+
+  /** Seconds per grid tick at the playing tempo (192 a bar). */
+  private get tickSeconds(): number { return 240 / this.tempo / TPB; }
 
   private announce(): void {
     while (this.activations.length && this.activations[0]!.time <= this.songNow()) {
@@ -398,8 +457,8 @@ export class Player {
     }
   }
 
-  /** Hand edits use the selected transition policy too. */
-  update(b: Break): void { this.setBreak(b); }
+  /** An edit of the pattern (hand edits, transformations, undo): the SWITCH mode applies, IMMEDIATE = the next safe step. */
+  update(b: Break): void { this.setBreak(b, true); }
 
   stop(): void {
     for (const meter of this.meters.values()) meter.peak = 0;
@@ -412,6 +471,9 @@ export class Player {
     this.pending = null;
     this.switchAt = Infinity;
     this.activations = [];
+    this.carry = [];
+    this.played.clear();
+    this.minNom = 0;
     this.current = this.audible = selected;
     if (this.playing) {
       this.playing = false;
@@ -435,70 +497,117 @@ export class Player {
     if (this.clock === 'external') horizon = Math.min(horizon, (this.extPulse + EXT_MAX_AHEAD_PULSES) * this.pulseSeconds);
     this.schedule(horizon);
     if (!this.playing) return;
+    // identities older than any look-ahead are forgotten (insertion order is time order)
+    const forget = this.songNow() - PLAYED_MEMORY;
+    for (const [k, t] of this.played) {
+      if (t >= forget) break;
+      this.played.delete(k);
+    }
     this.flushClock(horizon, false);
     this.midi?.flush(this.perfTime(this.toAudio(horizon)));
   }
 
-  /** Schedule everything up to a song time. */
+  /** Schedule everything up to a song time: the loop's hits and the previous pattern's last ones, in time order. */
   private schedule(horizon: number): void {
     const ctx = this.ctx!;
-    for (let guard = 0; guard < 2000; guard++) {
-      const next = this.list[this.idx];
-      if (this.pending && this.switchAt <= horizon &&
-          (!next || this.loopStart + next.sec >= this.switchAt)) {
-        const time = this.switchAt;
-        const p = this.pending;
-        this.pending = null;
-        this.switchAt = Infinity;
-        // Keep bar/loop phase; immediate changes skip the already scheduled part.
-        if (this.clock === 'internal' && p.recipe.bpm !== this.tempo) {
-          // a new tempo (the INTERNAL clock only: an external clock sets the tempo itself): the
-          // position in the loop is kept in beats, the clock pulses carry on at the new rate
-          const beat = 60 / this.tempo;
-          const beats = ((time - this.loopStart) / beat) % (p.recipe.bars * 4);
-          this.flushClock(time, false);
-          this.clockStart += this.clockPulse * this.pulseSeconds;
-          this.clockPulse = 0;
-          this.tempo = p.recipe.bpm;
-          this.loopStart = time - beats * (60 / this.tempo);
-        } else {
-          const phase = (time - this.loopStart) % this.duration(p);
-          this.loopStart = time - phase;
-        }
-        this.build(p);
-        this.idx = this.list.findIndex(x => this.loopStart + x.sec >= time - 1e-9);
-        if (this.idx < 0) this.idx = this.list.length;
-        this.activations.push({ b: p, time, start: this.loopStart });
+    for (let guard = 0; guard < 4000; guard++) {
+      if (this.pending && this.switchAt - EARLY <= horizon) {
+        this.swap();
         continue;
       }
-      if (this.idx >= this.list.length) {
+      while (this.idx < this.list.length && this.list[this.idx]!.nom < this.minNom) this.idx++;
+      const s = this.list[this.idx];
+      const tl = s ? this.loopStart + s.sec : Infinity;
+      const c = this.carry[0];
+      const tc = c ? c.t : Infinity;
+      if (!s) {
         const end = this.loopStart + this.duration(this.current!);
-        if (end > horizon) return;
-        if (!this.loop) {
-          // let the last hits ring, then stop
-          if (ctx.currentTime > this.toAudio(end) + 0.05) {
-            this.stop();
+        if (end <= horizon) {
+          if (this.loop) {
+            this.cycleTick += this.current!.recipe.bars * TPB;
+            this.loopStart = end;
+            this.idx = 0;
+            this.minNom = 0;
+            continue;
           }
-          return;
+          // let the last hits ring, then stop
+          if (!c) {
+            if (ctx.currentTime > this.toAudio(end) + 0.05) this.stop();
+            return;
+          }
         }
-        this.loopStart = end;
-        this.idx = 0;
-
-        continue;
       }
-      const s = this.list[this.idx]!;
-      const t = this.loopStart + s.sec;
+      const t = Math.min(tl, tc);
       if (t > horizon) return;
-      this.flushClock(t, true);
-      this.scheduledUntil = t;
-      const a = this.toAudio(t);
-      if (a >= ctx.currentTime - (this.clock === 'external' ? EXT_LATE : 0.005)) {
-        const at = Math.max(a, ctx.currentTime);
-        if (s.e.sample) this.trigger(s.e.cat, noteInstrument(s.e.sample, s.e, this.tempo), s.e.vel, at, notePitch(s.e));
-        if (s.midi) this.midi?.hit(s.e.cat, s.e.vel, this.perfTime(at), this.perfTime(this.toAudio(t + GATE_QUARTERS * (60 / this.tempo))));
+      if (c && tc <= tl) {
+        this.carry.shift();
+        this.emit(c.s, tc, c.abs);
+      } else {
+        this.emit(s!, tl, this.abs(s!));
+        this.idx++;
       }
-      this.idx++;
     }
+  }
+
+  /** A hit's identity for the whole performance: its loop's first tick plus its place, drum and occurrence. */
+  private abs(s: Scheduled, cycleTick = this.cycleTick): string {
+    return `${cycleTick + s.nom}|${s.id}`;
+  }
+
+  /** Hand one hit to Web Audio (and MIDI) at song time t, unless it was already. */
+  private emit(s: Scheduled, t: number, abs: string): void {
+    const ctx = this.ctx!;
+    if (this.played.has(abs)) return;
+    this.played.set(abs, t);
+    this.flushClock(t, true);
+    this.scheduledUntil = Math.max(this.scheduledUntil, t);
+    const a = this.toAudio(t);
+    if (a >= ctx.currentTime - (this.clock === 'external' ? EXT_LATE : 0.005)) {
+      const at = Math.max(a, ctx.currentTime);
+      if (s.e.sample) this.trigger(s.e.cat, noteInstrument(s.e.sample, s.e, this.tempo), s.e.vel, at, notePitch(s.e));
+      if (s.midi) this.midi?.hit(s.e.cat, s.e.vel, this.perfTime(at), this.perfTime(this.toAudio(t + GATE_QUARTERS * (60 / this.tempo))));
+    }
+  }
+
+  /**
+   * The waiting pattern takes over at `switchAt` (on the grid): the current pattern's hits placed
+   * before it that are still to come are kept (carry), the new pattern's hits from it on are
+   * scheduled, and the position in the bar, the beat and the loop is kept. Hits already scheduled
+   * keep their identity (`played`), so none plays twice.
+   */
+  private swap(): void {
+    const time = this.switchAt;
+    const p = this.pending!;
+    this.pending = null;
+    this.switchAt = Infinity;
+    const old = this.current!;
+    const oldTick = this.tickSeconds;
+    const rel = Math.round((time - this.loopStart) / oldTick);
+    const oldLen = old.recipe.bars * TPB;
+    // the old pattern's hits before the boundary, this loop and (a boundary past its end) the next
+    for (let k = 0, from = this.idx; k * oldLen < rel; k++, from = 0) {
+      for (let i = from; i < this.list.length; i++) {
+        const s = this.list[i]!;
+        if ((k === 0 && s.nom < this.minNom) || k * oldLen + s.nom >= rel) continue;
+        this.carry.push({ t: this.loopStart + k * this.duration(old) + s.sec, s, abs: this.abs(s, this.cycleTick + k * oldLen) });
+      }
+    }
+    this.carry.sort((a, b) => a.t - b.t);
+    const newLen = p.recipe.bars * TPB;
+    const phase = rel % newLen;
+    if (this.clock === 'internal' && p.recipe.bpm !== this.tempo) {
+      // a new tempo (the INTERNAL clock only: an external clock sets the tempo itself): the
+      // position in the loop is kept in beats, the clock pulses carry on at the new rate
+      this.flushClock(time, false);
+      this.clockStart += this.clockPulse * this.pulseSeconds;
+      this.clockPulse = 0;
+      this.tempo = p.recipe.bpm;
+    }
+    this.cycleTick += rel - phase;
+    this.loopStart = time - phase * this.tickSeconds;
+    this.build(p);
+    this.minNom = phase;
+    this.activations.push({ b: p, time, start: this.loopStart });
   }
 
   private trigger(voice: string, instrument: string, vel: number, time: number, pitch = ROOT_PITCH): void {
@@ -541,6 +650,12 @@ export class Player {
   /** A selected break is waiting to be heard. */
   get queued(): boolean {
     return !!this.pending || this.activations.length > 0;
+  }
+
+  /** What is waiting: an edit of this pattern, a new pattern, or nothing. */
+  get queuedKind(): 'edit' | 'pattern' | null {
+    if (!this.queued) return null;
+    return this.pending ? (this.pendingEdit ? 'edit' : 'pattern') : 'edit';
   }
 
   get break(): Break | null {

@@ -278,12 +278,13 @@ export class App {
     return bake(recipe, seeds, this.ingredients.kit(), { settings: this.samples, loudness: this.ingredients.loudness() }, (id) => this.ingredients.name(id), edits);
   }
 
-  private show(b: Break): void {
+  /** Show and play a break: `edit` when it is this break changed (a control, a transformation), not a new one. */
+  private show(b: Break, edit = false): void {
     // the seed's words travel with the break (the batch, exports and the pattern card show them)
     if (this.seedName) b.seedName = this.seedName;
     else delete b.seedName;
     this.current = b;
-    this.player.setBreak(b);
+    this.player.setBreak(b, edit);
     if (this.selected && !findRef(b.events, this.selected)) this.selected = null;
   }
 
@@ -304,7 +305,7 @@ export class App {
   rebake(): void {
     this.checkPaint();
     const before = this.current.editReport;
-    this.show(this.bakeWith(this.seeds));
+    this.show(this.bakeWith(this.seeds), true);
     this.batch = this.batch.map((c, i) => (i === this.picked ? this.current : this.bakeWith(c.seeds, this.recipe, this.keepEdits ? this.edits : null)));
     const r = this.current.editReport;
     if (r && (r.outside !== (before?.outside ?? 0) || r.inactive !== (before?.inactive ?? 0)) && (r.outside || r.inactive)) this.status = describeEdits(this.edits, r);
