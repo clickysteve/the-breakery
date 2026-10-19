@@ -3,7 +3,7 @@
  *
  * RECIPE: style (with RANDOM RECIPE), tempo (with TEMPO LOCK and the tempo DICE), bars, seed (with DICE, history and favourite), a row
  * showing CHOP (the transformation), ROLL GENERATION and the cymbals' activity, each opening its tab (a LEGACY break offers
- * USE CURRENT GROOVE there), the eight generative controls and TOM ACTIVITY. GROOVE, the only
+ * USE CURRENT GROOVE there), the eight generative controls and TOM, CLAP and FX ACTIVITY. GROOVE, the only
  * generator, has no selector: every break is baked by it. Every change re-bakes the same
  * seeds, so you hear what the control does to this break. Every number can be clicked and typed
  * (emmm's numerical fields). CHOP: the phrase transformation (chopTab.ts). ROLLS: roll generation
@@ -14,7 +14,8 @@
  */
 import { hatActivity, rideActivity } from '../engine/cymbals';
 import { destroy2Active } from '../engine/destroy2';
-import { CYMBAL_REVISION } from '../engine/types';
+import { CLAPFX_REVISION, CYMBAL_REVISION } from '../engine/types';
+import { clapActivity, fxActivity } from '../engine/clapfx';
 import { destroyTab } from './destroyTab';
 import { swingPercent } from '../engine/performance';
 import { STYLE_DEFS } from '../engine/styles';
@@ -177,30 +178,41 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
   useGroove.el.setAttribute('aria-label', 'Use current GROOVE');
   el('div', 'rule', b, [4, 66, W - 8]);
 
-  // the eight controls in two columns, and TOM ACTIVITY (the toms are instruments, so they are part of the recipe)
+  // the eight controls in the first two columns; the instruments' activities (TOM, CLAP, FX: part of the recipe) in the third
   const ranges: RangeBar[] = [];
-  const colW = Math.floor((W - 16) / 2);
-  const rangeAt = (i: number, key: RecipeKey, text: string, o: Omit<ConstructorParameters<typeof RangeBar>[2], 'get' | 'set' | 'label'>) => {
-    const col = Math.floor(i / 5);
-    const x = 4 + col * (colW + 8);
-    const y = 69 + (i % 5) * 15;
+  const colW = Math.floor((W - 8 - 2 * 6) / 3);
+  const LW = 70;
+  const rangeAt = (col: number, row: number, text: string, o: Omit<ConstructorParameters<typeof RangeBar>[2], 'label'>) => {
+    const x = 4 + col * (colW + 6);
+    const y = 69 + row * 15;
     label(b, x + 1, y + 3, text);
-    ranges.push(
-      new RangeBar(b, [x + 74, y, colW - 74, 14], {
-        get: () => app.recipe[key],
-        // baking is cheap (about a millisecond), so the break follows the drag
-        set: (v) => app.setRecipe({ [key]: v }),
-        label: text,
-        ...o,
-      }),
-    );
+    ranges.push(new RangeBar(b, [x + LW, y, colW - LW, 14], { label: text, ...o }));
   };
-  CONTROLS.forEach((c, i) => rangeAt(i < 4 ? i : i + 1, c.key, c.label, { format: c.format ?? pct, parse: c.parse, tip: c.tip }));
-  rangeAt(4, 'toms', 'TOM ACTIVITY', {
+  const recipeRange = (col: number, row: number, key: RecipeKey, text: string, o: Omit<ConstructorParameters<typeof RangeBar>[2], 'get' | 'set' | 'label'>) =>
+    rangeAt(col, row, text, {
+      get: () => app.recipe[key],
+      // baking is cheap (about a millisecond), so the break follows the drag
+      set: (v) => app.setRecipe({ [key]: v }),
+      ...o,
+    });
+  CONTROLS.forEach((c, i) => recipeRange(Math.floor(i / 4), i % 4, c.key, c.label, { format: c.format ?? pct, parse: c.parse, tip: c.tip }));
+  recipeRange(2, 0, 'toms', 'TOM ACTIVITY', {
     format: pct,
     tip: 'TOM ACTIVITY: how prominent the high, mid and low toms are. 0 = no toms; 20% an occasional short phrase; 50% noticeable phrases; 100% a tom phrase in most bars. More means more phrases, longer ones and more voices: fills into the next bar (descending and rising runs, snare into toms, snare and toms in turn, linear fills, dotted-eighth groupings) and, inside the bar, answers to the backbeat and off-beat accents. The recipe shapes them. Independent of ROLLS; a kit with fewer than three toms plays its phrases on the toms it has. Turning it up changes nothing else in the break.',
   });
-  const tomNote = el('div', 'label tiny', b, [4 + colW + 8 + 1, 69 + 4 * 15 + 4, colW - 2]);
+  rangeAt(2, 1, 'CLAP ACTIVITY', {
+    get: () => clapActivity(app.recipe),
+    set: (v) => app.setRecipe({ clap: v }),
+    format: pct,
+    tip: 'CLAP ACTIVITY: how much the CLAP track plays. 0 = no claps; low values layer a clap on the backbeat; higher ones add the recipe’s own clap idiom (GARAGE’s skippy off-beats, ELECTRO’s doubled backbeat, answers at the end of a bar, a flurry in a fill). 100% is the busiest the recipe plausibly claps (at most four or five a bar), never every sixteenth. Each recipe has its own default. Turning it up only adds claps and changes nothing else in the break.',
+  });
+  rangeAt(2, 2, 'FX ACTIVITY', {
+    get: () => fxActivity(app.recipe),
+    set: (v) => app.setRecipe({ fx: v }),
+    format: pct,
+    tip: 'FX ACTIVITY: sparse, structural effects on the FX track: an impact at the top of the phrase, at a new section and after a fill, an accent in the turnaround. At most two a bar, never a groove. Without FX samples the hits are silent (load some in INGREDIENTS ▸ FX). Turning it up only adds FX and changes nothing else in the break.',
+  });
+  const tomNote = el('div', 'label tiny', b, [4 + 2 * (colW + 6) + 1, 69 + 3 * 15 + 4, colW - 2]);
 
   function update(): void {
     styleBtns.forEach((btn, i) => {
@@ -229,10 +241,20 @@ export function recipeWindow(parent: HTMLElement, ui: UiContext, rect: { x: numb
     dice.on = false;
     ranges.forEach((r) => r.update());
     const kit = app.ingredients.kit();
-    const have = TOMS.filter((t) => kit[t].length);
-    const tomHits = app.current.events.filter((e) => (TOMS as readonly string[]).includes(e.cat)).length;
-    tomNote.textContent = app.legacy ? 'LEGACY BREAK: NO TOMS' : `${tomHits} TOM HIT${tomHits === 1 ? '' : 'S'} · SAMPLES ${have.length}/3`;
-    setTip(tomNote, have.length === 3 ? 'High, mid and low tom samples are loaded (INGREDIENTS). Tom hits follow their MIXER channels and MIDI notes.' : `No sample for ${TOMS.filter((t) => !kit[t].length).map((t) => CATEGORY_LABEL[t]).join(', ')}: those hits are silent until one is loaded (INGREDIENTS), or the demo kit is added.`);
+    const old = (app.recipe.revision ?? 0) < CLAPFX_REVISION;
+    const count = (cats: readonly string[]) => app.current.events.filter((e) => cats.includes(e.cat)).length;
+    const missing = [...TOMS, 'clap', 'fx'].filter((t) => !kit[t as keyof typeof kit].length) as (keyof typeof kit)[];
+    tomNote.textContent = app.legacy ? 'LEGACY BREAK' : `TOM ${count(TOMS)} · CLP ${count(['clap'])} · FX ${count(['fx'])}${missing.length ? ' · !' : ''}`;
+    setTip(
+      tomNote,
+      [
+        `Hits in this break: ${count(TOMS)} tom, ${count(['clap'])} clap, ${count(['fx'])} FX.`,
+        old && !app.legacy ? 'This break was baked before CLAP and FX existed: it has none until a control changes (then the current GROOVE adds them; ⌘Z returns).' : '',
+        missing.length ? `No sample for ${missing.map((t) => CATEGORY_LABEL[t]).join(', ')}: those hits are silent until one is loaded (INGREDIENTS), or the demo kit is added.` : 'Every tom, clap and FX track has samples (INGREDIENTS). Their hits follow their MIXER channels and MIDI notes.',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    );
     if (win.tab === TAB.cymbals) cymbals.update();
     if (win.tab === TAB.persona) persona.update();
     if (win.tab === TAB.chop) chop.update();

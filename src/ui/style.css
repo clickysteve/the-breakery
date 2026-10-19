@@ -1060,15 +1060,15 @@ input.mtext:focus-visible {
   position: absolute;
   display: grid;
   grid-template-columns: 62px minmax(96px, 1fr) 92px 36px 36px 96px;
-  /* headings, eleven channels, the rule, the master */
-  grid-template-rows: 9px repeat(11, 16px) 5px 16px;
+  /* headings, thirteen channels, the rule, the master */
+  grid-template-rows: 9px repeat(13, 14px) 5px 15px;
   column-gap: 6px;
-  row-gap: 2px;
+  row-gap: 1px;
   align-items: center;
 }
 .mixgrid .cell {
   position: relative;
-  height: 14px;
+  height: 13px;
 }
 .mixgrid .cell > .range,
 .mixgrid .cell > .btn {

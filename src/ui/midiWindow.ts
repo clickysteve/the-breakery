@@ -16,7 +16,7 @@ import { Button, MWindow, NumBox } from './widgets';
 import type { UiContext } from './context';
 
 const W = 440;
-const H = 284;
+const H = 314;
 const ROW = 15;
 const TOP = 74;
 
@@ -160,7 +160,8 @@ export function midiWindow(parent: HTMLElement, ui: UiContext, rig: MidiRig, at:
       r.outNote.update();
       r.inCh.update();
       r.inNote.update();
-      setTip(r.outNote.el, `${CATEGORY_LABEL[r.cat]} OUT NOTE: ${o.note} (${noteName(o.note)}). Also the MIDI file’s note. Type 0–127, or drag.`);
+      const conv = r.cat === 'fx' ? ' General MIDI has no effects drum: FX defaults to 27 (High Q in GM2 and GS), a convention, not a standard; set the note your sampler uses.' : r.cat === 'clap' ? ' CLAP defaults to GM Hand Clap (39).' : r.cat === 'perc' ? ' PERC defaults to GM Side Stick (37), so it never shares CLAP’s note.' : '';
+      setTip(r.outNote.el, `${CATEGORY_LABEL[r.cat]} OUT NOTE: ${o.note} (${noteName(o.note)}). Also the MIDI file’s note. Type 0–127, or drag.${conv}`);
       setTip(r.inNote.el, `${CATEGORY_LABEL[r.cat]} IN NOTE: ${i.note} (${noteName(i.note)}). Tracks with the same note, channel and device play together.`);
       r.learn.on = rig.learning === r.cat;
       for (const e of [r.outDev.el, r.outCh.el, r.outNote.el]) e.style.opacity = o.on ? '1' : '0.4';
