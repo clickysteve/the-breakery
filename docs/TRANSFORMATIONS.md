@@ -22,7 +22,7 @@ SOURCE GROOVE (seeds, recipe; fills and their rolls, toms, CLAP, FX)
   -> ROLLS         rollLayer.ts    beat seed (where) + feel seed (how) + rollTake   [revision 6]
   -> EXPRESSION    rollExpr.ts     feel seed + rollExpr.variant
   -> REGEN TRACK, PERSONALITY performance
-  -> HAND EDITS    edits.ts        positional layer
+  -> HAND EDITS    edits.ts        anchored layer (Phase 17)
   -> samples (PICK modes)
   -> DESTROY       destroy2.ts     beat seed + destroy2.take
   -> playback, WAV, stems, MIDI    (all from `App.current`)
@@ -73,10 +73,14 @@ settings or take never redraws another's numbers.
 
 ## Hand edits
 
-The edit layer is positional (`cat|bar|step|sub`) and applied after every transformation, as
-for every other control. It is never deleted by a transformation: an edit whose hit is not in
+The edit layer is applied after every transformation, as for every other control. Since Phase
+17 its deletions and changes are anchored to the hit they were made on (its origin, through
+CHOP): exactly where it was made, else where CHOP moved that hit in the same bar, else it waits.
+A different hit landing on an edited place is never touched, and hits added by hand stay where
+they were placed, once. It is never deleted by a transformation: an edit whose hit is not in
 the new result is kept and reported as waiting, and applies again when that result returns.
-A generated roll stroke deleted by hand stays deleted for that take.
+A generated roll stroke deleted by hand stays deleted for that take. The full rules are in
+[PATTERN_WORKFLOW.md](PATTERN_WORKFLOW.md#chop-with-hand-edits).
 
 ## Undo and redo
 
@@ -101,7 +105,8 @@ the roll settings that changed. NEW PATCH resets CHOP and the roll settings to t
 
 ## Playback and export
 
-Every change goes through `Player.setBreak`, so IMMEDIATE, NEXT BAR and NEXT LOOP apply and
-nothing restarts. WAV, stems and MIDI are rendered from `App.current`, the pattern on screen.
+Every change goes through `Player.setBreak`, so IMMEDIATE (the next safe sixteenth), NEXT BAR
+and NEXT LOOP apply on the grid, nothing restarts and no hit is scheduled twice
+([PATTERN_WORKFLOW.md](PATTERN_WORKFLOW.md#live-editing)). WAV, stems and MIDI are rendered from `App.current`, the pattern on screen.
 MIDI writes every roll stroke as a GM note of its drum; EXPRESSION's pitch, reverse and DESTROY's
 sound shaping are audio only (MIDI has no transposed drum notes).

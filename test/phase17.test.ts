@@ -25,7 +25,7 @@ function memoryStorage(): Storage {
   return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, String(v)), removeItem: (k) => void m.delete(k), clear: () => m.clear(), key: (i) => [...m.keys()][i] ?? null, get length() { return m.size; } } as Storage;
 }
 export function makeApp(seed: string | null = '4242', k: KitIndex = K) {
-  const ingredients = { kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '?', items: Object.values(k).flat().map((id) => ({ id, status: 'ready' })) };
+  const ingredients = { kit: () => k, loudness: () => ({}), name: (id: string | null) => id ?? '?', items: CATEGORIES.flatMap((c) => k[c].map((id) => ({ id, cat: c, status: 'ready' }))) };
   const player = { loop: true, level: 0.5, playing: false, setLevel() {}, setMix() {}, setOutput() {}, setBreak() {}, update() {}, audition: async () => {}, onSwap: () => {} };
   return new App(ingredients as never, player as never, seed ?? undefined);
 }
@@ -383,5 +383,178 @@ describe('Part D: a session of live edits through the App', () => {
       for (let i = 1; i < ts.length; i++) expect(ts[i]! - ts[i - 1]!).toBeGreaterThan(0.004);
     }
     expect(noteOn.mock.calls.length).toBeGreaterThan(50);
+  });
+});
+
+import { cellAtX, cellOf, dragTo, lineX, tickAtX, xAtTick, type GridGeom } from '../src/ui/gridGeometry';
+import { SNAPS } from '../src/app/app';
+import { defaultNaming, loadNaming, movePart, namePlace, nameRows, saveNaming, NAME_PARTS } from '../src/audio/exportName';
+
+describe('Part E: a grid click targets the cell that contains it', () => {
+  const g: GridGeom = { x0: 1, cw: 23, view0: 0 };
+  const xOf = (t: number) => xAtTick(g, t);
+
+  it('10, 25, 49, 51, 75 and 90 percent of a cell all land on that cell, for every snap and bar', () => {
+    for (const snap of SNAPS) {
+      for (const bars of [1, 2, 4]) {
+        for (let start = 0; start < bars * TPB; start += snap) {
+          for (const f of [0.1, 0.25, 0.49, 0.51, 0.75, 0.9]) {
+            expect(cellAtX(g, xOf(start + f * snap), snap, bars)).toBe(start);
+          }
+        }
+      }
+    }
+  });
+
+  it('a boundary belongs to the cell on its right; before the grid is the first cell, past it the last', () => {
+    for (const snap of SNAPS) {
+      expect(cellAtX(g, xOf(snap), snap, 2)).toBe(snap);
+      expect(cellAtX(g, xOf(TPB), snap, 2)).toBe(TPB);
+      expect(cellAtX(g, g.x0 - 5, snap, 2)).toBe(0);
+      const last = 2 * TPB - snap;
+      expect(cellAtX(g, xOf(2 * TPB) + 40, snap, 2)).toBe(last);
+      expect(cellAtX(g, xOf(2 * TPB - 0.01), snap, 2)).toBe(last);
+    }
+  });
+
+  it('triplet cells restart on every bar and never straddle a bar line', () => {
+    for (const snap of [8, 4]) {
+      expect(TPB % snap).toBe(0);
+      for (let bar = 0; bar < 4; bar++) expect(cellOf(bar * TPB + 0.5, snap, 4)).toBe(bar * TPB);
+      expect(cellOf(TPB - 0.5, snap, 4)).toBe(TPB - snap);
+    }
+  });
+
+  it('the scrolled view and float pixel positions keep the same cell', () => {
+    const v: GridGeom = { x0: 1, cw: 17.3, view0: 2 };
+    for (const snap of SNAPS) {
+      for (let start = 2 * TPB; start < 4 * TPB; start += snap) {
+        expect(cellAtX(v, xAtTick(v, start), snap, 4)).toBe(start);
+        expect(cellAtX(v, xAtTick(v, start + snap) - 0.01, snap, 4)).toBe(start);
+      }
+    }
+    expect(tickAtX(v, xAtTick(v, 500))).toBeCloseTo(500, 9);
+  });
+
+  it('a drag moves by whole cells crossed, the same from any point of the pressed cell', () => {
+    for (const snap of SNAPS) {
+      const t0 = 2 * snap;
+      for (const f of [0.1, 0.5, 0.9]) {
+        const press = xOf(t0 + f * snap);
+        expect(dragTo(g, t0, press, press + 0.4, snap, 4)).toBe(t0);
+        expect(dragTo(g, t0, press, xOf(t0 + 3 * snap + 0.5 * snap), snap, 4)).toBe(t0 + 3 * snap);
+        expect(dragTo(g, t0, press, xOf(t0 - 2 * snap + 0.2 * snap), snap, 4)).toBe(t0 - 2 * snap);
+      }
+      expect(dragTo(g, t0, xOf(t0), xOf(-10 * TPB), snap, 4)).toBe(0);
+      expect(dragTo(g, t0, xOf(t0), xOf(10 * TPB), snap, 4)).toBe(4 * TPB - 1);
+    }
+  });
+
+  it('grid lines sit on the pixel that holds their tick', () => {
+    for (const snap of SNAPS) {
+      for (let t = 0; t <= TPB; t += snap) {
+        const x = lineX(g, t);
+        expect(x % 1).toBe(0.5);
+        expect(Math.abs(x - 0.5 - xOf(t))).toBeLessThan(1);
+        expect(cellAtX(g, x + 0.5, snap, 1)).toBe(Math.min(t, TPB - snap));
+      }
+    }
+  });
+});
+
+describe('Part C: the name builder in two columns', () => {
+  it('seven components: 1 to 4 down the left, 5 to 7 down the right', () => {
+    expect(nameRows(7)).toBe(4);
+    expect(Array.from({ length: 7 }, (_, i) => namePlace(i, 7))).toEqual([
+      { col: 0, row: 0 }, { col: 0, row: 1 }, { col: 0, row: 2 }, { col: 0, row: 3 },
+      { col: 1, row: 0 }, { col: 1, row: 1 }, { col: 1, row: 2 },
+    ]);
+    expect(Array.from({ length: 7 }, (_, i) => namePlace(i, 7, 1))).toEqual(Array.from({ length: 7 }, (_, i) => ({ col: 0, row: i })));
+    expect(nameRows(NAME_PARTS.length)).toBe(4);
+  });
+
+  it('up and down follow the filename order, across the columns', () => {
+    let p = defaultNaming();
+    const fourth = p.parts[3]!.id;
+    const fifth = p.parts[4]!.id;
+    p = movePart(p, fourth, 1);
+    expect(p.parts[4]!.id).toBe(fourth);
+    expect(namePlace(4, 7)).toEqual({ col: 1, row: 0 });
+    expect(p.parts[3]!.id).toBe(fifth);
+    p = movePart(p, fourth, -1);
+    expect(p.parts[3]!.id).toBe(fourth);
+    expect(p.parts[4]!.id).toBe(fifth);
+    expect(movePart(p, p.parts[0]!.id, -1)).toBe(p);
+    expect(movePart(p, p.parts[6]!.id, 1)).toBe(p);
+  });
+
+  it('the order persists', () => {
+    const p = movePart(defaultNaming(), 'seed', -1);
+    saveNaming(p);
+    expect(loadNaming().parts.map((x) => x.id)).toEqual(p.parts.map((x) => x.id));
+  });
+});
+
+describe('Part B: PAINT a chosen sample into a track', () => {
+  const free = (app: App, cat: 'kick' | 'snare') => {
+    const taken = new Set(app.current.events.filter((e) => e.cat === cat).map(tick));
+    const out: number[] = [];
+    for (let t = 0; t < app.recipe.bars * TPB && out.length < 3; t += TPS) if (!taken.has(t)) out.push(t);
+    return out;
+  };
+
+  it('every hit placed on the painted row plays that sample; other rows keep their PICK mode', () => {
+    const app = makeApp();
+    app.setPaint('kick', 'kick-b');
+    expect(app.paintSample('kick')).toBe('kick-b');
+    expect(app.paintSample('snare')).toBeNull();
+    for (const t of free(app, 'kick')) {
+      const ref = app.addHit('kick', t)!;
+      expect(app.current.events.find((e) => e.ref === ref)?.sample).toBe('kick-b');
+    }
+    const before = makeApp();
+    const t = free(app, 'snare')[0]!;
+    const a = app.current.events.find((e) => e.ref === app.addHit('snare', t));
+    const b = before.current.events.find((e) => e.ref === before.addHit('snare', t));
+    expect(a?.sample).toBe(b?.sample);
+  });
+
+  it('clicking the chosen sample again releases it; a choice for a sample not in the track is refused', () => {
+    const app = makeApp();
+    app.setPaint('snare', 'snare-a');
+    app.setPaint('snare', 'snare-a');
+    expect(app.paint.snare).toBeUndefined();
+    app.paint.kick = 'snare-a';
+    expect(app.paintSample('kick')).toBeNull();
+  });
+
+  it('painted hits undo and redo with their sample; the choice persists across a reload', () => {
+    const app = makeApp();
+    app.setPaint('kick', 'kick-a');
+    const [t1, t2] = free(app, 'kick');
+    app.addHit('kick', t1!);
+    app.addHit('kick', t2!);
+    const painted = heard(app.current);
+    app.undo();
+    app.undo();
+    app.redo();
+    app.redo();
+    expect(heard(app.current)).toBe(painted);
+    const again = makeApp(null);
+    expect(again.paint.kick).toBe('kick-a');
+  });
+
+  it('a kit without the chosen sample drops the choice (the track takes its PICK mode), and only that track', () => {
+    const k = kit();
+    const app = makeApp('4242', k);
+    app.setPaint('kick', 'kick-b');
+    app.setPaint('snare', 'snare-b');
+    const items = (app.ingredients as unknown as { items: { id: string; cat: string; status: string }[] }).items;
+    items.splice(items.findIndex((i) => i.id === 'kick-b'), 1);
+    k.kick = ['kick-a'];
+    app.kitLoaded(app.samples);
+    expect(app.paint.kick).toBeUndefined();
+    expect(app.paint.snare).toBe('snare-b');
+    expect(app.status).toMatch(/PAINT/);
   });
 });
