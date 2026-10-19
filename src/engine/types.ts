@@ -14,14 +14,21 @@ import type { DestroySettings2, Destroy2Report } from './destroy2';
 import type { CymbalSettings, CymbalReport } from './cymbals4';
 import type { Regen, RegenReport } from './regen';
 
-/** Drum categories, in display order (toms high to low, as they sit on a kit). */
-export const CATEGORIES = ['kick', 'snare', 'ghost', 'htom', 'mtom', 'ltom', 'hat', 'open', 'ride', 'crash', 'perc'] as const;
+/**
+ * Drum categories (tracks), in display order (toms high to low, as they sit on a kit). Thirteen
+ * since Phase 15: CLAP and FX joined (PERC carried both roles before). Every map keyed by category
+ * follows this list; data saved with the eleven earlier tracks gets the new ones empty.
+ */
+export const CATEGORIES = ['kick', 'snare', 'ghost', 'clap', 'htom', 'mtom', 'ltom', 'hat', 'open', 'ride', 'crash', 'perc', 'fx'] as const;
 export type Category = (typeof CATEGORIES)[number];
+/** The eleven tracks before Phase 15 (kept for migrations and tests). */
+export const LEGACY_CATEGORIES = ['kick', 'snare', 'ghost', 'htom', 'mtom', 'ltom', 'hat', 'open', 'ride', 'crash', 'perc'] as const satisfies readonly Category[];
 
 export const CATEGORY_LABEL: Record<Category, string> = {
   kick: 'KICK',
   snare: 'SNARE',
   ghost: 'GHOST',
+  clap: 'CLAP',
   htom: 'HIGH TOM',
   mtom: 'MID TOM',
   ltom: 'LOW TOM',
@@ -30,14 +37,22 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   ride: 'RIDE',
   crash: 'CRASH',
   perc: 'PERC',
+  fx: 'FX',
 };
 
 /** The tom categories, high to low. */
 export const TOMS = ['htom', 'mtom', 'ltom'] as const satisfies readonly Category[];
 export const isTom = (c: Category): boolean => c === 'htom' || c === 'mtom' || c === 'ltom';
 
-/** General MIDI drum notes per category (MIDI file export): toms are GM High Tom, Low-Mid Tom and Low Tom. */
-export const GM_NOTE: Record<Category, number> = { kick: 36, snare: 38, ghost: 38, htom: 50, mtom: 47, ltom: 45, hat: 42, open: 46, ride: 51, crash: 49, perc: 39 };
+/**
+ * General MIDI drum notes per category (MIDI file export and live MIDI defaults): toms are GM High
+ * Tom, Low-Mid Tom and Low Tom; CLAP is GM Hand Clap (39). PERC played 39 while it was the clap
+ * track; from Phase 15 its default is GM Side Stick (37), so the two never share a note (a stored
+ * MIDI routing keeps the notes it has: see sanitiseMidiSettings). General MIDI has no effects drum:
+ * FX defaults to 27 (High Q in GM2 and GS, outside GM1's 35–81), a documented convention to change
+ * in the MIDI window, not a standard.
+ */
+export const GM_NOTE: Record<Category, number> = { kick: 36, snare: 38, ghost: 38, clap: 39, htom: 50, mtom: 47, ltom: 45, hat: 42, open: 46, ride: 51, crash: 49, perc: 37, fx: 27 };
 
 /** Sixteenth-note steps per 4/4 bar. */
 export const STEPS = 16;
@@ -81,13 +96,18 @@ export const CURRENT_ENGINE: Engine = 2;
  *               nine BREAK DNA types built into the phrase before the cymbals; CLOSED HAT, OPEN
  *               HAT, RIDE and CRASH ACTIVITY as coverage of a chosen SUBDIVISION, with primary
  *               and open/closed relationships and OPEN-HAT CHOKE (Recipe.cym)
+ *   5           CLAP and FX (Phase 15, clapfx.ts): two tracks generated after the toms and rolls
+ *               from their own streams (CLAP ACTIVITY and FX ACTIVITY); every other track is the
+ *               same as revision 4
  * New breaks are baked with the current revision.
  */
-export const CURRENT_REVISION = 4;
+export const CURRENT_REVISION = 5;
 /** The first revision with the Phase 13 rhythmic vocabulary. */
 export const VOCAB_REVISION = 3;
 /** The first revision with the Phase 14 BREAK DNA grammar and cymbal engine. */
 export const CYMBAL_REVISION = 4;
+/** The first revision with the CLAP and FX tracks. */
+export const CLAPFX_REVISION = 5;
 
 /** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
 export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
@@ -177,6 +197,10 @@ export interface Recipe {
    * recipes keep hats / ride / cymbals and bake as they did.
    */
   cym?: CymbalSettings;
+  /** CLAP ACTIVITY 0..1 (revision 5): how present the claps are (absent = the recipe's default; 0 = none) */
+  clap?: number;
+  /** FX ACTIVITY 0..1 (revision 5): how many structural effects (absent = the recipe's default; 0 = none) */
+  fx?: number;
 }
 
 /**
@@ -305,6 +329,10 @@ export type Role =
   | 'roll'
   /** a repeat made by DESTROY ▸ STUTTER (a transformation the user chose: not a generated roll) */
   | 'stutter'
+  /** a generated clap (CLAP track, revision 5): layered backbeat, off-beat accent, answer or phrase accent */
+  | 'clap'
+  /** a generated effect (FX track, revision 5): an impact, a reversed swell or a transition accent */
+  | 'fx'
   /** placed (or moved) by hand: not generated */
   | 'manual';
 

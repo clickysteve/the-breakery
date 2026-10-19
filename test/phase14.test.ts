@@ -114,9 +114,9 @@ describe('BREAK DNA', () => {
 });
 
 describe('CYMBALS (revision 4)', () => {
-  it('new recipes are revision 4', () => {
-    expect(CURRENT_REVISION).toBe(4);
-    expect(defaultRecipe('funk', 4).revision).toBe(4);
+  it('new recipes are revision 4 or later (revision 5 added CLAP and FX)', () => {
+    expect(CURRENT_REVISION).toBeGreaterThanOrEqual(4);
+    expect(defaultRecipe('funk', 4).revision).toBe(CURRENT_REVISION);
   });
 
   it('CRITICAL: CLOSED HAT 100% fills every position of every subdivision in every bar (and RIDE 100% its own)', () => {

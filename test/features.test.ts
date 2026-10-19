@@ -25,7 +25,8 @@ const fullKit = (): KitIndex => {
 };
 const grid = (b: Break, bar: number) =>
   b.events
-    .filter((e) => e.bar === bar && !(e.step === 0 && (e.cat === 'crash' || e.cat === 'hat' || e.cat === 'ride' || e.cat === 'open')))
+    // (FX mark the phrase structure on purpose, like the crash: left out)
+    .filter((e) => e.bar === bar && e.cat !== 'fx' && !(e.step === 0 && (e.cat === 'crash' || e.cat === 'hat' || e.cat === 'ride' || e.cat === 'open')))
     .map((e) => `${e.cat}${e.step}.${e.sub}`)
     .sort()
     .join(' ');

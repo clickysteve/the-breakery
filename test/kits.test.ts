@@ -208,19 +208,21 @@ it('the library adds stored samples to the current kit without importing them ag
   expect((await s.audio.list()).length).toBe(2);
 });
 
-it('maps other applications\' roles: extra roles go to PERC or UNSORTED and keep their role on save', () => {
+it('maps other applications\' roles: extra roles go to PERC or UNSORTED and keep their role on save (clap and fx have their own tracks)', () => {
   const id = (n: number) => n.toString(16).padStart(64, '0');
   const kit = { name: 'From elsewhere', instruments: [
     { role: 'kick', samples: [{ sample: id(1) }] },
     { role: 'cowbell', label: 'COWBELL', samples: [{ sample: id(2) }] },
     { role: 'hat-closed', index: 1, samples: [{ sample: id(3) }] },
     { role: 'fx', samples: [{ sample: id(4), name: 'zap' }] },
+    { role: 'clap', samples: [{ sample: id(5) }] },
+    { role: 'tambourine', samples: [{ sample: id(6) }] },
   ] };
   const m = breakeryMapping(kit);
   const plan = planKit(m, () => 'x');
-  expect(plan.items.map(i => [i.cat, i.role ?? null])).toEqual([['kick', null], ['hat', null], ['perc', 'cowbell'], ['unsorted', 'fx']]);
+  expect(plan.items.map(i => [i.cat, i.role ?? null])).toEqual([['kick', null], ['clap', null], ['hat', null], ['perc', 'cowbell'], ['fx', null], ['unsorted', 'tambourine']]);
   const back = instrumentsOf(plan.items, plan.settings);
-  expect(back.map(i => [i.role, i.index ?? 0]).sort()).toEqual([['cowbell', 0], ['fx', 0], ['hat-closed', 1], ['kick', 0]]);
+  expect(back.map(i => [i.role, i.index ?? 0]).sort()).toEqual([['clap', 0], ['cowbell', 0], ['fx', 0], ['hat-closed', 1], ['kick', 0], ['tambourine', 0]]);
 });
 
 it('a DOWNBEAT kit passes through: SNARE 1 and 2 both play in SNARE, and saving keeps them distinct with their settings', () => {

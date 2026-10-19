@@ -202,8 +202,40 @@ function tom(f0: number, f1: number, decay: number, seed: number): Float32Array 
   return finish(drive(n, 1.3), 0.78);
 }
 
-/** Demo sounds added after the first release: given once to visitors who already have the demo kit. */
-export const NEW_DEMO_IDS = ['demo:tom-high', 'demo:tom-mid', 'demo:tom-low'];
+/** A hand clap: three quick noise bursts and a short band-passed tail. */
+function clap(seed: number): Float32Array {
+  const rng = makeRng(seed);
+  const n = buf(0.4);
+  const body = biquad(noise(n.length, rng), 'bp', 1150, 1.4);
+  const shape = new Float32Array(n.length);
+  for (const [at, decay, gain] of [[0, 0.006, 0.9], [0.011, 0.006, 0.95], [0.021, 0.007, 1], [0.03, 0.09, 0.85]] as const) {
+    const start = Math.round(at * DEMO_RATE);
+    const e = env(n.length - start, decay, 0.0004);
+    for (let i = 0; i < e.length; i++) shape[start + i]! += e[i]! * gain;
+  }
+  add(n, mul(body, shape));
+  biquad(n, 'hp', 600);
+  return finish(n, 0.7);
+}
+
+/** An effect: a falling zap with a noisy tail (a laser, not an instrument). */
+function zap(seed: number): Float32Array {
+  const rng = makeRng(seed);
+  const n = buf(0.7);
+  add(n, mul(sweep(n.length, 2600, 140, 0.09), env(n.length, 0.22, 0.001)));
+  add(n, mul(biquad(noise(n.length, rng), 'bp', 3000, 0.8), env(n.length, 0.12)), 0.3);
+  return finish(drive(n, 1.8), 0.62);
+}
+
+/**
+ * Demo sounds added after the first release, given once to visitors who already have the demo kit
+ * (each group has its own flag, so a sound the visitor removed never comes back).
+ */
+export const NEW_DEMO_OFFERS: { key: string; ids: string[] }[] = [
+  { key: 'breakery.demo-toms.v1', ids: ['demo:tom-high', 'demo:tom-mid', 'demo:tom-low'] },
+  { key: 'breakery.demo-clapfx.v1', ids: ['demo:clap', 'demo:fx-zap'] },
+];
+export const NEW_DEMO_IDS = NEW_DEMO_OFFERS.flatMap((o) => o.ids);
 
 let cache: DemoSound[] | null = null;
 
@@ -217,6 +249,7 @@ export function demoKit(): DemoSound[] {
     s('snare-fat', 'DEMO SNARE FAT', 'snare', snare(185, 330, 0.11, 0.17, 3000, 3)),
     s('snare-crack', 'DEMO SNARE CRACK', 'snare', snare(230, 420, 0.07, 0.13, 4500, 4)),
     s('ghost-soft', 'DEMO GHOST SOFT', 'ghost', snare(200, 360, 0.05, 0.07, 3500, 5)),
+    s('clap', 'DEMO CLAP', 'clap', clap(15)),
     s('hat-tight', 'DEMO HAT TIGHT', 'hat', hat(0.038, 380, 0.45, 6, 0.25)),
     s('hat-loose', 'DEMO HAT LOOSE', 'hat', hat(0.06, 340, 0.7, 7, 0.3)),
     s('open-hat', 'DEMO OPEN HAT', 'open', hat(0.32, 360, 0.6, 8, 1.4)),
@@ -228,6 +261,7 @@ export function demoKit(): DemoSound[] {
     s('tom-high', 'DEMO TOM HIGH', 'htom', tom(250, 185, 0.22, 12)),
     s('tom-mid', 'DEMO TOM MID', 'mtom', tom(185, 135, 0.28, 13)),
     s('tom-low', 'DEMO TOM LOW', 'ltom', tom(128, 88, 0.36, 14)),
+    s('fx-zap', 'DEMO FX ZAP', 'fx', zap(16)),
   ];
   return cache;
 }

@@ -20,7 +20,7 @@ import { Button, RangeBar } from './widgets';
 import type { UiContext } from './context';
 
 const pct = (v: number) => `${Math.round(v * 100)}%`;
-const ABBR: Record<Category, string> = { kick: 'KCK', snare: 'SNR', ghost: 'GHO', htom: 'HT', mtom: 'MT', ltom: 'LT', hat: 'HAT', open: 'OPN', ride: 'RDE', crash: 'CRS', perc: 'PRC' };
+const ABBR: Record<Category, string> = { kick: 'KCK', snare: 'SNR', ghost: 'GHO', clap: 'CLP', htom: 'HT', mtom: 'MT', ltom: 'LT', hat: 'HAT', open: 'OPN', ride: 'RDE', crash: 'CRS', perc: 'PRC', fx: 'FX' };
 const FX_TIP: Record<DestroyEffect, string> = {
   stutter: 'STUTTER: the hit repeated (REPEATS, at a SUBDIVISION, EVEN, ACCEL or DECEL), with a velocity contour and a pitch movement. Repeats stop before the next hit of the track. DESTROY’s own repeats: ROLL GENERATION stays as you set it.',
   pitch: 'PITCH: the hit transposed (RANGE, UP, DOWN or BOTH), on semitones (QUANTISE) or free; FIXED, or a DIVE or RISE along a stutter (a glide on a single hit). Never beyond ±24 semitones.',
@@ -52,7 +52,7 @@ export function destroyTab(b: HTMLElement, ui: UiContext, W: number) {
 
   // ---- the matrix: tracks across, effects down
   const mx = 58;
-  const cw = 17;
+  const cw = 16;
   CATEGORIES.forEach((c, j) => {
     const h = el('div', 'label tiny', b, [mx + j * cw, 24, cw - 1], ABBR[c]);
     h.style.textAlign = 'center';

@@ -29,6 +29,7 @@ export const ROLE: Record<Slot, string> = {
   kick: 'kick',
   snare: 'snare',
   ghost: 'snare-ghost',
+  clap: 'clap',
   htom: 'tom-high',
   mtom: 'tom-mid',
   ltom: 'tom-low',
@@ -37,10 +38,11 @@ export const ROLE: Record<Slot, string> = {
   ride: 'ride',
   crash: 'crash',
   perc: 'perc',
+  fx: 'fx',
   unsorted: 'unassigned',
 };
 /** Roles a category also takes (they keep their role in the kit). */
-const ACCEPTS: Partial<Record<Slot, string[]>> = { hat: ['hat-pedal'], perc: ['clap', 'rim', 'cowbell', 'shaker', 'clave', 'conga'] };
+const ACCEPTS: Partial<Record<Slot, string[]>> = { hat: ['hat-pedal'], perc: ['rim', 'cowbell', 'shaker', 'clave', 'conga'] };
 
 /** The Breakery's instruments, for mapping kits: each category plays every sample of its roles. */
 export function breakeryTargets(): KitTarget[] {
