@@ -477,7 +477,10 @@ describe('folder import: category suggestions', () => {
     expect(suggestCategory('Kit/kick snare combo.wav').cat).toBe('unsorted');
     expect(suggestCategory('Kit/kick snare combo.wav').reason).toMatch(/ambiguous/);
     expect(suggestCategory('Kicks/kick snare combo.wav').cat).toBe('kick'); // the folder settles it
-    expect(suggestCategory('Loops/whoosh.wav').cat).toBe('unsorted');
+    expect(suggestCategory('Loops/pad.wav').cat).toBe('unsorted');
+    expect(suggestCategory('Loops/whoosh.wav').cat).toBe('fx'); // FX has its own track from Phase 15
+    expect(guessCategory('909 clap.wav')).toBe('clap');
+    expect(guessCategory('snare fx.wav')).toBe('unsorted'); // a snare or an effect: ambiguous
     expect(guessCategory('chord stab.wav')).toBe('unsorted'); // "ch" only as a whole letter group
     expect(guessCategory('prime.wav')).toBe('unsorted'); // "rim" only as a whole word
     expect(matches('hat_open.wav')).toEqual(['open']);
