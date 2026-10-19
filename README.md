@@ -21,7 +21,7 @@ over: every hit can be added, moved, deleted or changed by hand.
 
 | | |
 |---|---|
-| **INGREDIENTS** | Your sample library: KICK, SNARE, GHOST, HIGH TOM, MID TOM, LOW TOM, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. |
+| **INGREDIENTS** | Your samples: KICK, SNARE, GHOST, HIGH TOM, MID TOM, LOW TOM, HAT, OPEN HAT, RIDE, CRASH, PERC, several samples each. **KITS** saves, loads, duplicates, renames, deletes, exports and imports kits; **LIBRARY** holds every sample in this browser, to preview and add to any kit. Kit files (`.kit.zip`) move between browsers and to DOWNBEAT. See [docs/KITS.md](docs/KITS.md). |
 | **RECIPE** | Eleven recipes (FUNK, HIP-HOP, JUNGLE, BROKEN, BOOM BAP, HARDCORE, D&B, HALF-TIME, GARAGE, ELECTRO, BREAKCORE), BPM, 1–8 bars, seed (a number or a name), DICE, history, favourites, eight controls and TOM ACTIVITY. |
 | **BAKE** | Generate a new break. |
 | **BATCH** | Generate eight candidates and audition them. |
@@ -85,6 +85,12 @@ from any folder of any static server). `npm run evaluate` regenerates
    WEIGHTED (type a weight 0–9 beside each sample), VELOCITY (soft hits play the quietest sample,
    loud hits the loudest), ALTERNATE (never twice in a row) or PER BAR. Every choice is
    deterministic, the same in playback and TAKEAWAY, and explained when you hover a hit.
+   **KITS** (a tab of INGREDIENTS) keeps sets of sounds: SAVE, SAVE AS, LOAD, DUPLICATE, RENAME,
+   DELETE, SET DEFAULT, and EXPORT / IMPORT of portable kit files (`.kit.zip`: the kit with its
+   audio, readable by any Slop Factory instrument, DOWNBEAT included). Loading a kit changes the
+   sounds only: the break, recipe and history stay. **LIBRARY** lists every sample kept in this
+   browser: ▶ PREVIEW, add one to the current kit in the selected category (no second import),
+   delete what no kit uses. Each sample is stored once, however many kits use it.
 2. **Recipe.** Pick a recipe (it sets every control to its defaults), then adjust. Every change
    re-bakes the same seed, so you hear what the control does to this break. Hover any control
    for what it does. **Every number can be typed**: click it (the value is selected), type,
@@ -239,8 +245,8 @@ One-time setup: **Settings ▸ Pages ▸ Source: GitHub Actions**, and the custo
 
 Shared audio infrastructure and the palettes come from
 [Slop Factory Core](https://github.com/clickysteve/slopfactory-core) (sampler, mixer, offline
-renderer, output engines, WAV/ZIP export, sample storage, palettes and the palette editor), pinned to a commit
-in `package.json`; the interface follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit
+renderer, output engines, WAV/ZIP export, sample storage, the sample library, kits and kit
+files, palettes and the palette editor), pinned to a commit in `package.json`; the interface follows [emmm](https://github.com/clickysteve/emmm)'s 1-bit
 look, and the grid editing follows DOWNBEAT's conventions (click to add, right-click to delete,
 drag, ⌘Z).
 
@@ -267,6 +273,10 @@ drag, ⌘Z).
 * Chops rearrange hits, not audio: no slice tails, pitch, time-stretch or resampling.
 * Recipe values are hand-set hypotheses; some genre rules are not from reliable sources (see
   the research notes, §7).
+* Kits live in this browser (and this address): DOWNBEAT and other browsers get them as kit
+  files. The first release's saved kits are migrated, and their old copies are kept (they use
+  storage until site data is cleared). Kits exported by this version cannot be imported by the
+  first release.
 * Typed numbers need a hardware keyboard.
 * The demo kit is synthetic and plain. Use real one-shots for real results.
 * MIDI note lengths are fixed (a 64th). With the GM mapping SNARE and GHOST share note 38 (on

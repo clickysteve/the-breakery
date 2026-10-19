@@ -5,6 +5,7 @@
  * whole folders.
  */
 import { kitsPanel } from './kitsPanel';
+import { libraryPanel } from './libraryPanel';
 import { SLOTS, type ImportEntry, type Slot } from '../audio/ingredients';
 import { sourceOf } from '../engine/kit';
 import { modeOf, SAMPLE_MODE_LABEL, SAMPLE_MODE_TIP, SAMPLE_MODES, sampleUsage, type SampleMode } from '../engine/samples';
@@ -20,12 +21,13 @@ const ESSENTIAL: Category[] = ['kick', 'snare'];
 export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x: number; y: number; w: number; h: number }) {
   const { app } = ui;
   const ing = app.ingredients;
-  const win = new MWindow(parent, { title: 'INGREDIENTS', tabs: ['INGREDIENTS', 'KITS'], ...rect, onTab: () => kp?.update() });
-  const [b, kitBody] = win.panes as [HTMLDivElement, HTMLDivElement];
+  const win = new MWindow(parent, { title: 'INGREDIENTS', tabs: ['INGREDIENTS', 'KITS', 'LIBRARY'], ...rect, onTab: () => (kp?.update(), lp.update()) });
+  const [b, kitBody, libBody] = win.panes as [HTMLDivElement, HTMLDivElement, HTMLDivElement];
   const kp = ui.kits ? kitsPanel(kitBody, ui, ui.kits) : null;
   if (!kp) el('div', 'empty-note', kitBody, [8, 8, rect.w - 18], 'Kit storage unavailable. Reload to retry.');
   const W = rect.w - 2;
   let selected: Slot = 'kick';
+  const lp = libraryPanel(libBody, ui, () => selected, () => file.click());
 
   const rows = new Map<Slot, { row: HTMLDivElement; count: HTMLSpanElement; stat: HTMLSpanElement }>();
   SLOTS.forEach((slot, i) => {
@@ -123,6 +125,7 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
   let lastSig = '';
   function update(): void {
     kp?.update();
+    if (win.tab === 2) lp.update();
     for (const [slot, r] of rows) {
       r.row.classList.toggle('sel', slot === selected);
       const n = ing.inSlot(slot).length;

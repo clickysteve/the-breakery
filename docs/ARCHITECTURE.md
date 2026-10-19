@@ -38,10 +38,10 @@ RECIPE + SEEDS ──────────┤
 | Folder | What | Depends on |
 |---|---|---|
 | `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, and `FLOURISH`: each recipe's toms and rolls), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
-| `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (sample library, storage, folder import, loudness), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
+| `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (the current kit's samples by category, folder import, loudness; storage and the sample library through Core's `KitLibrary`), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
 | `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF), `messages` (builders and parsing), `output` (note-safe output per device), `router` (live hits → timestamped notes, queued note-offs, clock out), `routing` (per-track settings, defaults, input matching), `clockIn` (external clock follower), `access` (Web MIDI wrapper). Built on Core's MIDI interfaces. | audio/timeline, engine, Core midi types |
-| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence); `midi.ts` (MidiRig: MIDI settings, devices, input, clock source). | engine, audio, midi |
-| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window). | app, Core palette |
+| `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence); `midi.ts` (MidiRig: MIDI settings, devices, input, clock source); `kits.ts` (The Breakery's side of Core's kit system: categories as kit roles, INGREDIENTS and PICK settings as kit instruments and back, the legacy `.breakery-kit` reader and migration; see [KITS.md](KITS.md)); `bundledKits.ts` (kits shipped with The Breakery: none yet). | engine, audio, midi, Core kits |
+| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window); `kitsPanel` and `libraryPanel` (the KITS and LIBRARY tabs of INGREDIENTS: views of Core's KitSession and KitLibrary). | app, Core palette, Core kits |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
 ## The event model
@@ -269,8 +269,9 @@ MIX filters the timeline and MIDI by the same rule. Previews use a second, ungat
   hit. Live hits go through the main mixer at once (SOLO and MUTE apply).
 * **Velocity → level** is Core's 1.5-power curve (ghosts at velocity 30 play about −19 dB).
 * **Samples** are decoded by Core (WAV/AIFF by Good Bits' parsers, other formats by the
-  browser), stored as original bytes in IndexedDB by Core's content-addressed store, and never
-  uploaded.
+  browser), stored as original bytes in IndexedDB by Core's content-addressed store, indexed in
+  Core's kit library (one copy per file, shared by every kit) and never uploaded. Decoded audio
+  is cached by the library, so loading a kit again does not decode again.
 
 ## Where future features fit
 
