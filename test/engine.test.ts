@@ -159,7 +159,8 @@ describe('bake: musical structure', () => {
   });
 
   it('a 4-bar phrase is groove, answer, groove, turnaround', () => {
-    expect(bake(defaultRecipe('funk', 4), seedsFrom(1)).plan).toEqual(['A', 'A2', 'A', 'T']);
+    // revision 2's fixed plan (from revision 3 each seed chooses a phrase form: phase13.test.ts)
+    expect(bake({ ...defaultRecipe('funk', 4), revision: 2 }, seedsFrom(1)).plan).toEqual(['A', 'A2', 'A', 'T']);
     expect(bake(defaultRecipe('funk', 2), seedsFrom(1)).plan).toEqual(['A', 'T']);
     expect(bake(defaultRecipe('funk', 1), seedsFrom(1)).plan).toEqual(['A']);
   });

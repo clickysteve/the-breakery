@@ -81,7 +81,8 @@ describe('pattern length 1–8 bars', () => {
 
   it('groove bars repeat the groove, answers repeat each other, and later bars stay related', () => {
     for (const seed of SEEDS.slice(0, 15)) {
-      const b = bake(defaultRecipe('funk', 8), seedsFrom(seed));
+      // revision 2's fixed plan (revision 3 chooses a form per seed: phase13.test.ts)
+      const b = bake({ ...defaultRecipe('funk', 8), revision: 2 }, seedsFrom(seed));
       // bars 1, 3, 5 are the groove (A); bars 2 and 6 the same answer (A2)
       expect(grid(b, 2)).toBe(grid(b, 0));
       expect(grid(b, 4)).toBe(grid(b, 0));
@@ -128,13 +129,18 @@ describe('recipes have distinct mechanisms', () => {
     expect(all('halftime').filter((b) => bar0(b).some((e) => e.role === 'backbeat' && e.step === 8)).length / SEEDS.length).toBeGreaterThan(0.85);
   });
   it('D&B: a two-step skeleton, kicks on 1 and the "and" of 3', () => {
-    for (const b of all('dnb')) {
+    for (const b of all('dnb', 2, { revision: 2 })) {
       expect(bar0(b).some((e) => e.cat === 'kick' && e.step === 0)).toBe(true);
       expect(bar0(b).some((e) => e.cat === 'kick' && e.step === 10)).toBe(true);
     }
+    // revision 3: most grooves keep the two-step; the break-derived and half-time ones may not
+    const now = all('dnb');
+    for (const b of now) expect(bar0(b).some((e) => e.cat === 'kick' && e.step === 0)).toBe(true);
+    expect(now.filter((b) => bar0(b).some((e) => e.cat === 'kick' && e.step === 10)).length / now.length).toBeGreaterThanOrEqual(0.7);
   });
   it('GARAGE: kicks skip beats 2 and 4; heavy swing', () => {
-    for (const b of all('garage')) expect(bar0(b).some((e) => e.cat === 'kick' && (e.step === 4 || e.step === 12))).toBe(false);
+    // (a four-to-the-floor groove, UK garage's 4x4 style, layers its kicks under the backbeats: those are 'floor kick's)
+    for (const b of all('garage')) expect(bar0(b).some((e) => e.cat === 'kick' && e.role !== 'floor kick' && (e.step === 4 || e.step === 12))).toBe(false);
     expect(defaultRecipe('garage').swing).toBeGreaterThan(0.45);
   });
   it('HARDCORE: usually a four-on-the-floor layer under the break', () => {

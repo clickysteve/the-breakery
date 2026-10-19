@@ -218,7 +218,8 @@ describe('TOM ACTIVITY: tom phrases (revision 1)', () => {
   it('0% adds no toms, and the break is exactly what it was before revision 1', () => {
     for (const style of STYLES)
       for (const seed of S.slice(0, 8)) {
-        const rec = { ...defaultRecipe(style, 4), toms: 0 };
+        // (revision 2: revision 3 changes the rest of the break too)
+        const rec = { ...defaultRecipe(style, 4), toms: 0, revision: 2 };
         const b = bake(rec, seedsFrom(seed), fullKit());
         // tom rolls belong to ROLLS, not to TOM ACTIVITY
         expect(toms(b).filter((e) => e.role !== 'roll')).toHaveLength(0);

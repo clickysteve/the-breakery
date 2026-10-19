@@ -16,6 +16,7 @@
  * Engine 1 keeps its own frozen copy of the original four (v1/styles.ts).
  */
 import { STYLE_DEFS as V1_DEFS, type V1Style } from './v1/styles';
+import type { CymbalId, GrooveId } from './approaches';
 import { CURRENT_ENGINE, CURRENT_REVISION, type Bars, type Engine, type FlourishKey, type Recipe, type RollTarget, type Style } from './types';
 
 export type FillKind = 'run' | 'displace' | 'drop' | 'stutter' | 'chop' | 'roll';
@@ -286,8 +287,72 @@ export function defaultRecipe(style: Style = 'funk', bars: Bars = 2, engine: Eng
   const d = STYLE_DEFS[style];
   const old = engine === 1 ? v1Defaults(style) : null;
   const fl = FLOURISH[style].defaults;
-  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl, revision: CURRENT_REVISION }), ...(!old && style === 'jungle' ? { jungleCuts: true as const } : {}) };
+  const v = VOCAB[style];
+  return { style, bpm: d.bpm[2], bars, engine: old ? 1 : 2, ...(old ? { ...old, ...fl, toms: 0, rolls: 0 } : { ...d.defaults, ...fl, revision: CURRENT_REVISION, ...(CURRENT_REVISION >= 3 ? { hats: v.hats, ride: v.ride } : {}) }), ...(!old && style === 'jungle' ? { jungleCuts: true as const } : {}) };
 }
+
+// ------------------------------------------------------------------ the rhythmic vocabulary (revision 3)
+
+/**
+ * Each recipe's rhythmic vocabulary (revision 3, approaches.ts and cymbals.ts): the groove
+ * approaches a seed can choose and how often, the hats' and the ride's approaches, how readily the
+ * ride rather than the hats keeps the time (ALTERNATE), and the defaults of HI-HAT ACTIVITY and
+ * RIDE ACTIVITY. Weights are design hypotheses from docs/rhythmic-research.md, not fitted to data:
+ * BOOM BAP leans on the backbeat and straight or swung eighths, D&B on the two-step and its
+ * rolling and skipping variants with off-beat or sixteenth hats, GARAGE on the skipping kick and
+ * skipping or triplet hats, BROKEN on uneven groupings and staggered snares, and so on. Every
+ * recipe still reaches several approaches, so the seed, not only the recipe, shapes the groove.
+ */
+export interface Vocabulary {
+  grooves: Partial<Record<GrooveId, number>>;
+  hatVocab: Partial<Record<CymbalId, number>>;
+  rideVocab: Partial<Record<CymbalId, number>>;
+  /** how readily the ride keeps the time when both play (ALTERNATE), relative to the hats */
+  rideLean: number;
+  /** default HI-HAT ACTIVITY */
+  hats: number;
+  /** default RIDE ACTIVITY */
+  ride: number;
+}
+
+const RIDE: Partial<Record<CymbalId, number>> = { quarters: 1.5, eighths: 2, broken: 1, spang: 0.5, punctuate: 1, offbeats: 0.6, tresillo: 0.3 };
+
+// prettier-ignore
+export const VOCAB: Record<Style, Vocabulary> = {
+  funk: { grooves: { backbeat: 2, break: 1.5, ghostled: 1.5, syncopated: 1, pushed: 0.8, lopsided: 0.5, linear: 0.8, shuffle: 0.6, halftime: 0.3, sparse: 0.4, rolling: 0.3 },
+    hatVocab: { sixteenths: 3, eighths: 2.5, broken: 1, linear: 1.2, offbeats: 0.3, quarters: 0.4, triplet: 0.5, gallop: 0.6, punctuate: 0.3, tresillo: 0.4 },
+    rideVocab: { ...RIDE, spang: 0.4 }, rideLean: 0.35, hats: 0.75, ride: 0.2 },
+  hiphop: { grooves: { backbeat: 2, sparse: 1.2, minimal: 0.6, pushed: 1, lopsided: 1.2, halftime: 0.4, break: 1, ghostled: 0.5, shuffle: 0.8, syncopated: 0.5, fragment: 0.2 },
+    hatVocab: { eighths: 3, broken: 2, quarters: 1, offbeats: 0.6, triplet: 1.2, punctuate: 1, tresillo: 0.4, linear: 0.3, sixteenths: 0.6, gallop: 0.3, rapid: 0.4 },
+    rideVocab: { ...RIDE, spang: 1, triplet: 0.4 }, rideLean: 0.35, hats: 0.5, ride: 0.25 },
+  jungle: { grooves: { break: 2.5, backbeat: 1, twostep: 0.8, rolling: 1, syncopated: 0.8, fragment: 0.6, halftime: 0.3, ghostled: 0.5, pushed: 0.4 },
+    hatVocab: { sixteenths: 2, eighths: 2, broken: 1.2, offbeats: 0.8, gallop: 0.8, rapid: 0.6, quarters: 0.4, punctuate: 0.5, tresillo: 0.4, triplet: 0.3 },
+    rideVocab: { ...RIDE, offbeats: 0.8, quarters: 1.5 }, rideLean: 0.9, hats: 0.6, ride: 0.35 },
+  broken: { grooves: { fragment: 2, syncopated: 1.5, lopsided: 1, pushed: 1, linear: 0.8, ghostled: 0.6, break: 0.5, shuffle: 0.4, backbeat: 0.3 },
+    hatVocab: { broken: 2, tresillo: 2, gallop: 1, sixteenths: 1, linear: 1.2, eighths: 0.8, offbeats: 0.6, triplet: 0.6, punctuate: 0.5 },
+    rideVocab: { ...RIDE, tresillo: 1, broken: 1.5 }, rideLean: 0.5, hats: 0.65, ride: 0.3 },
+  boombap: { grooves: { backbeat: 2.5, sparse: 0.8, minimal: 0.5, pushed: 0.8, lopsided: 0.6, break: 1, shuffle: 0.5, ghostled: 0.3 },
+    hatVocab: { eighths: 3.5, broken: 1.5, quarters: 0.8, triplet: 0.8, punctuate: 0.6, sixteenths: 0.5, offbeats: 0.3, tresillo: 0.3 },
+    rideVocab: { ...RIDE, spang: 0.6 }, rideLean: 0.2, hats: 0.55, ride: 0.15 },
+  hardcore: { grooves: { break: 2, floor: 1.5, backbeat: 1, syncopated: 0.6, rolling: 0.4, pushed: 0.4, shuffle: 0.2 },
+    hatVocab: { offbeats: 2.5, sixteenths: 2, eighths: 1.5, gallop: 0.6, rapid: 0.5, broken: 0.5, tresillo: 0.3 },
+    rideVocab: { ...RIDE, offbeats: 1.2 }, rideLean: 0.3, hats: 0.75, ride: 0.2 },
+  dnb: { grooves: { twostep: 2.5, rolling: 1.5, backbeat: 0.5, break: 0.8, halftime: 0.5, skip: 0.4, syncopated: 0.5, minimal: 0.4, linear: 0.3 },
+    hatVocab: { offbeats: 2, eighths: 2, sixteenths: 1.8, gallop: 1.2, broken: 0.8, rapid: 0.5, quarters: 0.4, punctuate: 0.4, tresillo: 0.4 },
+    rideVocab: { ...RIDE, offbeats: 1, quarters: 1.5 }, rideLean: 1, hats: 0.7, ride: 0.35 },
+  halftime: { grooves: { backbeat: 2, sparse: 1, minimal: 0.6, rolling: 0.8, syncopated: 1, pushed: 0.8, lopsided: 0.6, ghostled: 0.6, shuffle: 0.5, linear: 0.4 },
+    hatVocab: { sixteenths: 2, eighths: 1.5, rapid: 1.5, triplet: 1, broken: 0.8, gallop: 0.8, offbeats: 0.6, quarters: 0.5, punctuate: 0.5, tresillo: 0.5 },
+    rideVocab: { ...RIDE, triplet: 0.4 }, rideLean: 0.4, hats: 0.7, ride: 0.2 },
+  garage: { grooves: { skip: 2.5, twostep: 1, shuffle: 1, backbeat: 0.6, sparse: 0.5, syncopated: 0.5, floor: 0.5, pushed: 0.4 },
+    hatVocab: { gallop: 3, offbeats: 1.5, sixteenths: 1.5, triplet: 1.2, tresillo: 0.8, eighths: 0.8, broken: 0.5 },
+    rideVocab: { ...RIDE, offbeats: 1.2 }, rideLean: 0.1, hats: 0.8, ride: 0.1 },
+  electro: { grooves: { backbeat: 1.5, syncopated: 1.5, linear: 0.6, pushed: 0.8, fragment: 0.7, sparse: 0.5, minimal: 0.3, floor: 0.3 },
+    hatVocab: { sixteenths: 3, eighths: 1.5, offbeats: 1, tresillo: 1, gallop: 0.5, linear: 0.6, broken: 0.5, quarters: 0.3 },
+    rideVocab: { ...RIDE, spang: 0 }, rideLean: 0.1, hats: 0.78, ride: 0.1 },
+  breakcore: { grooves: { break: 2, fragment: 1.5, syncopated: 1, rolling: 0.8, halftime: 0.6, linear: 0.5, twostep: 0.4, pushed: 0.4 },
+    hatVocab: { sixteenths: 2, rapid: 1.5, broken: 1.2, eighths: 1, gallop: 0.8, tresillo: 0.8, offbeats: 0.6, punctuate: 0.5, linear: 0.5, triplet: 0.4 },
+    rideVocab: { ...RIDE, sixteenths: 0.5 }, rideLean: 0.5, hats: 0.7, ride: 0.3 },
+};
 
 // ------------------------------------------------------------------ TOMS and ROLLS (engine 2)
 

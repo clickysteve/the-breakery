@@ -69,7 +69,13 @@ export function kickPairs(kicks: number[]): number {
   return n;
 }
 
-export function generateFoundation(def: StyleDef, recipe: Recipe, rng: Rng): Foundation {
+/**
+ * `vocab` (revision 3): the target syncopation is drawn around the control's value rather than
+ * fixed by it, and the kept pattern is drawn from the candidates near the best score rather than
+ * always the best. Before it, the same controls converged on the same few kick patterns (11% of
+ * HIP-HOP seeds had a bar-1 kick and snare of their own: docs/diversity-baseline.md).
+ */
+export function generateFoundation(def: StyleDef, recipe: Recipe, rng: Rng, vocab = false): Foundation {
   const hits: Hit[] = [];
   const bb = chooseBackbeats(def, recipe, rng);
   for (const s of bb.steps) {
@@ -108,11 +114,12 @@ export function generateFoundation(def: StyleDef, recipe: Recipe, rng: Rng): Fou
     if (snareSteps.has(s - 1)) x *= 1.1; // answering the snare
     return x;
   });
-  const target = lerp(def.syncRange[0], def.syncRange[1], recipe.syncopation);
+  const target = lerp(def.syncRange[0], def.syncRange[1], recipe.syncopation) + (vocab ? rng.range(-1.5, 1.5) : 0);
   const count = clamp(Math.round(lerp(def.kickCount[0], def.kickCount[1], recipe.density) + rng.range(-0.6, 0.6)), 1 + fixed.length, 8);
   const allowedOdd = Math.round(0.5 + 2.5 * recipe.complexity);
 
   let best: { kicks: number[]; score: number; sync: number } | null = null;
+  const all: { kicks: number[]; score: number; sync: number }[] = [];
   for (let c = 0; c < 40; c++) {
     const kicks = [0, ...fixed, ...weightedPickSteps(rng, kw, count - 1 - fixed.length)].sort((a, b) => a - b);
     const onsets = onsetArray([...kicks, ...bb.steps]);
@@ -132,6 +139,11 @@ export function generateFoundation(def: StyleDef, recipe: Recipe, rng: Rng): Fou
     score += 0.4 * Math.max(0, pairs - 2);
     score += rng.range(0, 0.6); // tie-breaker so equal candidates vary
     if (!best || score < best.score) best = { kicks, score, sync };
+    if (vocab) all.push({ kicks, score, sync });
+  }
+  if (vocab) {
+    const near = all.filter((x) => x.score <= best!.score + 0.8);
+    best = near[rng.int(near.length)]!;
   }
 
   for (const s of best!.kicks) {

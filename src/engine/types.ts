@@ -71,9 +71,15 @@ export const CURRENT_ENGINE: Engine = 2;
  *               as plain fills instead) and CHOP's retriggers
  *   2           TOM ACTIVITY recalibrated (toms.ts tomCurve): more phrases, longer runs and more
  *               accent strokes as it rises, so the whole range is useful (docs/tom-report.md)
+ *   3           RHYTHMIC VOCABULARY (Phase 13, approaches.ts and cymbals.ts): each seed chooses a
+ *               groove approach (the kick and snare strategy), a phrase form and a motif
+ *               development within the recipe; the cymbals are generated per bar from a cymbal
+ *               approach, with HI-HAT ACTIVITY, RIDE ACTIVITY and their RELATIONSHIP
  * New breaks are baked with the current revision.
  */
-export const CURRENT_REVISION = 2;
+export const CURRENT_REVISION = 3;
+/** The first revision with the Phase 13 rhythmic vocabulary. */
+export const VOCAB_REVISION = 3;
 
 /** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
 export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
@@ -146,6 +152,40 @@ export interface Recipe {
   dna?: DnaSetting;
   /** CHOP ▸ DESTROY: event-level destruction after CHOP (absent = none; destroy.ts) */
   destroy?: DestroySettings;
+  /**
+   * HI-HAT ACTIVITY 0..1 (revision 3): how active the closed and open hats are. 0 = no generated
+   * hats. Absent in recipes saved before revision 3 (they keep the old timekeeper).
+   */
+  hats?: number;
+  /** RIDE ACTIVITY 0..1 (revision 3): how active the ride is. 0 = no generated ride. */
+  ride?: number;
+  /** CYMBAL RELATIONSHIP (revision 3): how hats and ride share the time (absent = ALTERNATE) */
+  cymbals?: CymbalMode;
+}
+
+/**
+ * How the hats and the ride share the timekeeping (revision 3). ALTERNATE: one of them keeps the
+ * time and the other takes over for some bars or punctuates; LAYER: both may play together;
+ * INDEPENDENT: each follows its own rhythmic approach.
+ */
+export const CYMBAL_MODES = ['alternate', 'layer', 'independent'] as const;
+export type CymbalMode = (typeof CYMBAL_MODES)[number];
+export const CYMBAL_MODE_LABEL: Record<CymbalMode, string> = { alternate: 'ALTERNATE', layer: 'LAYER', independent: 'INDEPENDENT' };
+
+/** What the rhythmic vocabulary chose for a break (revision 3): shown in the status line and the pattern's tooltip. */
+export interface Approach {
+  /** the groove approach (kick and snare strategy) */
+  groove: string;
+  /** the phrase form, one letter per bar role */
+  form: string;
+  /** how the answer bars develop the motif */
+  motif: string;
+  /** the hats' approach ('' when there are none) */
+  hats: string;
+  /** the ride's approach ('' when there is none) */
+  ride: string;
+  /** how the cymbals develop through the phrase */
+  development: string;
 }
 
 /** CHOP SLICE SIZE: the typical fragment, in sixteenths (recipes lengthen or shorten some of them). */
@@ -335,6 +375,8 @@ export interface Break {
   destroy?: DestroyReport;
   /** what the last REGEN TRACK step chose (absent without one) */
   regen?: RegenReport;
+  /** what the rhythmic vocabulary chose (revision 3; absent before) */
+  approach?: Approach;
 }
 
 /** What CHOP did: how many slices it edited, and how. */

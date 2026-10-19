@@ -65,7 +65,8 @@ describe('JUNGLE phrases', () => {
     const turnaround: number[] = [];
     let developed = 0;
     for (const seed of SEEDS) {
-      const b = bake(jungle(4, { rolls: 0, toms: 0 }), seedsFrom(seed));
+      // the Phase 7 phrase plan (A A2 B T); revision 3 chooses among forms per seed
+      const b = bake(jungle(4, { rolls: 0, toms: 0, revision: 2 }), seedsFrom(seed));
       answer.push(jaccard(barSet(b, 0), barSet(b, 1)));
       turnaround.push(jaccard(barSet(b, 0), barSet(b, 3)));
       if (barSet(b, 2).size && jaccard(barSet(b, 0), barSet(b, 2)) < 1) developed++;
@@ -104,7 +105,7 @@ describe('JUNGLE phrases', () => {
 
   it('ties ghost notes to snares in developed bars, and does not add hits', () => {
     for (const seed of SEEDS) {
-      const b = bake(jungle(4, { rolls: 0, toms: 0 }), seedsFrom(seed));
+      const b = bake(jungle(4, { rolls: 0, toms: 0, revision: 2 }), seedsFrom(seed));
       for (const bar of [1, 2, 3]) {
         const ev = b.events.filter((e) => e.bar === bar);
         const snares = ev.filter((e) => e.cat === 'snare' && e.sub === 0 && e.role !== 'ghost' && e.role !== 'roll');

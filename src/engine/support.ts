@@ -86,10 +86,17 @@ function figureWeight(s: number, b: number, fig: Record<GhostFigure, number>): {
   return { w, figure };
 }
 
-export function generateSupport(def: StyleDef, recipe: Recipe, plan: SupportPlan, foundation: Hit[], backbeats: number[], rng: Rng): Hit[] {
+/** `vocab` (revision 3): no timekeeper and no lifts here; the cymbals are generated per bar later (cymbals.ts). */
+export function generateSupport(def: StyleDef, recipe: Recipe, plan: SupportPlan, foundation: Hit[], backbeats: number[], rng: Rng, vocab = false): Hit[] {
   const hits: Hit[] = [];
   const kicks = new Set(foundation.filter((h) => h.cat === 'kick').map((h) => h.step));
   const snares = new Set(foundation.filter((h) => h.cat === 'snare').map((h) => h.step));
+  if (!vocab) timekeeping(def, recipe, plan, snares, backbeats, rng, hits);
+  ghostsAndPercussion(def, recipe, kicks, snares, backbeats, rng, hits);
+  return hits;
+}
+
+function timekeeping(def: StyleDef, recipe: Recipe, plan: SupportPlan, snares: Set<number>, backbeats: number[], rng: Rng, hits: Hit[]): void {
   const tk = plan.timekeeper;
 
   // ---- timekeeper
@@ -127,6 +134,9 @@ export function generateSupport(def: StyleDef, recipe: Recipe, plan: SupportPlan
   for (const s of timeSteps) {
     hits.push({ cat: tk, step: s, sub: 0, level: timeLevel(s, plan.sixteenths, plan.cycle, backbeats), role: 'time', why: `${tk === 'ride' ? 'ride' : 'hat'} keeping ${plan.sixteenths ? 'sixteenths' : 'eighths'}, ${CYCLE_NAME[plan.cycle]}` });
   }
+}
+
+function ghostsAndPercussion(def: StyleDef, recipe: Recipe, kicks: Set<number>, snares: Set<number>, backbeats: number[], rng: Rng, hits: Hit[]): void {
 
   // ---- ghost snares: figures around the true backbeats, conditioned on kicks
   const nGhost = clamp(Math.round(def.ghostMax * recipe.ghosts * rng.range(0.75, 1.15)), 0, 9);
@@ -239,5 +249,4 @@ export function generateSupport(def: StyleDef, recipe: Recipe, plan: SupportPlan
       }
     }
   }
-  return hits;
 }
