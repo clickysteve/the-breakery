@@ -105,7 +105,7 @@ export function destroy(source: readonly BreakEvent[], s: DestroySettings, ctx: 
   const keyed = Array.from({ length: beats }, (_, w) => {
     const u = Math.max(1e-9, rank.next());
     const weight = BAR_WEIGHT[ctx.plan[Math.floor(w / 4)] ?? 'A'] * (0.8 + 0.15 * (w % 4));
-    return { w, key: w === 0 ? -1 : Math.log(u) / weight };
+    return { w, key: w === 0 ? -Infinity : Math.log(u) / weight }; // the loop's first beat is never destroyed
   }).sort((a, b) => b.key - a.key);
   const count = Math.min(beats - 1, Math.round(s.amount * (beats - 1) * 0.65));
   const chosen = new Set(keyed.slice(0, count).map((k) => k.w));

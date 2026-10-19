@@ -179,7 +179,7 @@ export function personaBars(bars: Hit[][], roles: BarRole[], recipe: Recipe, p: 
   const d = PERSONALITY_DIMS[p.id];
   const a = p.amount;
   const rng = stream(beatSeed, `persona:${p.id}`);
-  const room = clamp(recipe.density / 0.5, 0.15, 1); // a sparse recipe gets little added
+  const room = clamp((recipe.density / 0.5) ** 1.5, 0.1, 1); // a sparse recipe gets little added (20 % DENSITY: a quarter)
   const tk: Category = bars[0]?.some((h) => h.cat === 'ride' && h.role === 'time') ? 'ride' : 'hat';
   const why = `${PERSONALITY_LABEL[p.id]} personality`;
   const add = (hits: Hit[], h: Omit<Hit, 'why'>, what: string) => {
