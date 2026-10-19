@@ -22,6 +22,7 @@ import { loadNaming, saveNaming, buildFileName, type NamingPrefs } from './audio
 import { download, midiTakeaway, takeaway, type TakeawayOptions } from './audio/takeaway';
 import { el, esc, setTip, view } from './ui/dom';
 import { GemSelect } from './ui/gemSelect';
+import { typing } from './ui/widgets';
 import { alertDialog, closeDialog, confirmDialog, dialogOpen, openDialog } from './ui/dialogs';
 import { isTransportKey } from './ui/transportKey';
 import { bakeWindow } from './ui/bakeWindow';
@@ -33,6 +34,7 @@ import { applyPalette } from '@slopfactory/core/palette';
 import { paletteLibrary } from './ui/palette';
 import { paletteWindow } from './ui/paletteWindow';
 import { midiWindow } from './ui/midiWindow';
+import { newPatchDialog, wildcardReportDialog } from './ui/patchDialogs';
 import { isGmMapping } from './midi/routing';
 import type { UiContext } from './ui/context';
 
@@ -317,6 +319,31 @@ const ui: UiContext = {
   togglePlay: () => void togglePlay(),
 };
 
+/**
+ * NEW PATCH: asks first only when the patch has changes (or when the default kit was asked for).
+ * Without KEEP CURRENT KIT a new unsaved kit gets the demo sounds: nothing is deleted.
+ */
+async function newPatch(defaultKit = false): Promise<void> {
+  const choice = await newPatchDialog(screen, app.patchDirty, !defaultKit, defaultKit);
+  if (!choice) return;
+  if (!choice.keepKit) {
+    try {
+      if (kits) await kits.newKit();
+      else ingredients.replaceKit([]);
+      ingredients.loadDemo();
+    } catch (e) {
+      alertBox(`The default kit could not be loaded: ${e instanceof Error ? esc(e.message) : esc(String(e))}. The patch was not reset.`);
+      return;
+    }
+  }
+  app.newPatch({ keepKit: choice.keepKit });
+}
+
+function showWildcardReport(): void {
+  if (app.wildcardReport) void wildcardReportDialog(screen, app.wildcardReport);
+  else app.say('No WILDCARD report yet: press WILDCARD (W). The report stays until the next WILDCARD or NEW PATCH.');
+}
+
 // ------------------------------------------------------------------ windows
 const desk = el('div', '', screen, [0, 0, W, H]);
 desk.style.position = 'absolute';
@@ -360,6 +387,11 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
   {
     title: 'File',
     items: () => [
+      { label: 'New Patch…', key: '⌘N', action: () => void newPatch() },
+      { label: 'New Patch with Default Kit…', action: () => void newPatch(true) },
+      { label: 'Clear Pattern', action: () => app.clearPattern() },
+      { label: 'Reset Controls', action: () => app.resetControls() },
+      { sep: true },
       { label: 'Load Samples…', action: () => (document.querySelector('input[type=file]:not([webkitdirectory])') as HTMLInputElement | null)?.click() },
       { label: 'Load Folder…', action: () => (document.querySelector('input[type=file][webkitdirectory]') as HTMLInputElement | null)?.click() },
       { label: 'Add Demo Kit', action: () => ingredients.loadDemo() },
@@ -415,6 +447,7 @@ const MENUS: { title: string; cls?: string; items: () => MenuItem[] }[] = [
     title: 'Wildcard',
     items: () => [
       { label: 'Wildcard', key: 'W', action: () => app.wildcard() },
+      { label: app.wildcardReport ? 'Wildcard Report…' : 'Wildcard Report (none yet)', action: showWildcardReport },
       { sep: true },
       ...WILDCARD_CATEGORIES.map((c) => ({ label: WILDCARD_LABEL[c], checked: () => app.wildcardSettings[c], action: () => app.setWildcard(c, !app.wildcardSettings[c]) })),
       { sep: true },
@@ -530,6 +563,14 @@ for (const m of MENUS) {
   me.addEventListener('pointerenter', () => openMenu && openMenu.el !== me && show());
 }
 const statusEl = el('div', 'status', menubar);
+statusEl.setAttribute('role', 'status');
+// the WILDCARD status line opens its report
+statusEl.addEventListener('pointerdown', (e) => {
+  if (!statusEl.classList.contains('report')) return;
+  e.stopPropagation();
+  closeMenu();
+  showWildcardReport();
+});
 window.addEventListener('pointerdown', () => closeMenu());
 installTooltips(screen, () => view.scale);
 
@@ -540,6 +581,23 @@ for (const event of ['pointerup', 'pointercancel']) {
   // Finish after target handlers have applied the final pointer value, even if propagation stops.
   window.addEventListener(event, () => setTimeout(() => app.endGesture(), 0), true);
 }
+// A run of wheel ticks or arrow presses on one slider or number box is one undo step too: it ends
+// when the control has been left alone for a moment (or at the next undo, which ends it first)
+let settle: number | undefined;
+const SLIDERS = '.range, .num, [role="slider"], [role="spinbutton"]';
+function coalesce(): void {
+  app.beginGesture();
+  window.clearTimeout(settle);
+  settle = window.setTimeout(() => app.endGesture(), 600);
+}
+window.addEventListener('wheel', (e) => (e.target as HTMLElement).closest?.(SLIDERS) && coalesce(), { capture: true, passive: true });
+window.addEventListener(
+  'keydown',
+  (e) => {
+    if (!e.metaKey && !e.ctrlKey && !typing.active && /^(Arrow(Up|Down|Left|Right)|Page(Up|Down)|Home|End)$/.test(e.key) && (e.target as HTMLElement).closest?.(SLIDERS)) coalesce();
+  },
+  true,
+);
 window.addEventListener('keydown', (e) => {
   if (dialogOpen()) {
     if (e.key === 'Escape') closeDialog();
@@ -556,9 +614,16 @@ window.addEventListener('keydown', (e) => {
   }
   if (t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
   const k = e.key.toLowerCase();
+  // NEW PATCH (⌘N / Ctrl+N), where the browser lets a page have the key (Chrome keeps it for a new window: use File ▸ New Patch)
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && k === 'n') {
+    e.preventDefault();
+    void newPatch();
+    return;
+  }
   if ((e.metaKey || e.ctrlKey) && !e.altKey && (k === 'z' || k === 'y')) {
-    if (t.closest?.('.num, .range, [role="slider"], [role="spinbutton"], [role="textbox"]')) return;
-    // undo / redo of pattern actions (a number box being typed into keeps its own keys)
+    // undo / redo everywhere except while a value is being typed (a number box being typed into keeps its own keys);
+    // a range bar or box that merely has focus (after a drag) no longer swallows ⌘Z
+    if (typing.active || t.closest?.('.num.editing, [contenteditable="true"]')) return;
     e.preventDefault();
     if (k === 'y' || e.shiftKey) app.redo();
     else app.undo();
@@ -624,7 +689,10 @@ function updateAll(): void {
   wPattern.update();
   if (wMidi.win.open) wMidi.update();
   statusEl.textContent = app.status || 'Freshly baked breaks.';
-  setTip(statusEl, app.status);
+  // the WILDCARD headline opens its report (click); the tooltip has the whole line
+  const isReport = !!app.wildcardReport && app.status.startsWith(app.wildcardReport.headline);
+  statusEl.classList.toggle('report', isReport);
+  setTip(statusEl, isReport ? `${app.status} (click for the WILDCARD REPORT)` : app.status);
 }
 app.onChange(updateAll);
 ingredients.onChange = () => {

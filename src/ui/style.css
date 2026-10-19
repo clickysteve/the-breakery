@@ -120,13 +120,53 @@ svg {
   letter-spacing: -0.5px;
 }
 #menubar .status {
+  /* one line, never wrapping under the menus: a long message ends in an ellipsis (its tooltip has all of it) */
   margin-left: auto;
   padding: 0 6px;
-  display: flex;
-  align-items: center;
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  line-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 400;
   font-size: 9px;
+}
+#menubar .status.report {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+/* WILDCARD REPORT: the grouped before → after list, scrolling when long */
+.wreport {
+  max-height: 230px;
+  overflow: auto;
+  border: 1px solid var(--ink);
+  padding: 3px 5px;
+  font-size: 9px;
+}
+.wreport .wgroup {
+  font-weight: 700;
+  margin-top: 4px;
+}
+.wreport .wgroup:first-child {
+  margin-top: 0;
+}
+.wreport .wrow {
+  display: grid;
+  grid-template-columns: 40% 1fr;
+  gap: 4px;
+  padding-left: 6px;
+}
+.wreport .wrow > span:last-child {
+  overflow-wrap: anywhere;
+}
+.wreport-copy {
+  display: flex;
+  align-items: center;
   gap: 6px;
+  margin-top: 6px;
+  font-size: 9px;
 }
 .dropdown {
   position: absolute;

@@ -17,10 +17,14 @@
  *     ACTIVITY around the new recipe's own (CYM_DEFAULTS), mostly with AUTO subdivision and ACCENT
  *   - DESTROY draws the DESTROY tab's engine (destroy2.ts): usually off, sometimes a CHAOS take at
  *     a moderate MASTER AMOUNT; an earlier CHOP ▸ DESTROY (Phase 12) is switched off
- *   - samples are never downloaded or deleted: SAMPLE ASSIGNMENTS only draws a new KIT seed
+ *   - samples are never downloaded or deleted: SAMPLE ASSIGNMENTS only draws a new KIT seed;
+ *     SAMPLE SELECTION MODES picks a PICK mode per track that has two or more samples
+ *   - CLAP and FX ACTIVITY (revision 5) scatter around the new recipe's own with GENERATION CONTROLS
  *   - SOLO and MUTE are never changed
  */
-import { clamp, RECIPE_KEYS, SLICE_SIZES, STYLES, type Category, type Layer, type Recipe, type Style } from './types';
+import { CATEGORIES, clamp, LEGACY_CATEGORIES, RECIPE_KEYS, SLICE_SIZES, STYLES, type Category, type Layer, type Recipe, type Style } from './types';
+import { CLAP_DEFAULT, FX_DEFAULT } from './clapfx';
+import type { SampleMode, SampleSettings } from './samples';
 import { CYM_DEFAULTS, HAT_RELS, PRIMARY_RELS, SUBDIVISIONS } from './cymbals4';
 import { chaosDestroy, defaultDestroy2 } from './destroy2';
 import { DNA_IDS } from './dna';
@@ -30,7 +34,7 @@ import { hashString, stream, type Rng } from './rng';
 import { defaultRecipe, STYLE_DEFS } from './styles';
 import { pickTempo } from './tempo';
 
-export const WILDCARD_CATEGORIES = ['recipe', 'tempo', 'personality', 'dna', 'controls', 'chop', 'rollExpr', 'destroy', 'samples', 'mixer', 'output'] as const;
+export const WILDCARD_CATEGORIES = ['recipe', 'tempo', 'personality', 'dna', 'controls', 'chop', 'rollExpr', 'destroy', 'samples', 'sampleModes', 'mixer', 'output'] as const;
 export type WildcardCategory = (typeof WILDCARD_CATEGORIES)[number];
 export type WildcardSettings = Record<WildcardCategory, boolean>;
 
@@ -43,7 +47,8 @@ export const WILDCARD_LABEL: Record<WildcardCategory, string> = {
   chop: 'CHOP',
   rollExpr: 'ROLL EXPRESSION',
   destroy: 'DESTROY',
-  samples: 'SAMPLE ASSIGNMENTS',
+  samples: 'RANDOMISE SAMPLE ASSIGNMENTS',
+  sampleModes: 'RANDOMISE SAMPLE SELECTION MODES',
   mixer: 'MIXER',
   output: 'OUTPUT EFFECTS',
 };
@@ -58,12 +63,13 @@ export const WILDCARD_TIP: Record<WildcardCategory, string> = {
   rollExpr: 'A roll expression preset (CLASSIC most often).',
   destroy: 'Now and then a DESTROY take at a moderate amount; usually off.',
   samples: 'Another choice of samples from the kit (nothing is downloaded or deleted).',
+  sampleModes: 'A selection mode (AUTO, RANDOM, ROUND ROBIN, ALTERNATE, PER BAR, VELOCITY) for each track with two or more samples. Tracks with one sample, and a frozen KIT, keep theirs.',
   mixer: 'Levels and pans moved a little (solo and mute untouched).',
   output: 'An output chain preset (CLEAN included).',
 };
 
 /** ON by default: what the break is; OFF: the sound and the mix (they are the user's set-up). */
-export const defaultWildcard = (): WildcardSettings => ({ recipe: true, tempo: true, personality: true, dna: true, controls: true, chop: true, rollExpr: true, destroy: true, samples: false, mixer: false, output: false });
+export const defaultWildcard = (): WildcardSettings => ({ recipe: true, tempo: true, personality: true, dna: true, controls: true, chop: true, rollExpr: true, destroy: true, samples: false, sampleModes: false, mixer: false, output: false });
 
 export function sanitiseWildcard(v: unknown): WildcardSettings {
   const d = defaultWildcard();
@@ -116,7 +122,11 @@ export function wildcardRecipe(cur: Recipe, ctx: WildcardContext, seed: number):
     const keep = { chop: out.chop, destroy: out.destroy, destroy2: out.destroy2, rollExpr: out.rollExpr, personality: out.personality, dna: out.dna };
     // a new recipe comes with its own defaults (its own cymbals too); GENERATION CONTROLS scatters them
     out = { ...out, ...d, ...keep, bpm: cur.bpm, bars: cur.bars, rollsOn: cur.rollsOn };
-    if (style !== cur.style) delete out.cym;
+    if (style !== cur.style) {
+      delete out.cym;
+      delete out.clap;
+      delete out.fx;
+    }
     for (const k of ['chop', 'destroy', 'destroy2', 'rollExpr', 'personality', 'dna'] as const) if (out[k] === undefined) delete out[k];
     if (S.controls) {
       const rc = r('controls');
@@ -141,6 +151,10 @@ export function wildcardRecipe(cur: Recipe, ctx: WildcardContext, seed: number):
       delete out.hats;
       delete out.ride;
       delete out.cymbals;
+      // CLAP and FX ACTIVITY (Phase 15) from their own stream, so the draws above are as they were
+      const rf = r('clapfx');
+      out.clap = round2(gaussAround(rf, CLAP_DEFAULT[style], 0.15));
+      out.fx = round2(gaussAround(rf, FX_DEFAULT[style], 0.1));
       changed.push('controls');
     }
   } else if (S.controls && rhythmFrozen) kept.push('GENERATION CONTROLS (frozen)');
@@ -207,7 +221,9 @@ export function wildcardRecipe(cur: Recipe, ctx: WildcardContext, seed: number):
 export function wildcardMix<M extends Record<Category, { solo: boolean; mute: boolean; gain: number; pan: number }>>(mix: M, seed: number): M {
   const g = stream(hashString('wildcard:mixer'), String(seed >>> 0));
   const out = JSON.parse(JSON.stringify(mix)) as M;
-  for (const c of Object.keys(out) as Category[]) {
+  // the eleven original tracks first, in their old order, so their draws are what they always were
+  const order = [...LEGACY_CATEGORIES, ...CATEGORIES.filter((c) => !(LEGACY_CATEGORIES as readonly string[]).includes(c))].filter((c) => c in out);
+  for (const c of order) {
     const ch = out[c];
     ch.gain = round2(g.range(0.6, 1));
     const wide = c === 'hat' || c === 'open' || c === 'ride' || c === 'perc' || c === 'htom' || c === 'ltom';
@@ -218,3 +234,28 @@ export function wildcardMix<M extends Record<Category, { solo: boolean; mute: bo
 
 /** OUTPUT EFFECTS: which of the presets (an index into the list the app offers). */
 export const wildcardOutput = (count: number, seed: number): number => stream(hashString('wildcard:output'), String(seed >>> 0)).int(Math.max(1, count));
+
+/** The PICK modes SAMPLE SELECTION MODES chooses from (FIXED and WEIGHTED need choices only the user can make). */
+export const WILDCARD_MODES: readonly SampleMode[] = ['auto', 'random', 'roundrobin', 'alternate', 'perbar', 'velocity'];
+const MODE_WEIGHT: Record<string, number> = { auto: 3, random: 1, roundrobin: 1, alternate: 1, perbar: 1, velocity: 0.6 };
+
+/**
+ * SAMPLE SELECTION MODES: a mode per track with two or more samples (`pools`: samples per track).
+ * A track with one sample or none keeps its setting (ROUND ROBIN of one sample is no choice).
+ * Every track draws whatever its pool, so one track's choice never shifts another's. A chosen
+ * sample (FIXED) and the weights are kept for when the user returns to those modes.
+ */
+export function wildcardSampleModes(samples: SampleSettings, pools: Partial<Record<Category, number>>, seed: number): { samples: SampleSettings; changed: Category[] } {
+  const out: SampleSettings = JSON.parse(JSON.stringify(samples)) as SampleSettings;
+  const changed: Category[] = [];
+  for (const c of CATEGORIES) {
+    const g = stream(hashString(`wildcard:modes:${c}`), String(seed >>> 0));
+    const mode = WILDCARD_MODES[Math.max(0, g.weighted(WILDCARD_MODES.map((m) => MODE_WEIGHT[m] ?? 1)))]!;
+    if ((pools[c] ?? 0) < 2) continue;
+    const cur = out[c]?.mode ?? 'auto';
+    if (cur === mode) continue;
+    out[c] = { ...(out[c] ?? { mode: 'auto' }), mode };
+    changed.push(c);
+  }
+  return { samples: out, changed };
+}
