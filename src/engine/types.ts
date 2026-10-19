@@ -99,15 +99,21 @@ export const CURRENT_ENGINE: Engine = 2;
  *   5           CLAP and FX (Phase 15, clapfx.ts): two tracks generated after the toms and rolls
  *               from their own streams (CLAP ACTIVITY and FX ACTIVITY); every other track is the
  *               same as revision 4
+ *   6           ROLLS AS A TRANSFORMATION (Phase 16, rollLayer.ts): the ROLLS layer leaves the
+ *               GROOVE and runs after CHOP, on the finished groove, as retriggers leading into
+ *               eligible source hits (PROBABILITY per candidate, RE-ROLL takes). Every other track
+ *               is the same as revision 5; the GROOVE's own fill rolls are unchanged
  * New breaks are baked with the current revision.
  */
-export const CURRENT_REVISION = 5;
+export const CURRENT_REVISION = 6;
 /** The first revision with the Phase 13 rhythmic vocabulary. */
 export const VOCAB_REVISION = 3;
 /** The first revision with the Phase 14 BREAK DNA grammar and cymbal engine. */
 export const CYMBAL_REVISION = 4;
 /** The first revision with the CLAP and FX tracks. */
 export const CLAPFX_REVISION = 5;
+/** The first revision whose ROLLS are a transformation of the finished groove (rollLayer.ts). */
+export const ROLLS_REVISION = 6;
 
 /** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
 export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
@@ -165,6 +171,14 @@ export interface Recipe {
   rollsOn?: boolean;
   /** GROOVE revision (engine 2; absent = 0): see CURRENT_REVISION */
   revision?: number;
+  /** RE-ROLL: which take of the ROLLS transformation (absent = 0). Only the rolls depend on it. */
+  rollTake?: number;
+  /**
+   * A break baked before revision 6 whose rolls were then changed (ROLL GENERATION, RE-ROLL, a
+   * roll setting): its ROLLS are the revision 6 transformation, and its groove stays exactly as
+   * its own revision bakes it. Absent from revision 6 on (implied).
+   */
+  rollLayer?: true;
   /**
    * JUNGLE only: develop the phrase with fragments, displaced snares and retrigger bursts (jungle.ts).
    * Absent means the way JUNGLE developed before Phase 7, so JUNGLE breaks saved earlier reproduce exactly.
@@ -395,6 +409,8 @@ export interface BreakEvent extends Hit {
   tape?: { len: number; from: number; to: number; back?: number; hold?: true };
   /** OPEN-HAT CHOKE off (revision 4): this closed hat does not cut a ringing open hat */
   free?: true;
+  /** ROLLS (revision 6): a retrigger stroke of the roll leading into this source hit (its key) */
+  rollOf?: string;
 }
 
 /** EXPRESSION: the pitch range of a hit, semitones either way. */
@@ -445,8 +461,29 @@ export interface Break {
   destroy2?: Destroy2Report;
   /** what the cymbal engine chose and what it could not give (revision 4; absent before) */
   cymReport?: CymbalReport;
+  /** what the ROLLS transformation found and did (revision 6, or a break moved to it; absent before) */
+  rollReport?: RollReport;
   /** the seed's text, when the app knows it (exports and the batch show it) */
   seedName?: string;
+}
+
+/** What the ROLLS transformation (revision 6) found and did: candidates, eligibility and the rolls made. */
+export interface RollReport {
+  /** ROLL GENERATION on for this break */
+  on: boolean;
+  /** the RE-ROLL take */
+  take: number;
+  /** source hits of the target tracks where PLACEMENT allows a roll */
+  candidates: number;
+  /** candidates with room for a roll (at least two strokes before the hit, clear of other rolls) */
+  eligible: number;
+  /** eligible candidates PROBABILITY chose but the per-bar ceiling left out */
+  capped: number;
+  /** rolls made, and their retrigger strokes */
+  rolls: number;
+  strokes: number;
+  /** why there are no rolls, in words (absent when there are) */
+  reason?: string;
 }
 
 /** What CHOP did: how many slices it edited, and how. */
