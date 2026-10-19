@@ -176,7 +176,7 @@ CRASH    |X   .   .   .   |.   .   .   .   |.   .   .   .   |.   .   .   .   |
 
 ## DESTROY
 
-Default settings (the default matrix and probabilities) at MASTER AMOUNT 100%, and CHAOS takes, over 200 seeds of every recipe (4 bars). Per break: hits each effect took, hits added (stutter repeats) and dropped (tape stop).
+Default settings (the default matrix and probabilities) at MASTER AMOUNT 100%, and CHAOS takes, over 40 seeds of every recipe (4 bars). Per break: hits each effect took, hits added (stutter repeats) and dropped (tape stop).
 
 | Settings | STUTTER | PITCH | REVERSE | GATE | TAPE STOP | Added (max) | Dropped |
 |---|---|---|---|---|---|---|---|

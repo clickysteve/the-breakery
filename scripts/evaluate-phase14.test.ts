@@ -114,7 +114,7 @@ function dnaSection(): string {
 }
 
 function destroySection(): string {
-  let md = '\n## DESTROY\n\nDefault settings (the default matrix and probabilities) at MASTER AMOUNT 100%, and CHAOS takes, over 200 seeds of every recipe (4 bars). Per break: hits each effect took, hits added (stutter repeats) and dropped (tape stop).\n\n| Settings | ' + DESTROY_EFFECTS.map((x) => EFFECT_LABEL[x]).join(' | ') + ' | Added (max) | Dropped |\n|---|' + DESTROY_EFFECTS.map(() => '---|').join('') + '---|---|\n';
+  let md = '\n## DESTROY\n\nDefault settings (the default matrix and probabilities) at MASTER AMOUNT 100%, and CHAOS takes, over 40 seeds of every recipe (4 bars). Per break: hits each effect took, hits added (stutter repeats) and dropped (tape stop).\n\n| Settings | ' + DESTROY_EFFECTS.map((x) => EFFECT_LABEL[x]).join(' | ') + ' | Added (max) | Dropped |\n|---|' + DESTROY_EFFECTS.map(() => '---|').join('') + '---|---|\n';
   for (const [name, mk] of [['DEFAULT', () => ({ ...defaultDestroy2(), on: true })], ['CHAOS', (s: number) => chaosDestroy(defaultDestroy2(), s)]] as const) {
     const hits: Record<string, number> = {};
     let added = 0;
