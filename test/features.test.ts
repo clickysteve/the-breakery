@@ -230,7 +230,8 @@ describe('named seeds', () => {
     for (let i = 0; i < 20; i++) {
       const a = diceName(rnd);
       expect(a).toBe(diceName(rnd2));
-      expect(a).toMatch(/^[a-z][a-z -]+ ([a-z -]+|\d{4})$/);
+      // Phase 14: ADJECTIVE-NOUN-NN in capitals (VELVET-THUNDER-17)
+      expect(a).toMatch(/^[A-Z]+-[A-Z]+-\d\d$/);
     }
   });
 });

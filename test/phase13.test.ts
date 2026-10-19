@@ -24,7 +24,8 @@ const kit = (): KitIndex => {
   return k;
 };
 const K = kit();
-const R = (style: Style, bars: Bars = 4, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), ...patch });
+// revision 3 (Phase 13's generator; Phase 14's revision 4 is tested in phase14.test.ts)
+const R = (style: Style, bars: Bars = 4, patch: Partial<Recipe> = {}): Recipe => ({ ...defaultRecipe(style, bars), revision: 3, ...patch });
 const B = (r: Recipe, seed = 4242) => bake(r, seedsFrom(seed), K, {}, (id) => id);
 const HATS: Category[] = ['hat', 'open'];
 const SEEDS = (n: number) => Array.from({ length: n }, (_, i) => 1000 + i * 7919);
@@ -53,8 +54,8 @@ describe('old revisions reproduce', () => {
   });
 
   it('new breaks use the vocabulary; a revision 2 break has no approach and ignores the cymbal controls', () => {
-    expect(CURRENT_REVISION).toBe(3);
-    expect(defaultRecipe('hiphop', 4).revision).toBe(3);
+    expect(CURRENT_REVISION).toBeGreaterThanOrEqual(3);
+    expect(defaultRecipe('hiphop', 4).revision).toBe(CURRENT_REVISION);
     expect(B(R('hiphop')).approach).toBeDefined();
     const old = R('hiphop', 4, { revision: 2 });
     expect(B(old).approach).toBeUndefined();
@@ -423,11 +424,12 @@ describe('Phase 13 in the App', () => {
   });
 
   it('cymbal settings are part of the recipe: saved, undoable and carried by the history', () => {
+    // (revision 4 holds them in Recipe.cym: CLOSED HAT, RIDE and the PRIMARY RELATIONSHIP; phase14.test.ts)
     const { app } = makeApp();
-    app.setRecipe({ hats: 0.2, ride: 0.8, cymbals: 'layer' });
-    expect(JSON.parse(localStorage.getItem('breakery.state.v1')!).recipe).toMatchObject({ hats: 0.2, ride: 0.8, cymbals: 'layer' });
+    app.setCym({ closed: 0.2, ride: 0.8, rel: 'layer' });
+    expect(JSON.parse(localStorage.getItem('breakery.state.v1')!).recipe.cym).toMatchObject({ closed: 0.2, ride: 0.8, rel: 'layer' });
     app.undo();
-    expect(app.recipe.cymbals).toBeUndefined();
+    expect(app.recipe.cym?.rel ?? 'accent').toBe('accent');
   });
 });
 

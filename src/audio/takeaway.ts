@@ -70,10 +70,16 @@ export function foldLoop(ch: Float32Array, frames: number): Float32Array {
   return out;
 }
 
+/** The seed in a file name: the named seed as shown (velvet-thunder-42), else seed<number>. */
+function seedPart(b: Break): string {
+  const named = b.seedName?.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  return named || `seed${b.seeds.beat}`;
+}
+
 export function takeawayName(b: Break, opts: Pick<TakeawayOptions, 'mode'> & Partial<Pick<TakeawayOptions, 'mix'>>, ext: string): string {
   const r = b.recipe;
   const n = b.seeds.mut?.length ?? 0;
-  return fileName(['breakery', STYLE_DEFS[r.style].label.toLowerCase(), `${r.bpm}bpm`, `${r.bars}bar`, `seed${b.seeds.beat}${n ? `m${n}` : ''}`, r.engine === 1 ? 'e1' : '', opts.mode === 'loop' ? 'loop' : '', opts.mix === 'audible' ? 'audible' : ''], ext);
+  return fileName(['breakery', STYLE_DEFS[r.style].label.toLowerCase(), `${r.bpm}bpm`, `${r.bars}bar`, `${seedPart(b)}${n ? `m${n}` : ''}`, r.engine === 1 ? 'e1' : '', opts.mode === 'loop' ? 'loop' : '', opts.mix === 'audible' ? 'audible' : ''], ext);
 }
 
 /** The break as a Standard MIDI File (always exactly the bars; there is no tail or loop fold in MIDI). `map`: each track's channel and note (MIDI window). */

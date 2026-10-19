@@ -10,6 +10,8 @@ import type { RollExpression } from './rollExpr';
 import type { PersonalitySetting } from './personality';
 import type { DnaSetting } from './dna';
 import type { DestroySettings, DestroyReport } from './destroy';
+import type { DestroySettings2, Destroy2Report } from './destroy2';
+import type { CymbalSettings, CymbalReport } from './cymbals4';
 import type { Regen, RegenReport } from './regen';
 
 /** Drum categories, in display order (toms high to low, as they sit on a kit). */
@@ -75,11 +77,17 @@ export const CURRENT_ENGINE: Engine = 2;
  *               groove approach (the kick and snare strategy), a phrase form and a motif
  *               development within the recipe; the cymbals are generated per bar from a cymbal
  *               approach, with HI-HAT ACTIVITY, RIDE ACTIVITY and their RELATIONSHIP
+ *   4           BREAK DNA GRAMMAR and the CYMBAL ENGINE (Phase 14, dnaGrammar.ts and cymbals4.ts):
+ *               nine BREAK DNA types built into the phrase before the cymbals; CLOSED HAT, OPEN
+ *               HAT, RIDE and CRASH ACTIVITY as coverage of a chosen SUBDIVISION, with primary
+ *               and open/closed relationships and OPEN-HAT CHOKE (Recipe.cym)
  * New breaks are baked with the current revision.
  */
-export const CURRENT_REVISION = 3;
+export const CURRENT_REVISION = 4;
 /** The first revision with the Phase 13 rhythmic vocabulary. */
 export const VOCAB_REVISION = 3;
+/** The first revision with the Phase 14 BREAK DNA grammar and cymbal engine. */
+export const CYMBAL_REVISION = 4;
 
 /** ROLLS: subdivision of a roll's hits (grid ticks per hit: 12 a sixteenth, 3 a 64th). */
 export const ROLL_SPEEDS = ['16', '16t', '32', '32t', '64'] as const;
@@ -150,8 +158,10 @@ export interface Recipe {
   personality?: PersonalitySetting;
   /** BREAK DNA: a construction vocabulary the break is built from (absent = NONE; dna.ts) */
   dna?: DnaSetting;
-  /** CHOP ▸ DESTROY: event-level destruction after CHOP (absent = none; destroy.ts) */
+  /** CHOP ▸ DESTROY (Phase 12): event-level destruction after CHOP (absent = none; destroy.ts). Kept so saved breaks reproduce; the DESTROY tab offers to remove it */
   destroy?: DestroySettings;
+  /** DESTROY (Phase 14, its own tab): the effect matrix, after the hand edits (absent = never used; destroy2.ts) */
+  destroy2?: DestroySettings2;
   /**
    * HI-HAT ACTIVITY 0..1 (revision 3): how active the closed and open hats are. 0 = no generated
    * hats. Absent in recipes saved before revision 3 (they keep the old timekeeper).
@@ -161,6 +171,12 @@ export interface Recipe {
   ride?: number;
   /** CYMBAL RELATIONSHIP (revision 3): how hats and ride share the time (absent = ALTERNATE) */
   cymbals?: CymbalMode;
+  /**
+   * CYMBALS (revision 4): CLOSED HAT, OPEN HAT, RIDE and CRASH ACTIVITY, SUBDIVISION, the two
+   * relationships and OPEN-HAT CHOKE (cymbals4.ts). Absent = the recipe's defaults. Revision 3
+   * recipes keep hats / ride / cymbals and bake as they did.
+   */
+  cym?: CymbalSettings;
 }
 
 /**
@@ -287,6 +303,8 @@ export type Role =
   | 'chop'
   /** a fast retrigger of the same sound (a roll or stutter) */
   | 'roll'
+  /** a repeat made by DESTROY ▸ STUTTER (a transformation the user chose: not a generated roll) */
+  | 'stutter'
   /** placed (or moved) by hand: not generated */
   | 'manual';
 
@@ -331,6 +349,24 @@ export interface BreakEvent extends Hit {
   pitch?: number;
   /** EXPRESSION: the sample played backwards, starting at the hit's position (absent = forwards) */
   reverse?: true;
+  /**
+   * DESTROY ▸ REVERSE amount (with reverse): how much of the reversed sample plays, 0..1 (absent =
+   * all of it). Less is a shorter swell into the hit's attack: the reversed copy is started later.
+   */
+  revFrac?: number;
+  /** DESTROY ▸ PITCH: fine detune in cents, -100..100, on top of `pitch` (absent = 0) */
+  detune?: number;
+  /** DESTROY ▸ GATE: the sound is cut after `len` quarter notes, with a `fade` (quarters); `chop` > 0 = a rhythmic gate (on/off every `chop` quarters) */
+  gate?: { len: number; fade: number; chop?: number };
+  /**
+   * DESTROY ▸ TAPE STOP (and a PITCH glide): the playback rate ramps from `from` (x the hit's own
+   * rate, 1 = as pitched) to `to` over `len` quarter notes; then, with `back`, back up to 1 over
+   * `back` quarters (RESUME), without it the sound stops (CUT; a glide's `to` is above 0.05 and
+   * stays there instead: `hold`). A continuous ramp, the same live and rendered.
+   */
+  tape?: { len: number; from: number; to: number; back?: number; hold?: true };
+  /** OPEN-HAT CHOKE off (revision 4): this closed hat does not cut a ringing open hat */
+  free?: true;
 }
 
 /** EXPRESSION: the pitch range of a hit, semitones either way. */
@@ -377,6 +413,12 @@ export interface Break {
   regen?: RegenReport;
   /** what the rhythmic vocabulary chose (revision 3; absent before) */
   approach?: Approach;
+  /** what DESTROY (Phase 14) did (absent when it did not run) */
+  destroy2?: Destroy2Report;
+  /** what the cymbal engine chose and what it could not give (revision 4; absent before) */
+  cymReport?: CymbalReport;
+  /** the seed's text, when the app knows it (exports and the batch show it) */
+  seedName?: string;
 }
 
 /** What CHOP did: how many slices it edited, and how. */

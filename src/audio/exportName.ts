@@ -70,7 +70,10 @@ export function metaParts(b: Break | undefined, p: NamingPrefs): string[] {
     if (label) out.push(label.toLowerCase().replace(/(^|[^a-z0-9])([a-z0-9])/g, (_m, _a: string, c: string) => c.toUpperCase()).replace(/[^A-Za-z0-9]/g, ''));
   }
   if (p.bpm && Number.isFinite(b.recipe.bpm)) out.push(`${b.recipe.bpm}BPM`);
-  if (p.seed && Number.isFinite(b.seeds.beat)) out.push(String(b.seeds.beat));
+  // a named seed (VELVET-THUNDER-42) names the file as it is shown; a numeric one stays a number
+  const named = b.seedName ? sanitisePart(b.seedName).replace(/ /g, '-') : '';
+  if (p.seed && named) out.push(named);
+  else if (p.seed && Number.isFinite(b.seeds.beat)) out.push(String(b.seeds.beat));
   return out;
 }
 

@@ -16,6 +16,8 @@ import { guessCategory, importable, suggestCategory, type Slot } from './categor
 import { demoKit, DEMO_RATE, NEW_DEMO_IDS } from './demoKit';
 import { reverseChannels } from './reverse';
 import { REVERSED } from './timeline';
+import { parseFx, ShapedInstrument } from './shaped';
+import type { Instrument } from '@slopfactory/core/audio';
 
 export { guessCategory, type Slot };
 export const SLOTS: Slot[] = [...CATEGORIES, 'unsorted'];
@@ -394,11 +396,33 @@ export class Ingredients {
     return k;
   }
 
-  /** The instrument for an id; an id ending in REVERSED is that sample's reversed copy (EXPRESSION). */
-  instrument(id: string | undefined | null): SampleInstrument | null {
+  /** DESTROY's shaped instruments, by id (a few hundred at most: shaping is per hit, not per sample) */
+  private shaped = new Map<string, Instrument>();
+
+  /**
+   * The instrument for an id; an id ending in REVERSED is that sample's reversed copy (EXPRESSION),
+   * one with DESTROY's shaping (shaped.ts) that sample (or its reversed copy) shaped.
+   */
+  instrument(id: string | undefined | null): Instrument | null {
     if (!id) return null;
+    const fx = parseFx(id);
+    if (fx) {
+      const hit = this.shaped.get(id);
+      if (hit) return hit;
+      const base = this.sampleInstrument(fx.base);
+      if (!base) return null;
+      const made = new ShapedInstrument(base, fx.shape);
+      if (this.shaped.size > 1024) this.shaped.clear();
+      this.shaped.set(id, made);
+      return made;
+    }
+    return this.sampleInstrument(id);
+  }
+
+  /** The sampler instrument for an id without shaping (a sample, or its reversed copy). */
+  private sampleInstrument(id: string): SampleInstrument | null {
     if (id.endsWith(REVERSED)) {
-      const base = this.instrument(id.slice(0, -REVERSED.length));
+      const base = this.sampleInstrument(id.slice(0, -REVERSED.length));
       return base ? this.reversedOf(base) : null;
     }
     return this.items.find((i) => i.id === id)?.instrument ?? this.retired.get(id) ?? null;

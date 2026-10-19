@@ -450,7 +450,9 @@ describe('BREAK DNA: AMEN', () => {
       const r = R(style);
       expect(flat(B({ ...r, dna: { id: 'amen', amount: 0 } }))).toBe(flat(B(r)));
     }
-    expect(sanitiseDna({ id: 'think', amount: 1 })).toBeUndefined();
+    expect(sanitiseDna({ id: 'bogus', amount: 1 })).toBeUndefined();
+    // Phase 14 added the other DNAs (phase14.test.ts)
+    expect(sanitiseDna({ id: 'think', amount: 1 })).toEqual({ id: 'think', amount: 1 });
     expect(sanitiseDna({ id: 'amen', amount: 2 })).toEqual({ id: 'amen', amount: 1 });
   });
 
@@ -464,7 +466,8 @@ describe('BREAK DNA: AMEN', () => {
   it('at full influence the vocabulary is there: the kick pair on 3 and the syncopated snares in the A bars', () => {
     for (const style of ['funk', 'hiphop', 'dnb', 'breakcore'] as Style[])
       for (const seed of SEEDS) {
-        const b = B(R(style, 4, { dna: { id: 'amen', amount: 1 }, rollsOn: false }), seed);
+        // the Phase 12 AMEN tables (revision 3 and earlier; revision 4 builds AMEN from its grammar: phase14.test.ts)
+        const b = B(R(style, 4, { dna: { id: 'amen', amount: 1 }, rollsOn: false, revision: 3 }), seed);
         const has = (cat: Category, bar: number, step: number) => b.events.some((e) => e.cat === cat && e.bar === bar && e.step === step);
         expect(has('kick', 0, 10) && has('kick', 0, 11), `${style} ${seed}`).toBe(true);
         expect(has('snare', 0, 7) || has('snare', 0, 9), `${style} ${seed}`).toBe(true);

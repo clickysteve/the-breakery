@@ -3,6 +3,7 @@
  * audition it; while playing it starts at the next loop point.
  */
 import { BATCH_SIZE } from '../app/app';
+import { seedLabel } from '../engine/generate';
 import { STEPS, type Break, type Category } from '../engine/types';
 import { el, setTip, svgEl } from './dom';
 import type { UiContext } from './context';
@@ -55,10 +56,10 @@ export function batchPanel(b: HTMLElement, ui: UiContext, rect: { w: number; h: 
       x.box.style.display = c ? 'block' : 'none';
       if (!c) return;
       x.svg.innerHTML = mini(c, cw - 4, ch - 14);
-      x.lab.textContent = `${i + 1} · SEED ${c.seeds.beat} · ${c.recipe.bars} BAR${c.recipe.bars > 1 ? 'S' : ''}`;
+      x.lab.textContent = `${i + 1} · SEED ${seedLabel(c.seeds.beat, c.seedName)} · ${c.recipe.bars} BAR${c.recipe.bars > 1 ? 'S' : ''}`;
       x.box.classList.toggle('current', app.picked === i);
       x.box.classList.toggle('queued', app.picked === i && app.player.queued);
-      setTip(x.box, `Candidate ${i + 1} (seed ${c.seeds.beat}): click or press ${i + 1} to audition`);
+      setTip(x.box, `Candidate ${i + 1} (seed ${seedLabel(c.seeds.beat, c.seedName)}): click or press ${i + 1} to audition`);
     });
   }
   update();

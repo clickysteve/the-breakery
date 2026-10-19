@@ -7,7 +7,8 @@ RECIPE + SEEDS ──────────┤
                    engine/generate.ts  (pure TypeScript, no DOM, no audio)
    GENERATION (GROOVE, engine 2): PERSONALITY's recipe nudges → phrase plan → foundation
              → support → [mutations] → phrase development (answers, development, chops, fills)
-             → BREAK DNA bars → PERSONALITY phrasing → performance
+             → BREAK DNA (revision 4: dnaGrammar.ts) → CYMBALS (revision 4: cymbals4.ts)
+             → PERSONALITY phrasing → performance
              → AUTO samples → TOMS → ROLLS
    LEGACY (engine 1, v1/, frozen): the first release's generator, then AUTO samples
                          │
@@ -17,6 +18,7 @@ RECIPE + SEEDS ──────────┤
              → REGEN TRACK (regen.ts: the selected tracks from re-baked candidates)
              → PERSONALITY performance and DILLA timing (personality.ts, dilla.ts)
              → hand EDITS → PICK modes and hand-chosen samples
+             → DESTROY (destroy2.ts: the DESTROY tab, on the finished events)
                          │
                          ▼  Break = structured events
           ┌──────────────┼───────────────┐
@@ -27,6 +29,7 @@ RECIPE + SEEDS ──────────┤
               ┌──────────┴──────────┬────────────────────┐
               ▼                     ▼                    ▼
        audio/player.ts        audio/takeaway.ts     midi/breakMidi.ts
+       (both resolve note instruments, DESTROY's shaping included, via audio/shaped.ts)
        live: Core Mixer +     offline: Core         eventTick → 960 PPQ,
        NotePlayer, look-ahead renderTimeline        per-track channel/note
        scheduling             → WAV / ZIP           → midi/smf.ts → .mid
@@ -41,11 +44,11 @@ RECIPE + SEEDS ──────────┤
 
 | Folder | What | Depends on |
 |---|---|---|
-| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, `FLOURISH`: each recipe's toms and rolls, and `VOCAB`: each recipe's grooves and cymbal vocabulary), `approaches` (groove approaches, phrase forms, motifs), `cymbals` (hats and ride, revision 3), `tempo` (tempo profiles), `wildcard` (WILDCARD), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
-| `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (the current kit's samples by category, folder import, loudness; storage and the sample library through Core's `KitLibrary`), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export). | `@slopfactory/core`, engine |
+| `src/engine/` | The generator: `types` (data), `rng` (seeded streams), `meter` (metrical weights, syncopation, Euclid), `styles` (recipes, `FLOURISH`: each recipe's toms and rolls, and `VOCAB`: each recipe's grooves and cymbal vocabulary), `approaches` (groove approaches, phrase forms, motifs), `cymbals` (hats and ride, revision 3), `cymbals4` (the cymbal engine, revision 4), `dna` and `dnaGrammar` (BREAK DNA), `destroy2` (the DESTROY tab), `tempo` (tempo profiles), `wildcard` (WILDCARD), `foundation` (Layer A), `support` (Layer B), `phrase` (Layer D: 1–8 bar plans, variation, fills, MUTATE), `chop` (event-level resequencing and fill rolls), `performance` (Layer C), `toms` (tom fills), `rolls` (ROLLS), `kit` (AUTO sample choice, fallbacks), `samples` (sample-selection modes), `edits` (the hand-edit layer and its operations), `generate` (BAKE, engine dispatch, named seeds, mutation), `analysis` (metrics), `ascii` (text grids). `v1/`: engine 1, frozen. | nothing (pure, testable in Node) |
+| `src/audio/` | `demoKit` (synthesised one-shots), `ingredients` (the current kit's samples by category, folder import, loudness; storage and the sample library through Core's `KitLibrary`), `categorise` (category suggestions from paths), `timeline` (Break → Core timeline, the single timing function), `player` (live), `takeaway` (export), `shaped` (DESTROY's sound shaping as an instrument). | `@slopfactory/core`, engine |
 | `src/midi/` | `smf` (Standard MIDI File writer and reader, shared with DOWNBEAT), `breakMidi` (Break → type 1 SMF), `messages` (builders and parsing), `output` (note-safe output per device), `router` (live hits → timestamped notes, queued note-offs, clock out), `routing` (per-track settings, defaults, input matching), `clockIn` (external clock follower), `access` (Web MIDI wrapper). Built on Core's MIDI interfaces. | audio/timeline, engine, Core midi types |
 | `src/app/` | `app.ts`: state and actions (recipe, seeds and names, freeze, batch, history, favourites, MUTATE, sample settings, solo/mute, hand edits with undo/redo and selection, persistence); `seeds.ts` (history, favourites, DICE names); `mix.ts` (solo/mute precedence); `midi.ts` (MidiRig: MIDI settings, devices, input, clock source); `kits.ts` (The Breakery's side of Core's kit system: categories as kit roles, INGREDIENTS and PICK settings as kit instruments and back, the legacy `.breakery-kit` reader and migration; see [KITS.md](KITS.md)); `bundledKits.ts` (kits shipped with The Breakery: none yet). | engine, audio, midi, Core kits |
-| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, CYMBALS (`cymbalsTab`), ROLLS (`rollsTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window).; `kitsPanel` and `libraryPanel` (the KITS and LIBRARY tabs of INGREDIENTS: views of Core's KitSession and KitLibrary) | app, Core palette, Core kits |
+| `src/ui/` | The 1-bit interface: `widgets`, `dialogs`, `tooltip` (from emmm), one file per window (`patternWindow` is also the grid editor and the selected-hit strip; `recipeWindow` holds the RECIPE, CYMBALS (`cymbalsTab`), PERSONALITY (`personalityTab`), CHOP (`chopTab`), ROLLS (`rollsTab`), DESTROY (`destroyTab`) and MUTATE (`mutateTab`) tabs, `patternWindow` the PATTERN and MIXER (`mixerPanel`) tabs, and `gridEdit` the grid's click and drag rules; `midiWindow` is MIDI), `palette` (The Breakery's palette roles) and `paletteWindow` (Core's palette editor in a window).; `kitsPanel` and `libraryPanel` (the KITS and LIBRARY tabs of INGREDIENTS: views of Core's KitSession and KitLibrary) | app, Core palette, Core kits |
 | `src/main.ts` | Builds the screen and menus, keyboard, drag-and-drop; wires everything. | all |
 
 ## The event model
@@ -140,7 +143,13 @@ Every random decision draws from a named stream derived from one of four layer s
 The rhythm never depends on the loaded samples (fallbacks and sample selection are resolved after
 generation). The SEED box sets all four seeds to the same value: a number, or a name hashed with
 32-bit FNV-1a over its normalised UTF-8 bytes (`hashSeedName`), so names are stable across
-browsers and versions. BAKE draws a new seed for each layer that is not frozen. Changing a control
+browsers and versions. Numbers of up to nine digits stay numbers, so every saved numeric seed
+bakes as it always did. Names are case-insensitive for the hash (the display keeps the case typed)
+so a name read aloud or retyped reproduces the break. BAKE, DICE, BATCH, RANDOM RECIPE and
+WILDCARD give each new break a memorable name (`seeds.ts diceName`: ADJECTIVE-NOUN-NN), kept as
+`Break.seedName` and shown in the SEED box, the batch, the pattern card and export file names. A
+seed alone does not reproduce a break: the recipe (and FREEZE, mutations, regenerations, hand
+edits) do too, which is why the history and favourites keep all of them. BAKE draws a new seed for each layer that is not frozen. Changing a control
 re-bakes the same seeds, so its effect is heard on the same break. MUTATE appends a mutation
 (its own seed plus which layers it may change) to `seeds.mut`; each one applies a few variation
 operations to the groove cell before the phrase is developed.
@@ -321,6 +330,71 @@ Measured event data: [diversity-report.md](diversity-report.md) against the base
     triggers WILDCARD.
 * `destroy.ts` fix: FREEZE with ROLL GENERATION off now copies only the roll hits that sit on
   the sixteenth grid, as `chop` hits, so no new 1/32 rolls appear.
+
+## BREAK DNA, cymbals, DESTROY and seeds (Phase 14)
+
+Research and design: [break-dna-research.md](break-dna-research.md). Measured event data:
+[phase14-report.md](phase14-report.md) (`npm run evaluate`).
+
+* **Revision 4** (`CURRENT_REVISION = CYMBAL_REVISION = 4`). Revision 4 is gated on `usesCym4`
+  (engine 2, revision 4 or later). Revision 3 and earlier bake exactly as before:
+  test/phase13.test.ts and test/fixtures/toms-rolls-rev0-golden.json fingerprint them.
+* **Pipeline** (bakeV2, revision 4), after the phrase is developed:
+  1. shuffle grooves move onto the triplet grid;
+  2. the closed hats, open hats, ride and crashes the phrase layers made are stripped (the cymbal
+     engine owns them);
+  3. **BREAK DNA** (`blendGrammar`) blends the grammar's kick, snare, ghost and percussion
+     figures into the bars at INFLUENCE;
+  4. **CYMBALS** (`addCymbals4`) place every cymbal family from its activity, the subdivision,
+     the relationships and the DNA's leans, against each bar's kicks, snares and fill marks;
+  5. PERSONALITY phrasing, then the 100% strokes are restored (a personality or fill cannot
+     thin a family set to 100%), then performance.
+  Then, as before: AUTO samples, toms, rolls, `silence` (a family at 0 is removed after every
+  layer), `keepFull` (a family at 100% gets back any stroke a later layer took), the
+  transformations, REGEN TRACK, PERSONALITY performance, hand edits and the samples. **DESTROY**
+  runs last, on the finished events (`destroy2`), so it destroys what you hear, hand edits
+  included (hand-edited hits themselves are never destroyed).
+* **BREAK DNA** (`dnaGrammar.ts`): eight grammars (`DNA_DEFS`). INFLUENCE is monotonic because
+  every figure's threshold is a fixed draw from the BEAT seed: a higher influence is the same
+  break with more of the DNA. 0 (or NONE) returns the bars untouched. The DNA never changes the
+  tempo, the kit, the mixer or the samples, never adds toms, rolls or cymbals (it only leans the
+  cymbal engine), and respects every recipe control and FREEZE (it reads only the BEAT seed).
+  DICE (`App.diceDna`) picks another DNA, keeping INFLUENCE (60% when there was none). The
+  PERSONALITY tab holds the selector (`GemSelect`: arrows, Home, End, Page Up and Down, Space,
+  Return and Escape), with the DNA's description and source in its tip.
+* **Cymbals** (`cymbals4.ts`): `Recipe.cym` (CymbalSettings). CLOSED HAT and RIDE ACTIVITY are
+  coverage of the SUBDIVISION: each bar plays the top round(activity × positions) positions by
+  score (metric weight, the figure's lean, a seeded noise that does not depend on the activity),
+  so more activity plays the same strokes and more, 100% plays every position the relationship
+  allows, 0% none. OPEN HAT ACTIVITY works the same over the open-hat positions; CRASH ACTIVITY
+  over the phrase marks (at most two a bar). The PRIMARY RELATIONSHIP decides which positions each
+  family may use; OPEN/CLOSED decides how open hats sit with the closed ones. With OPEN-HAT CHOKE
+  off, closed hats are marked `free`, which the shared `hatChoke` reads, so live playback,
+  exports and stems agree. `migrateCym` carries a revision 3 recipe's HI-HAT ACTIVITY, RIDE
+  ACTIVITY and RELATIONSHIP into revision 4 when it is changed (`App.fresh`).
+* **DESTROY** (`destroy2.ts`): `Recipe.destroy2`, separate from the Phase 12 CHOP ▸ DESTROY
+  (`Recipe.destroy`, still baked for breaks that have it, removable from the DESTROY tab). A
+  track × effect matrix, a PROBABILITY per effect, MASTER AMOUNT, TAKE (RE-DESTROY) and CHAOS.
+  The fixed order is STUTTER, PITCH, REVERSE, GATE, TAPE STOP; conflicts are resolved as the
+  header of destroy2.ts lists. Repeats are bounded (8 a hit, `MAX_NEW` a pattern, never past the
+  next hit of the track). The effects are fields of the hit (`revFrac`, `detune`, `gate`,
+  `tape`); `noteInstrument` encodes them, in seconds at the tempo, into the instrument id
+  (`~fx:`), and `Ingredients.instrument` builds a `ShapedInstrument` for it, so the player and the
+  offline render play the same note. Changes are heard through the switching mode (IMMEDIATE,
+  NEXT BAR, NEXT LOOP) like any other change.
+  * **MIDI**: the hits (a stutter's repeats are notes) on each track's own note. Pitch, reverse,
+    gate and tape stop are sample playback, not General MIDI, so they are not in the file; a
+    drum note is never transposed to another drum.
+  * **FREEZE**: the draws come from the BEAT seed, so FREEZE BEAT keeps which hits are destroyed;
+    WILDCARD with FREEZE RHYTHM keeps the DESTROY settings.
+* **Persistence and undo**: `cym`, `destroy2` and `dna` are recipe fields, so they are saved,
+  carried by the history, favourites, batch and links, and each change is one undo step.
+  `sanitiseRecipe` sanitises them and, for revision 4, drops the revision 3 fields (`hats`,
+  `ride`, `cymbals`). Older saves load unchanged.
+* **WILDCARD**: GENERATION CONTROLS scatters the four cymbal activities around the new recipe's
+  own and usually keeps AUTO and ACCENT; BREAK DNA draws from the eight; DESTROY is usually off
+  and sometimes a CHAOS take at a moderate MASTER AMOUNT (an earlier CHOP ▸ DESTROY is switched
+  off).
 
 ## Sample selection
 

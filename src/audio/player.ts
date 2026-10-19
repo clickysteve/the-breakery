@@ -369,7 +369,7 @@ export class Player {
 
   /** Reversed copies of the samples a break plays backwards, made when the break arrives, never while scheduling. */
   private warm(b: Break): void {
-    for (const e of b.events) if (e.reverse && e.sample) this.ingredients.instrument(noteInstrument(e.sample, e));
+    for (const e of b.events) if (e.reverse && e.sample) this.ingredients.instrument(noteInstrument(e.sample, { reverse: true }));
   }
 
   /** Never replace audio already handed to Web Audio. Quantise beyond that frontier. */
@@ -494,7 +494,7 @@ export class Player {
       const a = this.toAudio(t);
       if (a >= ctx.currentTime - (this.clock === 'external' ? EXT_LATE : 0.005)) {
         const at = Math.max(a, ctx.currentTime);
-        if (s.e.sample) this.trigger(s.e.cat, noteInstrument(s.e.sample, s.e), s.e.vel, at, notePitch(s.e));
+        if (s.e.sample) this.trigger(s.e.cat, noteInstrument(s.e.sample, s.e, this.tempo), s.e.vel, at, notePitch(s.e));
         if (s.midi) this.midi?.hit(s.e.cat, s.e.vel, this.perfTime(at), this.perfTime(this.toAudio(t + GATE_QUARTERS * (60 / this.tempo))));
       }
       this.idx++;
