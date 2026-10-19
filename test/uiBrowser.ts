@@ -42,9 +42,9 @@ export async function run(): Promise<string> {
   const px = (n: number) => n * scale; // logical pixels → CSS pixels
 
   // ---------------------------------------------------------------- one tab system
-  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
+  const groups = [['INGREDIENTS', 'KITS'], ['RECIPE', 'CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE'], ['PATTERN', 'MIXER', 'BATCH', 'OUTPUT']];
   const tabs = $$('.mtab');
-  check(tabs.length === 11, `11 tabs, got ${tabs.length}`);
+  check(tabs.length === 12, `12 tabs, got ${tabs.length}`);
   for (const g of groups) {
     const bar = win(g[0]!).querySelector('.titlebar')!;
     check(JSON.stringify($$('.mtab', bar).map((t) => t.textContent)) === JSON.stringify(g), `tab group ${g}`);
@@ -72,7 +72,7 @@ export async function run(): Promise<string> {
   // tab switching keeps state and does not touch playback
   const before = JSON.stringify(app.current.events);
   const recipe = JSON.stringify(app.recipe);
-  for (const t of ['PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
+  for (const t of ['CYMBALS', 'PERSONALITY', 'CHOP', 'ROLLS', 'MUTATE', 'RECIPE', 'KITS', 'INGREDIENTS', 'MIXER', 'OUTPUT', 'PATTERN']) {
     await chooseTab(t);
     const tab = $$('.mtab').find((x) => x.textContent === t)!;
     check(tab.classList.contains('on') && tab.getAttribute('aria-selected') === 'true', `${t} selected`);
@@ -108,6 +108,59 @@ export async function run(): Promise<string> {
   app.undo();
   await tick();
   check(app.recipe.style === styleBefore, 'RANDOM RECIPE undone');
+
+  // Phase 13: TEMPO LOCK and the tempo DICE on the BPM row, the cymbals button opens CYMBALS, WILDCARD beside BAKE
+  const down = (b: Element) => b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+  check(visible(rbtn('LOCK')) && visible(rbtn('RND')), 'LOCK and RND on the BPM row');
+  check(!app.tempoLock && !rbtn('LOCK').classList.contains('on') && !rbtn('RND').classList.contains('disabled'), 'TEMPO LOCK starts off');
+  const bpm0 = app.recipe.bpm;
+  const ev0 = JSON.stringify(app.current.events.map((e) => [e.cat, e.step, e.sub]));
+  down(rbtn('RND'));
+  await tick();
+  check(app.recipe.bpm !== bpm0 && JSON.stringify(app.current.events.map((e) => [e.cat, e.step, e.sub])) === ev0, 'the tempo DICE changes the tempo, not the pattern');
+  down(rbtn('LOCK'));
+  await tick();
+  const locked = app.recipe.bpm;
+  check(app.tempoLock && rbtn('LOCK').classList.contains('on') && rbtn('RND').classList.contains('disabled'), 'TEMPO LOCK on: the tempo DICE is disabled');
+  down(rbtn(STYLE_LABELS[app.recipe.style === 'dnb' ? 'funk' : 'dnb']!));
+  await tick();
+  check(app.recipe.bpm === locked, 'TEMPO LOCK keeps the tempo through a recipe change');
+  down(rbtn('LOCK'));
+  await tick();
+  check(!app.tempoLock, 'TEMPO LOCK off again');
+  app.undo();
+  app.undo();
+  await tick();
+  check(app.recipe.style === styleBefore && app.recipe.bpm === bpm0, 'the recipe change and the tempo DICE are undo steps (TEMPO LOCK is not)');
+  const cym = $$('.btn', recipeWin).find((b) => /^HATS \d+% RIDE \d+%$/.test(b.textContent ?? ''));
+  check(cym && visible(cym), 'the HATS · RIDE button in the CHOP and ROLLS row');
+  down(cym!);
+  await tick();
+  check($$('.mtab').find((x) => x.textContent === 'CYMBALS')!.classList.contains('on'), 'it opens the CYMBALS tab');
+  const cymPane = $$('.pane', recipeWin).find((p) => !p.hidden)!;
+  check(cymPane.querySelector('[aria-label="Hi-hat activity"]') && cymPane.querySelector('[aria-label="Ride activity"]'), 'HI-HAT and RIDE ACTIVITY bars');
+  check(['ALTERNATE', 'LAYER', 'INDEPENDENT'].every((t) => $$('.btn', cymPane).some((b) => b.textContent === t && visible(b))), 'the three RELATIONSHIP buttons');
+  check($$('.btn.on', cymPane).some((b) => b.textContent === 'ALTERNATE'), 'ALTERNATE is the default relationship');
+  check(/GROOVE: /.test(cymPane.textContent ?? '') && /HATS: /.test(cymPane.textContent ?? ''), 'the CYMBALS tab shows what this break chose');
+  for (const b of $$('.btn, .label, .range', cymPane).filter(visible)) check(rect(b).right <= wr.right + 1 && rect(b).bottom <= wr.bottom + 1, `${b.textContent} inside the CYMBALS tab`);
+  app.setRecipe({ hats: 0, ride: 0 });
+  await tick();
+  check(!app.current.events.some((e) => e.cat === 'hat' || e.cat === 'open' || e.cat === 'ride'), 'activity 0: no hats and no ride');
+  app.undo();
+  await tick();
+  await chooseTab('RECIPE');
+  const bakeWin = $$('.mwin').find((w) => $$('.btn', w).some((b) => b.textContent === 'BAKE'))!;
+  const bakeBtn = $$('.btn', bakeWin).find((b) => b.textContent === 'BAKE')!;
+  const wildBtn = $$('.btn', bakeWin).find((b) => b.textContent === 'WILDCARD');
+  check(wildBtn && visible(wildBtn) && Math.abs(rect(wildBtn).top - rect(bakeBtn).top) < 1 && rect(wildBtn).left >= rect(bakeBtn).right - 0.5 && rect(wildBtn).right <= rect(bakeWin).right + 1, 'WILDCARD sits beside BAKE');
+  check(wildBtn!.scrollWidth <= wildBtn!.clientWidth + 1, 'the WILDCARD label fits');
+  const wildBefore = JSON.stringify(app.recipe);
+  down(wildBtn!);
+  await tick();
+  check(JSON.stringify(app.recipe) !== wildBefore && /^WILDCARD/.test(app.status), 'WILDCARD made a new break');
+  app.undo();
+  await tick();
+  check(JSON.stringify(app.recipe) === wildBefore, 'one undo step undoes WILDCARD');
 
   // CHOP tab: the CHOP button opens it; ENABLED, AMOUNT, SLICE SIZE and RETRIGGER chop the same GROOVE; one undo step each
   const groove = JSON.stringify(app.current.events);
