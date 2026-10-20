@@ -89,8 +89,10 @@ engine) re-applies it; edits that no longer find their hit, or lie beyond a shor
 kept and reported. A new break (BAKE, BATCH, a seed, MUTATE, the history) starts unedited, and the
 old break keeps its edits in its history entry (and favourite); FREEZE EDITS carries the layer
 onto new breaks instead. Undo and redo are snapshots of the layer (and the selection); a drag is
-one step; quick changes of one number coalesce. Live playback takes an edit at once
-(`Player.update`), from the next hit not yet scheduled.
+one step; quick changes of one number coalesce. Live playback takes an edit on the grid
+(`Player.update`): at the next safe sixteenth with IMMEDIATE, else the SWITCH mode's bar or
+loop. Since Phase 17 removals and changes are anchored to their hit's origin through CHOP (see
+below and [PATTERN_WORKFLOW.md](PATTERN_WORKFLOW.md)).
 
 ## Toms and rolls
 
@@ -473,6 +475,32 @@ The full rules are in [TRANSFORMATIONS.md](TRANSFORMATIONS.md); this is the code
   reports those waiting for their hit).
 * **WILDCARD REPORT** has a ROLLS group (LENGTH, SPEED, DYNAMICS, PLACEMENT, TARGETS, ROLL
   GENERATION).
+
+## Pattern workflow (Phase 17)
+
+The rules are in [PATTERN_WORKFLOW.md](PATTERN_WORKFLOW.md); this is the code map.
+
+* **Anchored edits.** `chopper.ts` stamps each copy it moves with `src` (its origin key; a
+  retrigger stroke `~<own key>`). `edits.ts`: `baseRef(e)` is `key` or `key@src`; a `v: 2` layer
+  resolves each removal and change exactly first, then by following its origin to the nearest
+  unclaimed hit of that origin in the same bar, else reports it waiting. `upgradeEdits` turns a
+  layer saved before (no `v`, positional) into `v: 2` using the refs it resolved to, on the first
+  edit (`App.layer`), so nothing that plays changes.
+* **PAINT.** `App.paint` (saved) maps a track to a sample id; `paintSample(cat)` is used by
+  `addHit` when the id is still in that track; `checkPaint` drops stale choices on a kit change.
+  `ingredientsWindow.ts` makes sample names clickable; `patternWindow.ts` marks the row label.
+* **Name builder.** `exportName.ts` `nameRows` / `namePlace`; `takeawayDialog.ts` draws a
+  column-flow CSS grid inside a size container (`style.css`: `.nameparts`, `.namebox`).
+* **Switching.** `player.ts`: each scheduled hit has a nominal tick and an identity; a switch
+  carries old hits before the boundary, takes new hits from it, and never emits an identity
+  already played (`played`, pruned after `PLAYED_MEMORY` loops). `setBreak(b, edit)` with
+  IMMEDIATE picks the first sixteenth past `scheduledUntil`; `queuedKind` feeds the pattern card.
+* **Grid.** `ui/gridGeometry.ts` (`tickAtX`, `xAtTick`, `cellOf`, `cellAtX`, `dragTo`, `lineX`).
+* **Library.** `Ingredients.addFromLibrary(samples, cat)` adds by reference (a second assignment
+  is `<id>@<cat>` with `audio: <id>`, sharing the decoded instrument); `libraryItems` /
+  `restoreLibrary` make it part of the App's undo snapshot; `forget` keeps audio another
+  assignment uses. `ui/libraryDialog.ts` is the ADD FROM LIBRARY dialog (`libraryEntries` guesses
+  categories via `kits.slotOfRole`).
 
 ## Sample selection
 

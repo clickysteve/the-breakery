@@ -7,8 +7,16 @@
  * and HAND EDITS (the marks on hits placed or changed by hand), which follow INK and SELECTION
  * unless a palette gives them colours of their own. The default is ATARI, the original
  * black-and-white look, so nothing changes for anyone who has not chosen a palette.
+ *
+ * Built in: Core's shared presets, then The Breakery's own palette files in src/palettes (AMFAS:
+ * amber and orange on a dark green-black, with its own HITS and HAND EDITS colours).
  */
-import { PaletteLibrary, SHARED_PRESETS, SHARED_ROLES, SWAP_INK_PAPER, type PaletteConfig } from '@slopfactory/core/palette';
+import { PaletteLibrary, SHARED_PRESETS, SHARED_ROLES, SWAP_INK_PAPER, type Palette, type PaletteConfig } from '@slopfactory/core/palette';
+
+import amfas from '../palettes/amfas.json';
+
+/** The Breakery's own built-in palettes, after Core's shared ones. */
+export const BREAKERY_PRESETS: Palette[] = [{ id: 'amfas', name: amfas.name, builtIn: true, colors: amfas.colors }];
 
 export const BREAKERY_PALETTES: PaletteConfig = {
   app: 'breakery',
@@ -18,7 +26,7 @@ export const BREAKERY_PALETTES: PaletteConfig = {
     { id: 'edits', label: 'Hand edits', help: 'marks on hits placed or changed by hand', css: '--edits', contrast: 2, from: 'selection' },
     ...SHARED_ROLES.slice(4),
   ],
-  builtIns: SHARED_PRESETS,
+  builtIns: [...SHARED_PRESETS, ...BREAKERY_PRESETS],
   // palettes made in the other Slop Factory instruments import by the roles they share
   accept: ['emmm-palette', 'downbeat-palette'],
   // a refused entry flashes by swapping ink and paper (inverting a colour palette would clash)

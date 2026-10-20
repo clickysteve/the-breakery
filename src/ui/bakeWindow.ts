@@ -51,7 +51,7 @@ export function bakeWindow(parent: HTMLElement, ui: UiContext, rect: { x: number
   const modeNames = ['NEXT BAR', 'NEXT LOOP', 'IMMEDIATE'];
   label(b, G + 1, 75, 'SWITCH', 'head');
   const mode = new Button(b, [44, 72, W - G - 44, 14], 'NEXT BAR', {
-    cls: 'small', tip: 'SWITCH: when a new pattern (BAKE, MUTATE, a candidate, an edit of the recipe) takes over while playing. Click to cycle NEXT BAR, NEXT LOOP, IMMEDIATE.',
+    cls: 'small', tip: 'SWITCH: when a change takes over while playing: a new pattern (BAKE, MUTATE, a candidate) or an edit (a hit, CHOP, ROLLS, DESTROY, a control, undo). NEXT BAR, NEXT LOOP, or IMMEDIATE: the next sixteenth after the audio already scheduled. Hits never play twice and ringing sounds are never cut. Click to cycle.',
     onPress: () => {
       app.player.switchMode = modes[(modes.indexOf(app.player.switchMode) + 1) % modes.length]!;
       saveSwitchMode(app.player.switchMode);

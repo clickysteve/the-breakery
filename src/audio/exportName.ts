@@ -113,6 +113,15 @@ export function saveNaming(p: NamingPrefs): void {
   }
 }
 
+/**
+ * The file name builder's layout: two columns numbered DOWN each column, the first holding the
+ * first half (rounded up). Seven components: 1-4 on the left, 5-7 on the right. The rows per column.
+ */
+export const nameRows = (n: number, columns = 2): number => Math.max(1, Math.ceil(n / columns));
+
+/** Where component `i` (0-based, in filename order) is drawn: its column and row. */
+export const namePlace = (i: number, n: number, columns = 2): { col: number; row: number } => ({ col: Math.floor(i / nameRows(n, columns)), row: i % nameRows(n, columns) });
+
 /** A component moved one place up (-1) or down (+1); the order is kept otherwise. */
 export function movePart(p: NamingPrefs, id: NamePart, by: -1 | 1): NamingPrefs {
   const i = p.parts.findIndex((x) => x.id === id);

@@ -247,6 +247,10 @@ export function chop(source: readonly BreakEvent[], settings: ChopSettings, ctx:
         role: keepRole ? e.role : 'chop',
         why: `CHOP: ${what || 'a fragment'} ${OP_NAME[op ?? 'recall']} at ${where(bar, step)} (${baseWhy(e.why)})`,
       };
+      // where it came from (hand edits follow it): the groove hit it copies, or nothing when it is in its own place
+      const from = e.src ?? keyOf(e);
+      if (from !== keyOf(copy)) copy.src = from;
+      else delete copy.src;
       if (moved && (isBackbeat(e) || movedBackbeats.has(e))) movedBackbeats.add(copy);
       return copy;
     });
@@ -440,6 +444,9 @@ export function chop(source: readonly BreakEvent[], settings: ChopSettings, ctx:
   return { events, report: { slices: slices.length, edited: decided.filter(Boolean).length, ops } };
 }
 
+/** A hit's key (as edits.ts hitKey; not imported, to keep the engine's dependencies one way). */
+const keyOf = (e: Pick<BreakEvent, 'cat' | 'bar' | 'step' | 'sub'>) => `${e.cat}|${e.bar}|${e.step}|${e.sub}`;
+
 /** How strongly the backbeat stays: more at low AMOUNT, whatever the recipe, so a light chop keeps the groove readable. */
 const backbeatProtection = (cs: ChopStyle, amount: number) => (cs.backbeat + (1 - cs.backbeat) * 0.7 * (1 - amount) ** 2) * (1 - 0.6 * amount);
 
@@ -487,6 +494,8 @@ function retrigger(sl: Slice, own: BreakEvent[], lead: BreakEvent, cs: ChopStyle
       swing: sw,
       offsetMs: sl.bar === 0 && step === 0 && sub === 0 ? Math.max(0, lead.offsetMs) : lead.offsetMs,
       role: 'roll',
+      // a stroke CHOP made: anchored to its own place, never to the hit it repeats
+      src: `~${keyOf({ cat: lead.cat, bar: sl.bar, step, sub })}`,
       why: `CHOP retrigger: the ${where(lead.bar, lead.step)} ${CATEGORY_LABEL[lead.cat].toLowerCase()} retriggered ${n} × ${SPEED_NAME[d] ?? `${d}/12 of a sixteenth`} into ${into}`,
     });
   }

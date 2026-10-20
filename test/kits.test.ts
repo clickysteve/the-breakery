@@ -203,7 +203,7 @@ it('the library adds stored samples to the current kit without importing them ag
   const s = await setup(); await s.kits.save('Kit');
   await s.kits.newKit();
   const [first] = await s.library.listSamples();
-  await s.ingredients.addFromLibrary(first!.id, first!.name, 'snare');
+  await s.ingredients.addFromLibrary([{ id: first!.id, name: first!.name }], 'snare');
   expect(s.ingredients.kit().snare).toEqual([first!.id]);
   expect((await s.audio.list()).length).toBe(2);
 });
@@ -284,4 +284,92 @@ it('a legacy .breakery-kit file converts exactly', async () => {
     { role: 'kick', label: 'KICK', selection: 'weighted', samples: [{ sample: s1.id, name: 'Kick', weight: 4 }] },
     { role: 'unassigned', samples: [{ sample: s1.id, name: 'Odd', ext: { 'the-breakery': { item: 'x' } } }] },
   ]);
+});
+
+// ---------------------------------------------------------------- Phase 17: library samples in any kit
+
+it('Phase 17: a sample imported into kit A is added to kit B from the library, by reference, in the instrument chosen', async () => {
+  const s = await setup();
+  await s.kits.save('A');
+  const a = s.kits.currentId!;
+  const x = s.ingredients.items[0]!; // kick.wav, a KICK in kit A
+  await s.kits.newKit();
+  // the explicit destination wins: kit A's KICK sample becomes kit B's SNARE
+  expect(await s.app.addFromLibrary([{ id: x.id, name: x.name }], 'snare')).toEqual([x.id]);
+  expect(s.ingredients.kit().snare).toEqual([x.id]);
+  expect(s.ingredients.kit().kick).toEqual([]);
+  expect(s.ingredients.items[0]!.instrument).toBeTruthy();
+  expect((await s.audio.list()).length).toBe(2); // no copy of the audio
+  await s.kits.save('B');
+  const b = s.kits.currentId!;
+  expect((await s.library.getKit(b))!.instruments).toMatchObject([{ role: 'snare', samples: [{ sample: x.id }] }]);
+  // removing it from B leaves A (and the audio) alone
+  s.ingredients.remove(x.id);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(await s.audio.has(x.id)).toBe(true);
+  await s.kits.load(a);
+  expect(s.ingredients.kit().kick).toContain(x.id);
+  // deleting kit B never deletes a sample kit A uses
+  await s.kits.delete(b);
+  expect(await s.audio.has(x.id)).toBe(true);
+});
+
+it('Phase 17: a sample already in the kit gets a second assignment (same audio), kept through save, load, export and import', async () => {
+  const s = await setup();
+  const x = s.ingredients.items[0]!;
+  const ids = await s.app.addFromLibrary([{ id: x.id, name: x.name }], 'snare');
+  expect(ids).toEqual([`${x.id}@snare`]);
+  expect(s.ingredients.kit().kick).toContain(x.id);
+  expect(s.ingredients.kit().snare).toEqual([`${x.id}@snare`]);
+  // the second assignment shares the first one's decoded audio
+  expect(s.ingredients.items.find((i) => i.id === ids[0])!.instrument).toBe(x.instrument);
+  expect(await s.app.addFromLibrary([{ id: x.id, name: x.name }], 'snare')).toEqual([]); // once per instrument
+  await s.kits.save('Both');
+  const id = s.kits.currentId!;
+  await s.kits.newKit();
+  await s.kits.load(id);
+  expect(s.ingredients.kit().kick).toContain(x.id);
+  expect(s.ingredients.kit().snare).toEqual([`${x.id}@snare`]);
+  const { bytes } = await s.kits.exportCurrent('Both');
+  const parsed = await readKitArchive(bytes);
+  expect(parsed.samples).toHaveLength(2); // the audio once, self-contained
+  const other = await setup(makeLibrary());
+  await other.kits.newKit();
+  await other.kits.importFile(bytes);
+  expect(other.ingredients.kit().snare).toHaveLength(1);
+  expect(other.ingredients.kit().kick).toHaveLength(2);
+  // removing the SNARE assignment keeps the KICK one and the audio
+  s.ingredients.remove(`${x.id}@snare`);
+  await new Promise((r) => setTimeout(r, 0));
+  expect(s.ingredients.kit().kick).toContain(x.id);
+  expect(await s.audio.has(x.id)).toBe(true);
+});
+
+it('Phase 17: ADD FROM LIBRARY is one undo step; undo removes the assignment (never the audio), redo brings the same sample back', async () => {
+  const s = await setup();
+  await s.kits.save('A');
+  const x = s.ingredients.items[1]!;
+  await s.kits.newKit();
+  const before = s.app.current.events.length;
+  await s.app.addFromLibrary([{ id: x.id, name: x.name }], 'kick');
+  expect(s.ingredients.kit().kick).toEqual([x.id]);
+  expect(s.app.canUndo).toBe(true);
+  s.app.undo();
+  expect(s.ingredients.kit().kick).toEqual([]);
+  expect(await s.audio.has(x.id)).toBe(true);
+  expect(s.app.current.events.length).toBe(before);
+  s.app.redo();
+  await new Promise((r) => setTimeout(r, 10));
+  expect(s.ingredients.kit().kick).toEqual([x.id]);
+  expect(s.ingredients.items[0]!.instrument).toBeTruthy();
+});
+
+it('Phase 17: the library dialog lists each sample with its kit category, or its name\'s', async () => {
+  const { libraryEntries } = await import('../src/ui/libraryDialog');
+  const s = await setup();
+  s.ingredients.setCategory(s.ingredients.items[1]!.id, 'snare');
+  await s.kits.save('A');
+  await s.kits.newKit();
+  const entries = await libraryEntries(s.library, s.ingredients.items);
+  expect(entries.map((e) => [e.name, e.cat, e.guessed, e.inKit])).toEqual([['kick.wav', 'kick', false, []], ['kick2.wav', 'snare', false, []]]);
 });

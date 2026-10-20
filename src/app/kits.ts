@@ -43,6 +43,14 @@ export const ROLE: Record<Slot, string> = {
 };
 /** The category of each of The Breakery's own roles. */
 const ROLE_SLOT = new Map<string, Slot>(Object.entries(ROLE).map(([k, v]) => [v, k as Slot]));
+/** The category a kit role plays in (ACCEPTS included: a cowbell is PERC), or null. */
+export function slotOfRole(role: string): Slot | null {
+  const own = ROLE_SLOT.get(role);
+  if (own) return own;
+  for (const [slot, roles] of Object.entries(ACCEPTS) as [Slot, string[]][]) if (roles.includes(role)) return slot;
+  return null;
+}
+
 /** Roles a category also takes (they keep their role in the kit). */
 const ACCEPTS: Partial<Record<Slot, string[]>> = { hat: ['hat-pedal'], perc: ['rim', 'cowbell', 'shaker', 'clave', 'conga'] };
 

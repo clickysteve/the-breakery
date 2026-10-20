@@ -53,9 +53,7 @@ export function libraryPanel(parent: HTMLElement, ui: UiContext, target: () => S
     onPress: () => void run(async () => {
       const s = current();
       if (!s) throw new Error('Select a sample first.');
-      if (inKit(s.id)) return app.say(`“${s.name}” is already in the current kit.`);
-      await app.ingredients.addFromLibrary(s.id, s.name, target());
-      app.say(`Added “${s.name}” to ${slotLabel(target())}.`);
+      await app.addFromLibrary([{ id: s.id, name: s.name }], target());
     }),
   });
   const del = new Button(panel, [5, 328, bw, 18], 'DELETE', {

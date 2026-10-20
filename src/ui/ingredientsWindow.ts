@@ -14,7 +14,8 @@ import { SLOTS, type ImportEntry, type Slot } from '../audio/ingredients';
 import { sourceOf } from '../engine/kit';
 import { modeOf, SAMPLE_MODE_LABEL, SAMPLE_MODE_TIP, SAMPLE_MODES, sampleUsage, type SampleMode } from '../engine/samples';
 import { CATEGORY_LABEL, type Category } from '../engine/types';
-import { el, setTip } from './dom';
+import { el, esc, setTip } from './dom';
+import { libraryDialog } from './libraryDialog';
 import { carriesFiles, droppedEntries } from './dropFiles';
 import { GemSelect } from './gemSelect';
 import { Button, MWindow, NumBox, typing } from './widgets';
@@ -84,6 +85,22 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
 
   const listTop = 2 + SLOTS.length * 15 + 6;
   const head = el('div', 'label', b, [4, listTop + 2]);
+  Object.assign(head.style, { maxWidth: `${W - 134}px`, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
+  // ADD FROM LIBRARY: samples already in this browser join this instrument (no import)
+  const fromLib = new Button(b, [W - 128, listTop - 1, 32, 13], '+ LIB', {
+    cls: 'small',
+    tip: 'ADD FROM LIBRARY: add samples already in this browser (from any kit or import) to the selected instrument. No import, no copy of the audio; the instrument you add to wins over the sample’s own category. ⌘Z removes them from the kit again.',
+    onPress: () => void (async () => {
+      const dest = selected;
+      try {
+        const picked = await libraryDialog(ui.screen, ing.library, ing.items, dest, async () => ((await app.player.ensure()) ? app.player.ctx : null));
+        if (picked.length) await app.addFromLibrary(picked, dest);
+      } catch (e) {
+        ui.alert(esc(e instanceof Error ? e.message : String(e)));
+      }
+    })(),
+  });
+  fromLib.el.setAttribute('aria-label', 'Add samples from the library to the selected instrument');
   const pickLabel = el('div', 'label small', b, [W - 92, listTop + 2], 'PICK');
   const pick = new GemSelect(b, [W - 72, listTop - 1, 68, 13], {
     label: 'How this category picks among its samples',
@@ -163,7 +180,6 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
       r.stat.classList.toggle('bad', st.bad);
       setTip(r.row, (slot === 'unsorted' ? 'Samples not yet given a category. They are not played until you assign them.' : `${slotLabel(slot)}: ${n} sample${n === 1 ? '' : 's'}. ${n > 1 ? `Picks by ${SAMPLE_MODE_LABEL[modeOf(app.samples, slot)]}.` : st.text}`) + ` Drop files here to add them to ${slotLabel(slot)}.`);
     }
-    head.textContent = `${slotLabel(selected)} SAMPLES`;
     const cat = selected === 'unsorted' ? null : selected;
     const mode = cat ? modeOf(app.samples, cat) : 'auto';
     pick.el.style.display = pickLabel.style.display = cat ? '' : 'none';
@@ -176,7 +192,10 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
     const loud = ing.loudness();
     const ready = items.filter((i) => i.status === 'ready');
     const order = [...ready].sort((a, b2) => (loud[a.id] ?? 0) - (loud[b2.id] ?? 0)).map((i) => i.id);
-    const sig = JSON.stringify([selected, mode, cs, items.map((i) => [i.id, i.cat, i.status, i.name]), [...usage]]);
+    const painting = cat ? app.paint[cat] ?? null : null;
+    head.textContent = `${slotLabel(selected)} SAMPLES${painting && cat ? ` · ✎ ${ing.name(painting)}` : ''}`;
+    setTip(head, cat ? (painting ? `PAINT: hits you place on the ${slotLabel(selected)} row play ${ing.name(painting)} (marked ✎). Click its name again to go back to the PICK mode.` : `Click a sample's name to PAINT with it: hits you place on the ${slotLabel(selected)} row then play exactly that sample. ▶ only previews.`) : '');
+    const sig = JSON.stringify([selected, mode, cs, items.map((i) => [i.id, i.cat, i.status, i.name]), [...usage], painting]);
     note.textContent = items.length ? '' : selected === 'unsorted' ? 'Nothing unsorted.' : `No ${slotLabel(selected)} samples. Load some, or reassign one from another category.`;
     // keep the list while one of its weight boxes is being typed into
     if (sig === lastSig || (typing.active && list.contains(document.activeElement))) return;
@@ -185,10 +204,28 @@ export function ingredientsWindow(parent: HTMLElement, ui: UiContext, rect: { x:
     for (const it of items) {
       const row = el('div', 'srow', list);
       const p = el('span', 'ibtn', row, undefined, '▶');
-      setTip(p, 'Preview');
-      p.addEventListener('pointerdown', () => void app.player.audition(selected === 'unsorted' ? 'perc' : selected, it.id));
-      const name = el('span', 'sname' + (it.status === 'ready' ? '' : ' bad'), row, undefined, it.name);
-      setTip(name, `${it.path || it.name}${it.duration ? ` · ${it.duration.toFixed(2)} s` : ''}${it.status === 'ready' ? ` · ${it.loud.toFixed(1)} dB RMS` : ''}${it.source === 'demo' ? ' · demo kit' : ''}${it.message ? ' · ' + it.message : ''}${it.status !== 'ready' ? ` · ${it.status.toUpperCase()}` : ''}`);
+      setTip(p, 'Preview (only listens: it does not choose the sample for painting)');
+      p.addEventListener('pointerdown', (ev) => {
+        ev.stopPropagation();
+        void app.player.audition(selected === 'unsorted' ? 'perc' : selected, it.id);
+        // previewing: the button turns solid and shows ♪ while the sample plays
+        p.classList.add('auditioning');
+        p.textContent = '♪';
+        setTimeout(() => {
+          p.classList.remove('auditioning');
+          p.textContent = '▶';
+        }, Math.max(150, Math.min(4000, it.duration * 1000)));
+      });
+      const paintable = !!cat && it.status === 'ready';
+      const chosen = paintable && painting === it.id;
+      row.classList.toggle('paint', chosen);
+      row.setAttribute('aria-selected', String(chosen));
+      const name = el('span', 'sname' + (it.status === 'ready' ? '' : ' bad') + (paintable ? ' paintable' : ''), row, undefined, `${chosen ? '✎ ' : ''}${it.name}`);
+      setTip(name, `${it.path || it.name}${it.duration ? ` · ${it.duration.toFixed(2)} s` : ''}${it.status === 'ready' ? ` · ${it.loud.toFixed(1)} dB RMS` : ''}${it.source === 'demo' ? ' · demo kit' : ''}${it.message ? ' · ' + it.message : ''}${it.status !== 'ready' ? ` · ${it.status.toUpperCase()}` : ''}${paintable ? (chosen ? `\n✎ PAINTING: hits placed on the ${slotLabel(selected)} row play this sample. Click to stop.` : `\nClick: PAINT with this sample (hits placed on the ${slotLabel(selected)} row play it).`) : ''}`);
+      if (paintable) {
+        name.setAttribute('role', 'button');
+        name.addEventListener('pointerdown', () => app.setPaint(cat!, chosen ? null : it.id));
+      }
       // the mode's setting for this sample (or how often it plays in this break)
       const slotEl = el('span', 'wslot', row);
       const used = usage.get(it.id) ?? 0;

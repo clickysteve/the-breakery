@@ -5,7 +5,7 @@
  * so each control's effect is heard on the same break; BAKE draws new seeds for every layer that
  * is not frozen; MUTATE varies the current groove a little.
  */
-import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, ratchetHit, RATCHET_SPAN_LABEL, refLabel, revertHit, sanitiseEdits, setPitch, setReverse, setSample, setTiming, setVelocity, type EditResult, type Edits } from '../engine/edits';
+import { addHit, deleteHit, describeEdits, fmtPitch, hitKey, duplicateHit, editCount, findRef, hasEdits, moveHit, noEdits, posLabel, posOf, ratchetHit, RATCHET_SPAN_LABEL, refLabel, revertHit, sanitiseEdits, setPitch, setReverse, setSample, setTiming, setVelocity, upgradeEdits, type EditResult, type Edits } from '../engine/edits';
 import { defaultRollExpr, describeExpr, diceExpr, presetExpr, sanitiseRollExpr, type RollExpression, type RollPreset } from '../engine/rollExpr';
 import { defaultDestroy, describeDestroy, sanitiseDestroy, type DestroySettings } from '../engine/destroy';
 import { describePersonality, PERSONALITY_LABEL, sanitisePersonality, type PersonalitySetting } from '../engine/personality';
@@ -26,7 +26,7 @@ import { pickTempo, tempoFor, tempoRange } from '../engine/tempo';
 import { selectSamples, sanitiseSampleSettings, type CategorySamples, type SampleSettings } from '../engine/samples';
 import { defaultRecipe, STYLE_DEFS } from '../engine/styles';
 import { CATEGORIES, CATEGORY_LABEL, CURRENT_ENGINE, CURRENT_REVISION, CYMBAL_REVISION, LAYERS, MUTATION_STYLES, STYLES, TPS, type Break, type Category, type ChopSettings, type Layer, type RollReport, type MutationOptions, type MutationStyle, type Recipe, type Seeds, type Style } from '../engine/types';
-import type { Ingredients } from '../audio/ingredients';
+import type { Ingredients, Slot } from '../audio/ingredients';
 import type { Player } from '../audio/player';
 import { defaultTakeaway, type TakeawayOptions } from '../audio/takeaway';
 import { audible, emptyMix, safeGain, safePan, sanitiseMix, type MixState } from './mix';
@@ -94,6 +94,8 @@ interface Saved {
   wildcard?: WildcardSettings;
   /** changed since the last NEW PATCH (NEW PATCH asks first) */
   patchDirty?: boolean;
+  /** PAINT: the sample chosen in INGREDIENTS for each track's hand-placed hits */
+  paint?: Partial<Record<Category, string>>;
 }
 
 /** What an undo step of WILDCARD also restores (the mixer and the output chain are otherwise never part of undo). */
@@ -189,6 +191,13 @@ export class App {
    * or NEW PATCH; part of the undo snapshots, so undo and redo bring back the matching one.
    */
   wildcardReport: WildcardReport | null = null;
+  /**
+   * PAINT (Phase 17): a sample chosen in INGREDIENTS for its own track. A hit placed by hand on
+   * that track plays exactly that sample (pinned: no PICK mode chooses for it); other tracks keep
+   * their own choice or their PICK mode. A preference, saved, never part of undo (the hits it
+   * places are). A choice whose sample is no longer in its track is dropped (see checkPaint).
+   */
+  paint: Partial<Record<Category, string>> = {};
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private baseline = '';
@@ -217,6 +226,7 @@ export class App {
     this.keepEdits = s?.keepEdits === true;
     this.snap = (SNAPS as readonly number[]).includes(Number(s?.snap)) ? Number(s!.snap) : 12;
     this.mutation = sanitiseMutate(s?.mutate);
+    if (s?.paint && typeof s.paint === 'object') for (const c of CATEGORIES) if (typeof s.paint[c] === 'string' && s.paint[c]) this.paint[c] = s.paint[c];
     this.output = new OutputChain(OUTPUT_ENGINES, s?.output);
     player.setOutput(this.output.config);
     this.output.subscribe((c) => {
@@ -258,7 +268,7 @@ export class App {
   }
 
   save(): void {
-    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings, patchDirty: this.patchDirty };
+    const s: Saved = { recipe: this.recipe, seeds: this.seeds, seedName: this.seedName, frozen: this.frozen, loop: this.player.loop, level: this.player.level, takeaway: this.takeawayOpts, samples: this.samples, mix: this.mix, edits: this.edits, keepEdits: this.keepEdits, snap: this.snap, mutate: this.mutation, output: this.output.config, rollGeneration: this.rollGeneration, tempoLock: this.tempoLock, wildcard: this.wildcardSettings, patchDirty: this.patchDirty, paint: this.paint };
     writeJson(STATE_KEY, s);
     writeJson(HISTORY_KEY, this.history.toJSON());
   }
@@ -268,12 +278,13 @@ export class App {
     return bake(recipe, seeds, this.ingredients.kit(), { settings: this.samples, loudness: this.ingredients.loudness() }, (id) => this.ingredients.name(id), edits);
   }
 
-  private show(b: Break): void {
+  /** Show and play a break: `edit` when it is this break changed (a control, a transformation), not a new one. */
+  private show(b: Break, edit = false): void {
     // the seed's words travel with the break (the batch, exports and the pattern card show them)
     if (this.seedName) b.seedName = this.seedName;
     else delete b.seedName;
     this.current = b;
-    this.player.setBreak(b);
+    this.player.setBreak(b, edit);
     if (this.selected && !findRef(b.events, this.selected)) this.selected = null;
   }
 
@@ -292,8 +303,9 @@ export class App {
 
   /** Re-bake the current seeds (after a recipe, kit or sample-setting change); the batch follows. Hand edits are re-applied. */
   rebake(): void {
+    this.checkPaint();
     const before = this.current.editReport;
-    this.show(this.bakeWith(this.seeds));
+    this.show(this.bakeWith(this.seeds), true);
     this.batch = this.batch.map((c, i) => (i === this.picked ? this.current : this.bakeWith(c.seeds, this.recipe, this.keepEdits ? this.edits : null)));
     const r = this.current.editReport;
     if (r && (r.outside !== (before?.outside ?? 0) || r.inactive !== (before?.inactive ?? 0)) && (r.outside || r.inactive)) this.status = describeEdits(this.edits, r);
@@ -581,7 +593,7 @@ export class App {
     const generated = this.bakeWith(this.seeds, this.recipe, null).events;
     const removed = [...new Set(generated.map((e) => e.ref ?? hitKey(e)))];
     this.selected = null;
-    this.commit({ edits: { removed, changed: {}, added: [] }, ref: null }, false, { say: `Cleared the pattern (${n} hit${n === 1 ? '' : 's'}). The settings are as they were: ⌘Z brings the hits back, BAKE makes a new pattern.` });
+    this.commit({ edits: { v: 2, removed, changed: {}, added: [] }, ref: null }, false, { say: `Cleared the pattern (${n} hit${n === 1 ? '' : 's'}). The settings are as they were: ⌘Z brings the hits back, BAKE makes a new pattern.` });
   }
 
   /**
@@ -904,15 +916,18 @@ export class App {
   }
 
   /**
-   * Hand edits through a transformation change: they are a positional layer over the result
-   * (engine/edits.ts), so they are never deleted; one whose hit is not in the new result waits,
-   * inactive, and applies again when that result comes back (CHOP as it was, the same take).
+   * Hand edits through a transformation change: they are a layer over the result, anchored to the
+   * hits they were made on (engine/edits.ts), so they are never deleted. One whose hit CHOP moved
+   * follows it; one whose hit is not in the new result waits, inactive, and applies again when
+   * that hit comes back. Hits added by hand stay where they were put.
    */
   private get editsNote(): string {
     if (!hasEdits(this.edits)) return '';
     const n = editCount(this.edits);
     const off = this.current.editReport?.inactive ?? 0;
-    return ` Your ${n} hand edit${n === 1 ? ' is' : 's are'} kept${off ? ` (${off} waiting for ${off === 1 ? 'its' : 'their'} hit: ${off === 1 ? 'it applies' : 'they apply'} again when it returns)` : ''}.`;
+    const moved = this.current.editReport?.followed ?? 0;
+    const notes = [moved ? `${moved} followed ${moved === 1 ? 'its hit' : 'their hits'} to ${moved === 1 ? 'its' : 'their'} new place` : '', off ? `${off} waiting for ${off === 1 ? 'its' : 'their'} hit: ${off === 1 ? 'it applies' : 'they apply'} again when it returns` : ''].filter(Boolean);
+    return ` Your ${n} hand edit${n === 1 ? ' is' : 's are'} kept${notes.length ? ` (${notes.join('; ')})` : ''}.`;
   }
 
   /**
@@ -1159,7 +1174,7 @@ export class App {
     const all = this.current.events.filter((e) => e.role === 'roll' && e.ref);
     if (!all.length) return this.say('There are no rolls in this pattern.');
     const generated = this.rollLayer && all.some((e) => e.rollOf && !e.manual);
-    let edits = this.edits;
+    let edits = this.layer;
     for (const e of all) if (!(generated && e.rollOf && !e.manual)) edits = deleteHit(edits, e.ref!);
     const deleted = all.length - (generated ? all.filter((e) => e.rollOf && !e.manual).length : 0);
     if (generated) {
@@ -1174,9 +1189,9 @@ export class App {
 
   /** Delete several hits as one action (one undo step). */
   deleteHits(refs: string[], say?: string): void {
-    let edits = this.edits;
+    let edits = this.layer;
     for (const r of refs) if (findRef(this.current.events, r)) edits = deleteHit(edits, r);
-    if (edits === this.edits) return;
+    if (this.unchanged(edits)) return;
     this.commit({ edits, ref: null }, !!this.selected && refs.includes(this.selected), { say: say ?? `Deleted ${refs.length} hit${refs.length === 1 ? '' : 's'}.` });
   }
 
@@ -1293,6 +1308,21 @@ export class App {
     return hasEdits(this.edits);
   }
 
+  /** A layer saved before Phase 17, made anchored for its next edit (the same notes play); kept until the layer changes. */
+  private upgraded: { from: Edits; to: Edits } | null = null;
+
+  /** The edit layer that hand edits build on: anchored (engine/edits.ts upgradeEdits). */
+  private get layer(): Edits {
+    if (this.edits.v === 2) return this.edits;
+    if (this.upgraded?.from !== this.edits) this.upgraded = { from: this.edits, to: upgradeEdits(this.edits, this.current.editReport) };
+    return this.upgraded.to;
+  }
+
+  /** Is this the layer as it is (an operation that changed nothing)? */
+  private unchanged(e: Edits): boolean {
+    return e === this.edits || (this.upgraded?.from === this.edits && e === this.upgraded.to);
+  }
+
   get canUndo(): boolean {
     return this.undoStack.length > 0;
   }
@@ -1310,7 +1340,7 @@ export class App {
     return JSON.stringify({ current: this.current, recipe: this.recipe, seeds: this.seeds,
       seedName: this.seedName, samples: this.samples, edits: this.edits,
       selected: this.selected, batch: this.batch, picked: this.picked, rollGeneration: this.rollGeneration,
-      cats: this.ingredients.categories?.() ?? {}, report: this.wildcardReport });
+      cats: this.ingredients.categories?.() ?? {}, lib: this.ingredients.libraryItems?.() ?? [], report: this.wildcardReport });
   }
 
   /** Re-apply the edit layer to the current seeds: playback follows at once (not at the loop point). */
@@ -1358,7 +1388,7 @@ export class App {
 
   /** Commit a new edit layer; pointer gestures group intermediate changes. */
   private commit(r: EditResult, select: boolean, opts: { gesture?: boolean; say?: string } = {}): boolean {
-    if (r.edits === this.edits) {
+    if (this.unchanged(r.edits)) {
       if (select && r.ref) this.select(r.ref);
       return false;
     }
@@ -1383,8 +1413,10 @@ export class App {
   addHit(cat: Category, tick: number, gesture = false): string | null {
     const p = posOf(tick);
     if (p.bar < 0 || p.bar >= this.recipe.bars) return null;
-    const r = addHit(this.edits, this.current.events, { cat, ...p });
-    this.commit(r, true, { gesture, say: r.edits === this.edits ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand.` });
+    // PAINT: the sample chosen for this track, exactly (no PICK mode); none chosen, the PICK mode as before
+    const sample = this.paintSample(cat);
+    const r = addHit(this.layer, this.current.events, { cat, ...p, ...(sample ? { sample } : {}) });
+    this.commit(r, true, { gesture, say: this.unchanged(r.edits) ? `There is already a ${CATEGORY_LABEL[cat]} hit at ${posLabel(p)}: selected.` : `Added ${CATEGORY_LABEL[cat]} at ${posLabel(p)} by hand${sample ? ` (${this.ingredients.name(sample)})` : ''}.` });
     const e = this.selectedEvent;
     if (e?.sample && !gesture) void this.player.audition(e.cat, e.sample, e.vel, e);
     return r.ref;
@@ -1394,14 +1426,14 @@ export class App {
     const e = findRef(this.current.events, ref);
     if (!e || !ref) return;
     const label = refLabel(this.current.events, ref);
-    this.commit({ edits: deleteHit(this.edits, ref), ref: null }, ref === this.selected, { say: `Deleted ${label}${e.manual === 'added' ? '' : ' (⌘Z brings it back)'}.` });
+    this.commit({ edits: deleteHit(this.layer, ref), ref: null }, ref === this.selected, { say: `Deleted ${label}${e.manual === 'added' ? '' : ' (⌘Z brings it back)'}.` });
   }
 
   /** Move a hit to a grid tick (same category). False if refused (another hit of the category is there). */
   moveHit(ref: string, tick: number, gesture = false): boolean {
     const p = posOf(tick);
     if (p.bar < 0 || p.bar >= this.recipe.bars) return false;
-    const r = moveHit(this.edits, this.current.events, ref, p);
+    const r = moveHit(this.layer, this.current.events, ref, p);
     if (!r.ref) return false;
     this.commit(r, true, { gesture, say: `Moved to ${posLabel(p)}.` });
     return true;
@@ -1418,17 +1450,17 @@ export class App {
 
   setHitVelocity(v: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setVelocity(this.edits, this.current.events, ref, v), false);
+    this.commit(setVelocity(this.layer, this.current.events, ref, v), false);
   }
 
   setHitTiming(ms: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setTiming(this.edits, this.current.events, ref, ms), false);
+    this.commit(setTiming(this.layer, this.current.events, ref, ms), false);
   }
 
   setHitSample(sample: string | null, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setSample(this.edits, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
+    this.commit(setSample(this.layer, this.current.events, ref, sample), false, { say: sample ? `This hit plays ${this.ingredients.name(sample)}.` : 'This hit’s sample is chosen by the PICK mode again.' });
     const e = findRef(this.current.events, ref);
     if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
   }
@@ -1436,13 +1468,13 @@ export class App {
   /** EXPRESSION: transpose the hit (semitones, by playback rate). */
   setHitPitch(st: number, ref: string | null = this.selected): void {
     if (!ref) return;
-    if (this.commit(setPitch(this.edits, this.current.events, ref, st), false)) this.status = `Pitch ${fmtPitch(findRef(this.current.events, ref)?.pitch ?? 0)} (by playback rate: higher is shorter).`;
+    if (this.commit(setPitch(this.layer, this.current.events, ref, st), false)) this.status = `Pitch ${fmtPitch(findRef(this.current.events, ref)?.pitch ?? 0)} (by playback rate: higher is shorter).`;
   }
 
   /** EXPRESSION: play the hit backwards (or forwards again). */
   setHitReverse(on: boolean, ref: string | null = this.selected): void {
     if (!ref) return;
-    this.commit(setReverse(this.edits, this.current.events, ref, on), false, { say: on ? 'Reversed: the sample plays backwards from this hit.' : 'Forwards again.' });
+    this.commit(setReverse(this.layer, this.current.events, ref, on), false, { say: on ? 'Reversed: the sample plays backwards from this hit.' : 'Forwards again.' });
     const e = findRef(this.current.events, ref);
     if (e?.sample) void this.player.audition(e.cat, e.sample, e.vel, e);
   }
@@ -1451,14 +1483,14 @@ export class App {
   ratchet(n: number, span: number, ref: string | null = this.selected): void {
     if (!ref) return;
     const { preset: _p, variant: _v, ratchet: _r, ...shape } = this.rollExpr;
-    const r = ratchetHit(this.edits, this.current.events, ref, n, span, shape, this.recipe.bpm, this.recipe.bars);
+    const r = ratchetHit(this.layer, this.current.events, ref, n, span, shape, this.recipe.bpm, this.recipe.bars);
     if (!r.ref) return this.say('No room to ratchet this hit there.');
     this.commit(r, true, { say: `Ratchet ×${n} over ${RATCHET_SPAN_LABEL[span] ?? `${span} ticks`} (${describeExpr(this.recipe.rollExpr)}) ⌘Z undoes it.` });
   }
 
   duplicateHit(ref: string | null = this.selected): void {
     if (!ref) return;
-    const r = duplicateHit(this.edits, this.current.events, ref, this.snap, this.recipe.bars);
+    const r = duplicateHit(this.layer, this.current.events, ref, this.snap, this.recipe.bars);
     if (!r.ref) return this.say('No free place for a copy after this hit.');
     this.commit(r, true, { say: `Duplicated: ${refLabel(this.current.events, ref)} → ${refLabel(this.bakeWith(this.seeds, this.recipe, r.edits).events, r.ref)}.` });
   }
@@ -1466,7 +1498,7 @@ export class App {
   /** Back to how the generator made this hit (a moved hit returns to its place). */
   revertHit(ref: string | null = this.selected): void {
     if (!ref) return;
-    const r = revertHit(this.edits, ref);
+    const r = revertHit(this.layer, ref);
     if (!r.ref) return this.say('This hit was placed by hand: there is nothing generated to go back to (DEL removes it).');
     this.commit(r, true, { say: 'Back to the generated hit.' });
   }
@@ -1501,8 +1533,17 @@ export class App {
   }
 
   private restoreSnapshot(s: string): void {
-    const { extras, cats, report, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras; cats?: ReturnType<Ingredients['categories']>; report?: WildcardReport | null };
+    const { extras, cats, lib, report, ...o } = JSON.parse(s) as Pick<App, 'current' | 'recipe' | 'seeds' | 'seedName' | 'samples' | 'edits' | 'selected' | 'batch' | 'picked' | 'rollGeneration'> & { extras?: Extras; cats?: ReturnType<Ingredients['categories']>; lib?: ReturnType<Ingredients['libraryItems']>; report?: WildcardReport | null };
     Object.assign(this, o);
+    // ADD FROM LIBRARY as it was: an assignment added since leaves the kit (its audio stays in the
+    // library); one undone comes back, the same sample (decoded again only if nothing here plays it)
+    if (lib && this.ingredients.restoreLibrary) {
+      void this.ingredients.restoreLibrary(lib).then((back) => {
+        if (!back) return;
+        this.baseline = this.snapshot();
+        for (const f of this.listeners) f();
+      });
+    }
     // the samples' categories as they were (a sample added since stays; none is ever deleted)
     if (cats) this.ingredients.restoreCategories?.(cats);
     this.wildcardReport = report ?? null;
@@ -1525,6 +1566,7 @@ export class App {
   /** Replace only sound selection, preserving every hit and the undo/redo stacks. */
   kitLoaded(settings: SampleSettings): void {
     this.samples = sanitiseSampleSettings(settings);
+    this.checkPaint();
     const reassign = (b: Break): Break => {
       const events: Break['events'] = b.events.map(e => ({ ...e, sample: null, sampleWhy: undefined, pinned: undefined }));
       selectSamples(events, this.ingredients.kit(), b.seeds.kit, { settings: this.samples, loudness: this.ingredients.loudness() }, id => this.ingredients.name(id));
@@ -1544,6 +1586,48 @@ export class App {
     for (const f of this.listeners) f();
   }
 
+  // ---------------------------------------------------------------- PAINT: a chosen sample for hand-placed hits
+
+  /** The sample a hand-placed hit of this track plays (null: its PICK mode chooses, as before). */
+  paintSample(cat: Category): string | null {
+    const id = this.paint[cat];
+    return id && this.ingredients.kit()[cat].includes(id) ? id : null;
+  }
+
+  /**
+   * Choose (or, given the chosen one or null, release) the sample new hits of `cat` play. Not a
+   * preview: nothing sounds. The choice belongs to that track only.
+   */
+  setPaint(cat: Category, id: string | null): void {
+    if (!id || this.paint[cat] === id) {
+      if (!this.paint[cat]) return;
+      delete this.paint[cat];
+      this.status = `PAINT off for ${CATEGORY_LABEL[cat]}: hits placed by hand take its PICK mode again.`;
+    } else {
+      this.paint[cat] = id;
+      this.status = `PAINT ${CATEGORY_LABEL[cat]}: hits placed by hand on the ${CATEGORY_LABEL[cat]} row play ${this.ingredients.name(id)}. Click it again (or another sample) to change; other rows are unaffected.`;
+    }
+    this.save();
+    for (const f of this.listeners) f();
+  }
+
+  /**
+   * Drop PAINT choices whose sample is no longer in its track (another kit, removed, moved to
+   * another category): that track goes back to its PICK mode, never to a stale sample. The sample
+   * itself is not touched. Samples still loading count as there.
+   */
+  private checkPaint(): void {
+    const gone: Category[] = [];
+    for (const c of CATEGORIES) {
+      const id = this.paint[c];
+      if (id && !(this.ingredients.items ?? []).some((it) => it.id === id && it.cat === c)) {
+        delete this.paint[c];
+        gone.push(c);
+      }
+    }
+    if (gone.length) this.status = `PAINT: the chosen ${gone.map((c) => CATEGORY_LABEL[c]).join(', ')} sample${gone.length === 1 ? ' is' : 's are'} not in ${gone.length === 1 ? 'that track' : 'those tracks'} now; hits placed by hand there take the PICK mode again.`;
+  }
+
   setSnap(ticks: number): void {
     if (!(SNAPS as readonly number[]).includes(ticks)) return;
     this.snap = ticks;
@@ -1556,6 +1640,19 @@ export class App {
     const cur = this.samples[cat] ?? { mode: 'auto' };
     this.samples = { ...this.samples, [cat]: { ...cur, ...patch } };
     this.rebake();
+  }
+
+  /**
+   * ADD FROM LIBRARY: samples already in this browser's library join the current kit in `cat` (the
+   * destination wins over the sample's own category; no import, no copy of the audio). One undo
+   * step: undo removes the assignments, never the audio. Returns the item ids added.
+   */
+  async addFromLibrary(samples: { id: string; name: string }[], cat: Slot): Promise<string[]> {
+    const ids = await this.ingredients.addFromLibrary(samples, cat);
+    const where = cat === 'unsorted' ? 'UNSORTED' : CATEGORY_LABEL[cat];
+    this.status = ids.length ? `Added ${ids.length === 1 ? `“${this.ingredients.name(ids[0]!)}”` : `${ids.length} samples`} from the library to ${where} (⌘Z removes ${ids.length === 1 ? 'it' : 'them'} from the kit; the library keeps the audio).` : `Already in ${where}.`;
+    this.rebake();
+    return ids;
   }
 
   // ---------------------------------------------------------------- solo / mute

@@ -20,7 +20,8 @@
  */
 import { analyse } from '../engine/analysis';
 import { describeChop } from '../engine/chopper';
-import { describeEdits, editCount, MANUAL_OFFSET_MS, posLabel, RATCHET_SPAN_LABEL, RATCHET_SPANS, snapTick, tickOf } from '../engine/edits';
+import { describeEdits, editCount, MANUAL_OFFSET_MS, posLabel, RATCHET_SPAN_LABEL, RATCHET_SPANS, tickOf } from '../engine/edits';
+import { cellAtX, dragTo, lineX, xAtTick, type GridGeom } from './gridGeometry';
 import { MAX_PITCH } from '../engine/types';
 import { RATCHETS } from '../engine/rollExpr';
 import { swingPercent } from '../engine/performance';
@@ -208,6 +209,8 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
   let groups: { g: RollGroup; x0: number; x1: number; row: number }[] = [];
   let view0 = 0;
   let cw = 1;
+  /** the grid's coordinate system for this draw (gridGeometry.ts): drawing, hit testing, hover and placement share it */
+  const geom = (): GridGeom => ({ x0: 1, cw, view0 });
 
   /** The bars on screen: [first, count]. */
   function view(): [number, number] {
@@ -217,8 +220,27 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     return [f, Math.min(zoom, bars - f)];
   }
 
-  /** Grid ticks (from the break's start) at an x in the svg. */
-  const tickAt = (x: number) => view0 * TPB + ((x - 1) / cw) * TPS;
+  /** The SNAP cell a click at x lands in (the containing cell, never the nearest line). */
+  const cellAt = (x: number) => cellAtX(geom(), x, app.snap, app.current.recipe.bars);
+
+  // the cell the next click fills: a dotted frame, from the same function as the click
+  const hover = el('div', 'gridhover', b, [0, 0, 1, 1]);
+  Object.assign(hover.style, { position: 'absolute', display: 'none', pointerEvents: 'none' });
+  function showHover(ev: PointerEvent | null): void {
+    if (!ev || ev.buttons) return void (hover.style.display = 'none');
+    const p = localPoint(svg, ev);
+    const row = Math.floor((p.y - TOP) / RH);
+    if (row < 0 || row >= CATEGORIES.length || p.x < 0 || p.x > GW + 1 || groupAt(p.x, row) || hitAt(p.x, row)) return void (hover.style.display = 'none');
+    const t = cellAt(p.x);
+    const x = xAtTick(geom(), t);
+    const w = xAtTick(geom(), t + app.snap) - x;
+    Object.assign(hover.style, { display: 'block', left: `${X0 + x}px`, top: `${Y0 + row * RH + 1}px`, width: `${Math.max(1, w)}px`, height: `${RH - 1}px` });
+    hover.dataset.cell = `${CATEGORIES[row]}|${t}`;
+    const sample = app.paintSample(CATEGORIES[row]!);
+    setTip(hover, `${CATEGORY_LABEL[CATEGORIES[row]!]} ${posLabel({ bar: Math.floor(t / TPB), step: Math.floor((t % TPB) / TPS), sub: t % TPS })}${sample ? ` · ${app.ingredients.name(sample)}` : ''}`);
+  }
+  svg.addEventListener('pointermove', (ev) => showHover(ev));
+  svg.addEventListener('pointerleave', () => showHover(null));
 
   /** The hit under a point (drawn position, with a little slack for thin hits). */
   function hitAt(x: number, row: number): BreakEvent | null {
@@ -275,10 +297,10 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       let ref = hit.ref;
       let at = t0;
       let started = false;
-      trackDrag(ev, svg, ({ dx, dy }) => {
+      trackDrag(ev, svg, ({ dx, dy, ev: m }) => {
         if (!started && !isDrag(dx, dy)) return;
-        const d = Math.round((dx / cw) * TPS / app.snap) * app.snap;
-        const to = Math.max(0, Math.min(bars * TPB - 1, t0 + d));
+        // the same cells as placing: it moves when the pointer crosses into another cell
+        const to = dragTo(geom(), t0, p.x, localPoint(svg, m).x, app.snap, bars);
         if (to === at) return;
         if (!started) {
           app.beginGesture();
@@ -295,14 +317,15 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       return;
     }
     // an empty place: add a hit there; dragging paints more along the row
-    const t = snapTick(tickAt(p.x), app.snap, bars);
+    hover.style.display = 'none';
+    const t = cellAt(p.x);
     app.beginGesture();
     app.addHit(cat, t, true);
     const e = app.selectedEvent;
     if (e?.sample) void app.player.audition(e.cat, e.sample, e.vel, e);
     let last = t;
     trackDrag(ev, svg, ({ ev: m }) => {
-      const tt = snapTick(tickAt(localPoint(svg, m).x), app.snap, bars);
+      const tt = cellAt(localPoint(svg, m).x);
       if (tt === last) return;
       last = tt;
       app.addHit(cat, tt, true);
@@ -328,25 +351,26 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     view0 = b0;
     const steps = nb * STEPS;
     cw = GW / steps;
+    const g = geom();
     const sixteenthMs = 60000 / r.bpm / 4;
     let s = '<defs><pattern id="dots" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--ink)"/></pattern><pattern id="rollfill" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="var(--hits)"/><rect x="1" y="1" width="1" height="1" fill="var(--hits)"/></pattern><pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse"><rect x="3" width="1" height="1" fill="var(--ink)"/><rect x="2" y="1" width="1" height="1" fill="var(--ink)"/><rect x="1" y="2" width="1" height="1" fill="var(--ink)"/><rect y="3" width="1" height="1" fill="var(--ink)"/></pattern></defs>';
     // beats 2 and 4 shaded, bar lines solid, beats dotted, SNAP lines faint when there is room
     for (let i = 0; i < steps; i += 4) {
       const beat = (i / 4) % 4;
-      if (beat === 1 || beat === 3) s += `<rect x="${(i * cw).toFixed(2)}" y="${TOP}" width="${(4 * cw).toFixed(2)}" height="${GH}" fill="url(#dots)" opacity="0.18"/>`;
+      if (beat === 1 || beat === 3) s += `<rect x="${xAtTick(g, (b0 * STEPS + i) * TPS).toFixed(2)}" y="${TOP}" width="${(4 * cw).toFixed(2)}" height="${GH}" fill="url(#dots)" opacity="0.18"/>`;
     }
     const snapPx = (cw * app.snap) / TPS;
     if (snapPx >= 4 && app.snap !== TPS) {
       for (let t = 0; t < steps * TPS; t += app.snap) {
         if (t % TPS === 0) continue;
-        const x = Math.round((t / TPS) * cw) + 0.5;
+        const x = lineX(g, b0 * TPB + t);
         s += `<line x1="${x}" y1="${TOP}" x2="${x}" y2="${TOP + GH}" stroke="var(--dim)" stroke-dasharray="1 3" opacity="0.5"/>`;
       }
     } else if (cw >= 10) {
-      for (let i = 0; i < steps; i++) if (i % 4) s += `<line x1="${Math.round(i * cw) + 0.5}" y1="${TOP}" x2="${Math.round(i * cw) + 0.5}" y2="${TOP + GH}" stroke="var(--dim)" stroke-dasharray="1 4" opacity="0.5"/>`;
+      for (let i = 0; i < steps; i++) if (i % 4) s += `<line x1="${lineX(g, (b0 * STEPS + i) * TPS)}" y1="${TOP}" x2="${lineX(g, (b0 * STEPS + i) * TPS)}" y2="${TOP + GH}" stroke="var(--dim)" stroke-dasharray="1 4" opacity="0.5"/>`;
     }
     for (let i = 0; i <= steps; i++) {
-      const x = Math.round(i * cw) + 0.5;
+      const x = lineX(g, (b0 * STEPS + i) * TPS);
       if (i % STEPS === 0) s += `<line x1="${x}" y1="${TOP - 10}" x2="${x}" y2="${TOP + GH}" stroke="var(--ink)"/>`;
       else if (i % 4 === 0 && cw * 4 >= 6) s += `<line x1="${x}" y1="${TOP}" x2="${x}" y2="${TOP + GH}" stroke="var(--ink)" stroke-dasharray="1 2"/>`;
     }
@@ -372,7 +396,8 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     shown = [];
     groups = [];
     const inView = br.events.filter((e) => e.bar >= b0 && e.bar < b0 + nb);
-    const xOf = (e: BreakEvent) => ((e.bar - b0) * STEPS + e.step + e.sub / TPS + e.swing + e.offsetMs / sixteenthMs) * cw + 1;
+    // a hit sits where it plays: its grid place (the same geometry as clicks), then swing and microtiming
+    const xOf = (e: BreakEvent) => xAtTick(g, tickOf(e)) + (e.swing + e.offsetMs / sixteenthMs) * cw;
     // rolls too dense to tell their hits apart are drawn as one group (unless one of them is selected)
     const grouped = new Set<BreakEvent>();
     for (const g of rollGroups(inView, true)) {
@@ -430,7 +455,7 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
         const ry = TOP + row * RH + 1;
         s += `<rect x="${(x - 2).toFixed(2)}" y="${ry}" width="${(w + 4).toFixed(2)}" height="${RH - 2}" fill="none" stroke="var(--selection)" stroke-width="1.5" pointer-events="none"/>`;
         // timing indicator: from the grid place (with swing) to where it plays
-        const gx = ((e.bar - b0) * STEPS + e.step + e.sub / TPS + e.swing) * cw + 1;
+        const gx = xAtTick(g, tickOf(e)) + e.swing * cw;
         if (Math.abs(gx - x) >= 1) s += `<line x1="${gx.toFixed(2)}" y1="${ry + RH - 3}" x2="${x.toFixed(2)}" y2="${ry + RH - 3}" stroke="var(--selection)" stroke-width="1" pointer-events="none"/><rect x="${(gx - 0.5).toFixed(2)}" y="${ry + RH - 5}" width="1" height="4" fill="var(--selection)" pointer-events="none"/>`;
       }
     }
@@ -441,7 +466,10 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
     const def = STYLE_DEFS[r.style];
     const mut = br.seeds.mut?.length ? ` +${br.seeds.mut.length}` : '';
     const edited = app.hasEdits ? ' · EDITED' : '';
-    card.textContent = `${app.player.queued ? 'PATTERN CHANGE PENDING — ' + ({ bar: 'NEXT BAR', loop: 'NEXT LOOP', immediate: 'IMMEDIATE' }[app.player.switchMode]) : 'PATTERN ACTIVE'} · ${def.label} · ${r.bpm} BPM · ${bars} BAR${bars > 1 ? 'S' : ''} · SWING ${Math.round(swingPercent(r.swing))}% · SEED ${app.seedText}${mut} · ${st.hits} HITS${edited} · ${app.legacy ? 'LEGACY' : 'GROOVE'}${app.chopped ? ' ▸ CHOP' : ''}`;
+    // a change waiting for its boundary: EDIT QUEUED (this pattern changed) or SWITCHING (a new one)
+    const when = { bar: 'NEXT BAR', loop: 'NEXT LOOP', immediate: 'NEXT STEP' }[app.player.switchMode];
+    const kind = app.player.queuedKind;
+    card.textContent = `${kind === 'edit' ? `EDIT QUEUED · ${when}` : kind === 'pattern' ? `SWITCHING ${when}` : 'PATTERN ACTIVE'} · ${def.label} · ${r.bpm} BPM · ${bars} BAR${bars > 1 ? 'S' : ''} · SWING ${Math.round(swingPercent(r.swing))}% · SEED ${app.seedText}${mut} · ${st.hits} HITS${edited} · ${app.legacy ? 'LEGACY' : 'GROOVE'}${app.chopped ? ' ▸ CHOP' : ''}`;
     setTip(
       card,
       `The recipe card. SYNC ${st.sync.toFixed(1)}: the kick/snare syncopation per bar (Longuet-Higgins & Lee style). Phrase: ${br.plan.join(' ')}. Seed ${br.seedName ? `${br.seedName} (beat ${br.seeds.beat})` : br.seeds.beat}; detail ${br.seeds.detail}, feel ${br.seeds.feel}, kit ${br.seeds.kit}${mut ? `, ${br.seeds.mut!.length} mutation(s)` : ''}. ${br.timekeeper === 'ride' ? 'Ride' : 'Hats'} keep time${br.feel.cycle ? `, ${CYCLE[br.feel.cycle]?.toLowerCase()}` : ''}. Feel: snare ${br.feel.snare >= 0 ? '+' : ''}${br.feel.snare.toFixed(1)} ms (on 2; less on 4), hats ${br.feel.hats >= 0 ? '+' : ''}${br.feel.hats.toFixed(1)} ms, kick ${br.feel.kick >= 0 ? '+' : ''}${br.feel.kick.toFixed(1)} ms. ${app.legacy ? 'LEGACY: baked by the first release’s generator, kept so it reproduces exactly.' : 'Baked by the current GROOVE.'}${br.approach ? ` Approach: ${br.approach.groove}; hats ${br.approach.hats || 'none'}; ride ${br.approach.ride || 'none'}${br.approach.development ? `; timekeeping ${br.approach.development}` : ''}.` : ''} ${describeChop(br.chop)} ${describeEdits(app.edits, br.editReport)}`,
@@ -459,6 +487,10 @@ export function patternWindow(parent: HTMLElement, ui: UiContext, rect: { x: num
       rc.m.on = app.mix[c].mute;
       rc.l.style.opacity = app.audible(c) ? '1' : '0.45';
       rc.l.classList.toggle('trksel', app.trackSel.includes(c));
+      // PAINT: this row's hand-placed hits play a chosen sample (✎)
+      const paint = app.paintSample(c);
+      rc.l.textContent = paint ? `${SHORT[c]}✎` : SHORT[c];
+      rc.l.dataset.paint = paint ?? '';
       rc.m.el.classList.remove('overridden');
     });
 

@@ -35,7 +35,7 @@ over: every hit can be added, moved, deleted or changed by hand.
 | **OUTPUT** | (a tab beside BATCH) A master output chain after the mixer and before the master level: up to eight engines in series (OUTPUT STAGE's ten characters, DRIVE, CRUNCH, TONE), each with ON, reorder and REMOVE, BYPASS ALL and presets. Heard at once and rendered into the TAKEAWAY mix; stems stay unprocessed. See [docs/MIXER.md](docs/MIXER.md#output). |
 | **TAKEAWAY** | Export WAV: bars + tail, or a seamless loop; full or audible mix; optionally per-drum stems and a MIDI file. |
 | **MIDI** | Play the break out to drum machines and DAWs (per-track device, channel and note), play the samples from pads or an external sequencer, follow an external MIDI clock or send one (MIDI ▸ MIDI Settings…). |
-| **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, or your own. |
+| **PALETTE** | The Slop Factory palette editor (BREAKERY ▸ Palette…): Atari, Dark, Amber, Green Screen, C64, Phosphor, Pink Noise, Rave, Paper, AMFAS, or your own. |
 
 OVERBAKE (destructive mutation) and BREED are planned; see *Next steps*.
 
@@ -96,7 +96,10 @@ from any folder of any static server). `npm run evaluate` regenerates
    audio, readable by any Slop Factory instrument, DOWNBEAT included). Loading a kit changes the
    sounds only: the break, recipe and history stay. **LIBRARY** lists every sample kept in this
    browser: ▶ PREVIEW, add one to the current kit in the selected category (no second import),
-   delete what no kit uses. Each sample is stored once, however many kits use it.
+   delete what no kit uses. Each sample is stored once, however many kits use it. **+ LIB** in
+   INGREDIENTS opens ADD FROM LIBRARY: search, filter by category, select several, preview, and
+   add them to the selected track, even when they are already in another track (the same audio
+   is shared, never copied). One ⌘Z removes them from the kit, never from the library.
 2. **Recipe.** Pick a recipe (it sets every control to its defaults), then adjust. Every change
    re-bakes the same seed, so you hear what the control does to this break. Hover any control
    for what it does. **Every number can be typed**: click it (the value is selected), type,
@@ -121,8 +124,10 @@ from any folder of any static server). `npm run evaluate` regenerates
    **RETRIGGER** (fast re-strikes, written as rolls you can edit). Each recipe chops in its own way.
    Every change is recalculated from the GROOVE (seeds unchanged, no BAKE); **RE-CHOP** tries
    another chop; off gives the groove back and on again the same chop. Hand edits never lock it:
-   they stay, and one whose hit a chop moves waits until that chop returns
-   ([docs/TRANSFORMATIONS.md](docs/TRANSFORMATIONS.md)).
+   a deletion or change follows its hit wherever a chop moves it (a different hit landing on
+   that place is never touched), added hits stay where you put them, and an edit whose hit a
+   chop leaves out waits until it returns
+   ([docs/PATTERN_WORKFLOW.md](docs/PATTERN_WORKFLOW.md#chop-with-hand-edits)).
 3. **Bake.** **BAKE** (B) for a new break; **BATCH** (N) for eight candidates (1–8 to audition).
    **FREEZE RHYTHM** keeps hit placement and performance and changes only the samples; **FREEZE
    SAMPLES** keeps the sample choices; or freeze single layers: BEAT (kick and snare), DETAIL
@@ -138,7 +143,8 @@ from any folder of any static server). `npm run evaluate` regenerates
    (**ROLL ×N**): click it to expand it to its bar, where every hit of it is drawn (dithered, so
    the main hits stay strongest) and edited on its own; right-click it to delete the whole roll.
 5. **Edit by hand.** Click an empty place in the PATTERN to add a hit (on the **SNAP** grid:
-   1/16, 1/32, 1/64, 1/16T, 1/32T); click a hit to delete it (a click toggles); **shift+click** a
+   1/16, 1/32, 1/64, 1/16T, 1/32T; anywhere inside a cell places the hit in that cell, and a
+   dotted frame shows the cell the next click fills); click a hit to delete it (a click toggles); **shift+click** a
    hit to select it (and hear it); drag a hit sideways to move it (past a small threshold, so a
    click never moves it; a 32nd stays a 32nd: moves keep a hit's offset from the grid); drag from
    an empty place to paint several; right-click a hit, press Delete or Backspace, or **DEL**, to
@@ -152,7 +158,12 @@ from any folder of any static server). `npm run evaluate` regenerates
    in bars beyond a shorter length are kept for when it grows again). **A new break** (BAKE,
    BATCH, a seed, DICE, MUTATE, the history) starts unedited, and your edits stay with the old
    break in the history (◀ returns to it) and in a favourite; **FREEZE EDITS** (E) carries them
-   onto new breaks instead.
+   onto new breaks instead. **PAINT**: click a sample's name in INGREDIENTS (✎) and every hit
+   you place on that track plays exactly that sample, whatever its PICK mode; click it again to
+   release it (▶ is still only a preview). Edits made while playing take over at the next safe
+   sixteenth (IMMEDIATE), bar or loop, as SWITCH says, with no doubled or dropped hits; the
+   pattern card shows EDIT QUEUED until then
+   ([docs/PATTERN_WORKFLOW.md](docs/PATTERN_WORKFLOW.md)).
 6. **Rolls and toms.** The **ROLLS** tab: **ROLL GENERATION** (ENABLED / DISABLED: your
    setting, off to begin with and kept through recipe changes, BAKE, BATCH, seeds, MUTATE and
    reloads; on, the rolls apply to the CURRENT groove at once, no BAKE; off, no generated rolls (a
